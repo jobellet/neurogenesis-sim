@@ -96,8 +96,8 @@ def test_example_models_match_the_toolbox():
 
 def test_example_rules_match_the_toolbox():
     from neurogenesis.development.plan import DEFAULT_RULES
-    from neurogenesis.development.rules import RULES
-    assert {(r["phase"], r["name"]) for r in EXAMPLE["rules"]} == {(p, n) for p, v in RULES.items() for n in v}
+    default_rules = {(phase, rule) for phase, rules in DEFAULT_RULES.items() for rule in rules}
+    assert {(r["phase"], r["name"]) for r in EXAMPLE["rules"]} == default_rules
     assert [p["name"] for p in EXAMPLE["rule_phases"]] == list(DEFAULT_RULES)
 
 
