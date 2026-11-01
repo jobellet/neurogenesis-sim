@@ -513,7 +513,7 @@ struct SchedulePanel: View {
                 }
             }
         }
-        Card(title: "Schedule (\(schedule.count) stages)", subtitle: "Ordered stages (A4: name, operator, params, repeat); each parameter is an A3 Param: Const, Gene (dotted path, lo, hi), Field, Fit or Expr.") {
+        Card(title: "Schedule (\(schedule.count) stages)", subtitle: "Ordered stages (A4: name, operator, params, repeat); each parameter is an A3 Param: Const, Gene (toolbox gene path, lo, hi), Field, Fit or Expr.") {
             if schedule.isEmpty { Text("Empty: add stages from the catalogue.").font(.caption).foregroundStyle(.secondary) }
             ForEach(schedule.indices, id: \.self) { k in
                 StageEditor(index: k, stage: Binding(get: { schedule.indices.contains(k) ? schedule[k] : .null }, set: { v in
@@ -602,7 +602,7 @@ struct ParamEditor: View {
             HStack {
                 switch src {
                 case "Gene":
-                    text("path", "e.g. growth.rate"); num("lo"); num("hi")
+                    path(); num("lo"); num("hi")
                     Toggle("int", isOn: Binding(get: { param["integer"] == .bool(true) }, set: { param["integer"] = .bool($0) })).toggleStyle(.checkbox)
                 case "Field":
                     text("name", "field name"); text("transform", "e.g. 2*x")
@@ -620,6 +620,15 @@ struct ParamEditor: View {
     }
     func num(_ k: String) -> some View {
         TextField(k, value: Binding(get: { param[k]?.number ?? 0 }, set: { param[k] = .number($0) }), format: .number).frame(width: 60)
+    }
+    /// A toolbox gene path, typed as keys separated by "/" (e.g. count/map, guidance/a->b/sigma, migration/map/mean/0).
+    func path() -> some View {
+        TextField("gene path, e.g. count/map", text: Binding(get: {
+            if let a = param["path"]?.arrayValue { return a.map { $0.stringValue ?? ($0.number.map { String(Int($0)) } ?? "") }.joined(separator: "/") }
+            return (param["path"]?.stringValue ?? "").replacingOccurrences(of: ".", with: "/")
+        }, set: { v in
+            param["path"] = .array(v.split(separator: "/").map { Int($0).map { .number(Double($0)) } ?? .string(String($0)) })
+        }))
     }
     func text(_ k: String, _ prompt: String) -> some View {
         TextField(prompt, text: Binding(get: { param[k]?.stringValue ?? "" }, set: { param[k] = .string($0) }))

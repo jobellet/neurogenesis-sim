@@ -449,19 +449,43 @@ PARAM_TYPES = ("Const", "Gene", "Field", "Fit", "Expr")
 
 
 def _param(d):
-    """A schedule parameter as an A3 Param: {"type": "Const" | "Gene" | "Field" | "Fit" | "Expr", ...fields}."""
+    """A schedule parameter as an A3 Param. The app stores {"type": "Const" | "Gene" | "Field" | "Fit" | "Expr", ...}
+    with gene paths as lists (toolbox gene paths: keys, "src->dst" projections, array indices). Uses A3's own
+    param_from_dict when it exists; otherwise builds the dataclass, joining the path with dots if A3 wants a string."""
     if not isinstance(d, dict):
         return d
     params = importlib.import_module("neurogenesis.params")
+    d = dict(d)
     kind = d.get("type") or str(d.get("source", "const")).capitalize()
-    if kind not in PARAM_TYPES:
+    d["type"] = kind
+    if kind == "Gene" and isinstance(d.get("path"), str):
+        d["path"] = [x for x in d["path"].replace("/", ".").split(".") if x]
+    if kind == "Gene":
+        d["path"] = [int(x) if isinstance(x, str) and x.isdigit() else x for x in d["path"]]
+    for name in ("param_from_dict", "from_dict"):
+        fn = getattr(params, name, None)
+        if callable(fn):
+            try:
+                return fn(d)
+            except Exception:
+                try:
+                    return fn({**d, "path": list(_gene_path(d["path"]))} if kind == "Gene" else d)
+                except Exception:
+                    pass
+    if kind not in PARAM_TYPES or not hasattr(params, kind):
         return d
     cls = getattr(params, kind)
     known = set(inspect.signature(cls).parameters)
     kw = {k: v for k, v in d.items() if k in known}
-    if kind == "Gene" and isinstance(kw.get("path"), list):
-        kw["path"] = ".".join(map(str, kw["path"]))
+    if kind == "Gene":
+        ann = str(inspect.signature(cls).parameters["path"].annotation)
+        kw["path"] = ".".join(map(str, kw["path"])) if "str" in ann else _gene_path(kw["path"])
     return cls(**kw)
+
+
+def _import_plugins(project):
+    for m in project.get("plugins") or []:
+        importlib.import_module(m)
 
 
 def _schedule(project):
@@ -482,6 +506,7 @@ def m_run_schedule(p):
         raise RuntimeError("the stage scheduler (task A4) is not merged yet; use 'Develop step by step' meanwhile")
     mod = importlib.import_module("neurogenesis.stages")
     d = dict(p["project"])
+    _import_plugins(d)
     d["schedule"] = _schedule(d)
     unknown = [s["operator"] for s in d["schedule"] if s["operator"] not in stage_registry()]
     if unknown:
@@ -504,7 +529,13 @@ def m_schedule_info(p):
     sched = _schedule(d)
     out = {}
     if _has("neurogenesis.params", "collect_genes"):
-        out["genes"] = importlib.import_module("neurogenesis.params").collect_genes(sched)
+        def show(g):        # a path, or (path, lo, hi[, integer]) once A3 returns bounds
+            if isinstance(g, (tuple, list)) and len(g) >= 3 and isinstance(g[1], (int, float)):
+                return f"{show(g[0])} [{g[1]}, {g[2]}]" + (" int" if len(g) > 3 and g[3] else "")
+            if isinstance(g, (tuple, list)):
+                return "/".join("->".join(x) if isinstance(x, tuple) else str(x) for x in g)
+            return str(g)
+        out["genes"] = [show(g) for g in importlib.import_module("neurogenesis.params").collect_genes(sched)]
     if _has("neurogenesis.stages.base", "schedule_cost"):
         try:
             b, o = importlib.import_module("neurogenesis.stages.base").schedule_cost({**d, "schedule": sched}, int(p.get("N", 1000)), int(p.get("E", 100000)))
