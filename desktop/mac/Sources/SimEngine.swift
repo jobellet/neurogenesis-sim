@@ -1,18 +1,41 @@
 import Foundation
+import nglif
+
+/// A simulation of the shared C kernel nglif (desktop/common/native/nglif: lif_int, bit for bit as the Python, JAX and
+/// browser kernels, checked on the golden fixtures of desktop/common/fixtures).
+final class NativeSim {
+    let sim: OpaquePointer
+    let n: Int
+
+    init(_ net: Network, seed: UInt32) {
+        let N = net.neurons.count, E = net.synapses.count
+        let c = nglif_network_new(Int32(N), Int32(E))!
+        defer { nglif_network_free(c) }
+        let p = c.pointee
+        for (i, x) in net.neurons.enumerated() {
+            p.pos[3 * i] = x.pos.x; p.pos[3 * i + 1] = x.pos.y; p.pos[3 * i + 2] = x.pos.z
+            p.mode[i] = x.mode; p.shift_v[i] = x.shiftV; p.shift_s[i] = x.shiftS; p.base_weight[i] = x.baseWeight
+            p.burst_period[i] = x.burstPeriod; p.burst_duty[i] = x.burstDuty; p.refractory[i] = x.refractory
+            p.role[i] = x.role; p.compartment[i] = x.compartment; p.threshold[i] = x.threshold; p.poisson_hz[i] = x.poissonHz
+        }
+        for (k, s) in net.synapses.enumerated() { p.pre[k] = s.pre; p.post[k] = s.post; p.weight[k] = s.weight; p.delay[k] = s.delay }
+        sim = nglif_create(c, seed)!
+        n = N
+    }
+
+    deinit { nglif_free(sim) }
+}
 
 /// Runs the native kernel on its own thread, at a chosen speed, and keeps what the views need: the last spike tick of
-/// every neuron (3D flashes), a ring of recent spikes (raster), spikes per tick (rate trace) and an optional recording.
+/// every neuron (3D flashes, read from nglif), a ring of recent spikes (raster), spikes per tick (rate trace) and an
+/// optional recording.
 final class SimEngine {
     private let lock = NSLock()
-    private var kernel: LIFKernel
+    private var kernel: NativeSim
     private var thread: Thread?
+    private var spikeBuffer: [Int32]
 
     private(set) var n: Int
-    private(set) var lastSpike: UnsafeMutablePointer<Int32>
-    private var ext: [Int32]
-    private var pulse: [Int32]
-    private var pulsePending = false
-    private var extActive = false
 
     let ringTicks = 4096
     private var ring: [[Int32]]
@@ -34,11 +57,9 @@ final class SimEngine {
     private var recorded: [(Int32, Int32)] = []
 
     init(_ net: Network) {
-        kernel = LIFKernel(net, seed: seed)
+        kernel = NativeSim(net, seed: seed)
         n = net.neurons.count
-        lastSpike = .allocate(capacity: max(n, 1))
-        lastSpike.initialize(repeating: -100000, count: max(n, 1))
-        ext = .init(repeating: 0, count: n); pulse = ext
+        spikeBuffer = .init(repeating: 0, count: max(n, 1))
         ring = .init(repeating: [], count: ringTicks)
         counts = .init(repeating: 0, count: ringTicks)
         let t = Thread { [weak self] in self?.loop() }
@@ -53,14 +74,9 @@ final class SimEngine {
     /// Replace the network (state reset).
     func load(_ net: Network) {
         lock.lock(); defer { lock.unlock() }
-        kernel = LIFKernel(net, seed: seed)
-        let old = lastSpike
+        kernel = NativeSim(net, seed: seed)
         n = net.neurons.count
-        lastSpike = .allocate(capacity: max(n, 1))
-        lastSpike.initialize(repeating: -100000, count: max(n, 1))
-        old.deallocate()
-        ext = .init(repeating: 0, count: n); pulse = ext
-        extActive = false; pulsePending = false
+        spikeBuffer = .init(repeating: 0, count: max(n, 1))
         ring = .init(repeating: [], count: ringTicks)
         counts = .init(repeating: 0, count: ringTicks)
         tick = 0; totalSpikes = 0
@@ -69,12 +85,13 @@ final class SimEngine {
 
     func setExternal(_ e: [Int32]) {
         lock.lock(); defer { lock.unlock() }
-        if e.count == n { ext = e; extActive = e.contains { $0 != 0 } }
+        guard e.count == n else { return }
+        e.withUnsafeBufferPointer { nglif_set_external(kernel.sim, e.contains { $0 != 0 } ? $0.baseAddress : nil) }
     }
 
     func inject(_ i: Int, current: Int32) {
         lock.lock(); defer { lock.unlock() }
-        if i >= 0 && i < n { pulse[i] &+= current; pulsePending = true }
+        nglif_inject(kernel.sim, Int32(i), current)
     }
 
     func step(_ k: Int) {
@@ -96,22 +113,8 @@ final class SimEngine {
 
     private func advance() {
         let t = tick
-        var spikes: [Int32] = []
-        let ls = lastSpike
-        let mark: (Int) -> Void = { i in
-            ls[i] = Int32(truncatingIfNeeded: t)
-            spikes.append(Int32(i))
-        }
-        if pulsePending {
-            var cur = ext
-            for i in 0..<n { cur[i] &+= pulse[i]; pulse[i] = 0 }
-            pulsePending = false
-            cur.withUnsafeBufferPointer { kernel.step(ext: $0.baseAddress, spiked: mark) }
-        } else if extActive {
-            ext.withUnsafeBufferPointer { kernel.step(ext: $0.baseAddress, spiked: mark) }
-        } else {
-            kernel.step(spiked: mark)
-        }
+        let c = spikeBuffer.withUnsafeMutableBufferPointer { nglif_step(kernel.sim, $0.baseAddress, Int32($0.count)) }
+        let spikes = Array(spikeBuffer.prefix(Int(c)))
         if recording, recorded.count < 5_000_000 {
             for i in spikes { recorded.append((Int32(t - recStart), i)) }
         }
@@ -157,7 +160,7 @@ final class SimEngine {
     /// Copies the last-spike ticks into dst (count n) and returns the current tick.
     func snapshotLastSpike(into dst: UnsafeMutableRawPointer, capacity: Int) -> Int {
         lock.lock(); defer { lock.unlock() }
-        memcpy(dst, lastSpike, 4 * min(n, capacity))
+        memcpy(dst, nglif_last_spike(kernel.sim), 4 * min(n, capacity))
         return tick
     }
 
