@@ -36,7 +36,7 @@ class VoxelMaskGeometry(Geometry):
             
         return result
 
-    def sample(self, n: int, rng: np.random.Generator) -> np.ndarray:
+    def sample_points(self, n: int, rng: np.random.Generator) -> np.ndarray:
         # Rejection sampling or sample directly from true voxels
         # Let's use direct sampling from True voxels for efficiency,
         # then uniformly sample within the voxel.

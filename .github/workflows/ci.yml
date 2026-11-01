@@ -2,10 +2,56 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      python: ${{ steps.filter.outputs.python }}
+      viewer: ${{ steps.filter.outputs.viewer }}
+      nglif: ${{ steps.filter.outputs.nglif }}
+      mac-app: ${{ steps.filter.outputs.mac-app }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            python:
+              - 'neurogenesis/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - 'viz/src/sim/**'
+              - '.github/workflows/ci.yml'
+            viewer:
+              - 'viz/**'
+              - '.github/workflows/ci.yml'
+            nglif:
+              - 'desktop/common/native/nglif/**'
+              - 'desktop/common/fixtures/**'
+              - 'tests/test_nglif_fixtures.py'
+              - '.github/workflows/ci.yml'
+            mac-app:
+              - 'desktop/mac/**'
+              - 'desktop/common/**'
+              - 'neurogenesis/bridge/**'
+              - '.github/workflows/ci.yml'
+
   python:
+    needs: detect-changes
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      needs.detect-changes.outputs.python == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -44,6 +90,10 @@ jobs:
         run: python -m neurogenesis estimate --neurons 3e8 --synapses-per-neuron 5000 --seconds 1
 
   viewer:
+    needs: detect-changes
+    if: >-
+      (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.viewer == 'true') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,12 +106,40 @@ jobs:
           npm ci
           npm run build
 
-  nglif:
-    # The shared C kernel of the desktop apps, built with each OS's own C compiler, against the golden fixtures.
+  nglif-ubuntu:
+    # nglif golden fixtures on Ubuntu (fast, standard minutes; runs on every non-draft PR touching nglif)
+    needs: detect-changes
+    if: >-
+      (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.nglif == 'true') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build nglif and its fixture test
+        run: |
+          cmake -S desktop/common/native/nglif -B build/nglif -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/nglif --config Release
+      - name: Golden fixtures (bit-identical to the Python reference)
+        run: ctest --test-dir build/nglif -C Release --output-on-failure
+
+  nglif-cross:
+    # nglif on macOS (10x minutes) and Windows (2x minutes): runs ONLY on push to main, workflow_dispatch, or PRs with 'full-ci' label
+    needs: detect-changes
+    if: >-
+      (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.nglif == 'true') &&
+      (
+        github.event_name == 'push' ||
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.draft == false &&
+          contains(github.event.pull_request.labels.*.name, 'full-ci')
+        )
+      )
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -73,7 +151,19 @@ jobs:
         run: ctest --test-dir build/nglif -C Release --output-on-failure
 
   mac-app:
-    # The macOS app: built with desktop/mac/build.sh, then its Swift-to-C binding, the bridge and the fixtures tested.
+    # macOS app (10x minutes): runs ONLY on push to main, workflow_dispatch, or PRs with 'full-ci' label
+    needs: detect-changes
+    if: >-
+      (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.mac-app == 'true') &&
+      (
+        github.event_name == 'push' ||
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.draft == false &&
+          contains(github.event.pull_request.labels.*.name, 'full-ci')
+        )
+      )
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4

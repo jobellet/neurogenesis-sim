@@ -1,14 +1,15 @@
 name: Release
 
 # Desktop apps with an embedded Python runtime (desktop/common/runtime): built on version tags (v1.2.3; attached to the
-# GitHub release by the publish job), on pull requests that touch an app or the runtime (artifacts only), or by hand
-# (Actions -> Release -> Run). Each app adds its own build job.
+# GitHub release by the publish job) or by hand (Actions -> Release -> Run).
 on:
   push:
     tags: ["v*"]
-  pull_request:
-    paths: ["desktop/mac/**", "desktop/common/runtime/**", "desktop/common/native/**", ".github/workflows/release.yml"]
   workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

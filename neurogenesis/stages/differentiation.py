@@ -5,6 +5,9 @@ from neurogenesis.stages.base import register_stage
 from neurogenesis.tissue import Tissue
 from neurogenesis.params import resolve, Param
 from neurogenesis.spatial import CellList
+from neurogenesis.fields import Field
+from neurogenesis.geometry import Geometry
+from neurogenesis.expressions import eval_expr
 
 @register_stage("express")
 class Express:
@@ -50,20 +53,19 @@ class Express:
         W = resolve(W_param, genome, fields, None) if W_param is not None else None
         
         if W is None:
-            return tissue
-            
-        if isinstance(W, list):
+            W = np.zeros((K, K), dtype=np.float32)
+        elif isinstance(W, list):
             W = np.array(W, dtype=np.float32)
         elif isinstance(W, np.ndarray):
             W = W.astype(np.float32)
         else:
-            return tissue
+            W = np.zeros((K, K), dtype=np.float32)
             
         if W.shape != (K, K):
             if len(W.shape) == 1 and len(W) == K*K:
                 W = W.reshape(K, K)
             else:
-                return tissue
+                W = np.zeros((K, K), dtype=np.float32)
                 
         morphogens = params.get("morphogens")
         morphogens_val = resolve(morphogens, genome, fields, None) if morphogens is not None else []
@@ -154,8 +156,11 @@ class Differentiate:
 
         # Provide fields as arrays inside env
         for k, v in fields.items():
-            if hasattr(v, 'sample'):
-                env[f"field_{k}"] = v.sample(tissue.positions)
+            if isinstance(v, Field):
+                env[f"field_{k}"] = v.values(tissue.positions)
+            elif isinstance(v, Geometry):
+                env[f"geom_{k}"] = v.contains(tissue.positions)
+                env[f"field_{k}"] = v.contains(tissue.positions).astype(np.float32)
             elif callable(v):
                 env[f"field_{k}"] = v(tissue.positions)
             else:
@@ -167,13 +172,13 @@ class Differentiate:
             
             # evaluate condition
             if condition_expr:
-                try:
-                    mask = eval(condition_expr, {"__builtins__": {}}, env)
-                    if isinstance(mask, bool):
-                        mask = np.full(N, mask, dtype=bool)
-                except Exception as e:
-                    # In case of evaluation error, apply to none
-                    mask = np.zeros(N, dtype=bool)
+                mask = eval_expr(condition_expr, env)
+                if isinstance(mask, (bool, np.bool_)):
+                    mask = np.full(N, mask, dtype=bool)
+                else:
+                    mask = np.asarray(mask, dtype=bool)
+                    if mask.shape != (N,):
+                        raise ValueError(f"Condition '{condition_expr}' produced shape {mask.shape}, expected ({N},)")
             else:
                 mask = np.ones(N, dtype=bool)
                 

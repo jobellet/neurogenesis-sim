@@ -8,13 +8,30 @@ from typing import Union, List, Dict, Any, Optional, Tuple
 import numpy as np
 
 from neurogenesis.genome.genes import get_gene
+from neurogenesis.expressions import eval_expr
+
+def _clean_json_value(val: Any) -> Any:
+    """Recursively converts tuple dictionary keys into 'src->dst' strings for JSON compatibility."""
+    if isinstance(val, dict):
+        return {
+            ("->".join(map(str, k)) if isinstance(k, tuple) else (str(k) if not isinstance(k, str) else k)): _clean_json_value(v)
+            for k, v in val.items()
+        }
+    if isinstance(val, (list, tuple)):
+        return [_clean_json_value(x) for x in val]
+    if isinstance(val, np.ndarray):
+        return val.tolist()
+    if isinstance(val, (np.integer, np.floating)):
+        return val.item()
+    return val
+
 
 @dataclass
 class Const:
-    value: Union[float, int, str, list]
+    value: Union[float, int, str, list, dict]
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"type": "Const", "value": self.value}
+        return {"type": "Const", "value": _clean_json_value(self.value)}
 
 
 @dataclass
@@ -99,7 +116,7 @@ def param_from_dict(d: Union[Dict[str, Any], Any]) -> Param:
 def param_to_dict(param: Union[Param, Any]) -> Dict[str, Any]:
     if hasattr(param, "to_dict"):
         return param.to_dict()
-    return {"type": "Const", "value": param}
+    return {"type": "Const", "value": _clean_json_value(param)}
 
 
 def _eval_expr(expr: str, variables: Dict[str, Any]) -> Union[float, np.ndarray]:
@@ -107,29 +124,7 @@ def _eval_expr(expr: str, variables: Dict[str, Any]) -> Union[float, np.ndarray]
     
     Translates ^ to power (**) rather than bitwise XOR.
     """
-    operators = {
-        ast.Add: op.add, ast.Sub: op.sub, ast.Mult: op.mul,
-        ast.Div: op.truediv, ast.Pow: op.pow, ast.BitXor: op.pow,  # Map ^ to pow!
-        ast.USub: op.neg
-    }
-
-    def eval_node(node):
-        if isinstance(node, ast.Constant):
-            return node.value
-        elif isinstance(node, ast.Name):
-            if node.id not in variables:
-                raise ValueError(f"Variable '{node.id}' not found in formula context")
-            return variables[node.id]
-        elif isinstance(node, ast.BinOp):
-            left = eval_node(node.left)
-            right = eval_node(node.right)
-            return operators[type(node.op)](left, right)
-        elif isinstance(node, ast.UnaryOp):
-            return operators[type(node.op)](eval_node(node.operand))
-        else:
-            raise TypeError(f"Unsupported expression node: {type(node)}")
-            
-    return eval_node(ast.parse(expr, mode='eval').body)
+    return eval_expr(expr, variables)
 
 
 def _apply_transform(val: Union[float, np.ndarray], transform: Optional[str]) -> Union[float, np.ndarray]:
@@ -185,7 +180,9 @@ def resolve(
         if positions is not None and cell_indices is not None:
             pos_to_use = positions[cell_indices]
             
-        if hasattr(field_obj, 'sample') and pos_to_use is not None:
+        if hasattr(field_obj, 'values') and pos_to_use is not None:
+            val = field_obj.values(pos_to_use)
+        elif hasattr(field_obj, 'sample') and pos_to_use is not None:
             val = field_obj.sample(pos_to_use)
         elif callable(field_obj) and pos_to_use is not None:
             val = field_obj(pos_to_use)
