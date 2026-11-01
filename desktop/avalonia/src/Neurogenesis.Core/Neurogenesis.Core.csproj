@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Everything that is not UI: NGB1 I/O, the visual style, scene building and camera maths. -->
+  <PropertyGroup>
+    <RootNamespace>Neurogenesis.Core</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Style\default_visual_style.json" LogicalName="default_visual_style.json" />
+  </ItemGroup>
+</Project>
