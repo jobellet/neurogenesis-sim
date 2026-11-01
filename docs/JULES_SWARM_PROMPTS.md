@@ -746,3 +746,202 @@ Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/G1-G3-modules
 3. In `tests/test_worked_examples.py`, test that all three examples run to completion and produce valid SNNNetworks.
 4. Run `cd viz && npm run build:kernel && cd .. && JAX_PLATFORMS=cpu pytest -q` and ensure all tests pass.
 ```
+
+---
+
+# Wave 4: Connectomes, Pharmacology & Morphologies
+
+---
+
+## Agent 25: Task C-1 — Project Schema Extensions (Contract Bump)
+**Branch:** `task/C1-project-schema-extension`
+
+```text
+You are working on task C-1 (Project schema extensions) from `docs/ROADMAP.md` in `neurogenesis-sim`.
+Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/C1-project-schema-extension`.
+
+### Strict File Isolation
+- ONLY create/modify:
+  - `neurogenesis/project.py`
+  - `tests/test_project.py`
+- DO NOT modify other files.
+
+### Deliverables & Requirements
+1. Extend the versioned Project schema in `neurogenesis/project.py`:
+   - Add optional sections: `data_sources` (dataset id, files, filters), `pharmacology` (profile reference, channel properties), and `morphology` (compartment models, dendritic arbor settings).
+   - Bump Project schema version integer/string in backward-compatible fashion.
+   - Ensure existing valid projects without these keys continue to validate cleanly with empty/neutral defaults.
+2. In `tests/test_project.py`, test:
+   - Backward compatibility: older projects load identically without error.
+   - Validation and round-trip serialization of `data_sources`, `pharmacology`, and `morphology`.
+3. Run `cd viz && npm run build:kernel && cd .. && JAX_PLATFORMS=cpu pytest -q` and ensure all tests pass.
+```
+
+---
+
+## Agent 26: Task C-2 — Tissue Extensions for Pharmacology & Morphology (Contract)
+**Branch:** `task/C2-tissue-pharmacology-morphology`
+
+```text
+You are working on task C-2 (Tissue struct-of-arrays extensions) from `docs/ROADMAP.md` in `neurogenesis-sim`.
+Read `AGENTS.md`, `docs/ROADMAP.md`, and `neurogenesis/tissue.py` first. Work on branch `task/C2-tissue-pharmacology-morphology`.
+
+### Strict File Isolation
+- ONLY create/modify:
+  - `neurogenesis/tissue.py`
+  - `tests/test_tissue.py`
+- DO NOT modify other files.
+
+### Deliverables & Requirements
+1. Extend `Tissue` in `neurogenesis/tissue.py`:
+   - `transmitter`: `(N,)` `int8` (index into pharmacology profile, default 0).
+   - `receptor_expression`: `(N, R)` `float32` (expression levels per receptor type, default empty/zeros).
+   - `morphology`: optional ArborStore reference (default None).
+   - Synapse arrays in connectivity: add `receptor_class`: `(E,)` `uint8` (default 0).
+   - Ensure `compact()`, `concatenate()`, slicing, and `from_network()` / `to_network()` handle these new fields without breaking existing tissue operations.
+   - Preserve float64 positions and `clone_id` integrity.
+2. In `tests/test_tissue.py`, add tests verifying:
+   - Default initialization has neutral/empty pharmacology and morphology.
+   - `compact()` and `concatenate()` correctly update `transmitter`, `receptor_expression`, and `receptor_class`.
+   - Existing tests pass unchanged.
+3. Run `cd viz && npm run build:kernel && cd .. && JAX_PLATFORMS=cpu pytest -q` and ensure all tests pass.
+```
+
+---
+
+## Agent 27: Task C-3 — Lift 65,535 Neuron Limit to uint32 (Kernel Scale)
+**Branch:** `task/C3-lift-neuron-limit-uint32`
+
+```text
+You are working on task C-3 (Lift 65,535 neuron index limit to uint32) from `docs/ROADMAP.md` in `neurogenesis-sim`.
+Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/C3-lift-neuron-limit-uint32`.
+
+### Shared Contracts Invariant
+- Any change to kernel indices MUST be made across all four kernels:
+  - Python (`neurogenesis/spiking/reference.py`)
+  - JAX (`neurogenesis/spiking/jax_backend.py`)
+  - Browser (`viz/src/sim/kernel.ts`)
+  - Portable C (`desktop/common/native/nglif/` if present)
+  - Network CSR representation (`neurogenesis/spiking/network.py`)
+
+### Deliverables & Requirements
+1. Upgrade neuron indexing from `uint16` to `uint32` across network indices and kernels.
+2. Maintain exact bit-for-bit equivalence in `tests/test_kernel_equivalence.py`.
+3. Add a test in `tests/test_network.py` verifying network creation with >65,535 neurons.
+4. Run `cd viz && npm run build:kernel && cd .. && JAX_PLATFORMS=cpu pytest -q` and ensure all tests pass with zero skips.
+```
+
+---
+
+## Agent 28: Tasks I1–I4 — Connectome Data Layer & Streaming Importer
+**Branch:** `task/I1-I4-connectome-data-layer`
+
+```text
+You are working on tasks I1, I2, I3, and I4 (Connectome data layer) from `docs/ROADMAP.md` in `neurogenesis-sim`.
+Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/I1-I4-connectome-data-layer`.
+
+### Strict Rules
+- NO species, organ, or dataset names inside `neurogenesis/` core.
+- Datasets live in `datasets/<dataset_id>.json` manifests with URLs, checksums, format specifications, and citations.
+- Streaming via pyarrow; memory scales as O(E) / O(N), never loading entire multi-GB tables at once.
+
+### Strict File Isolation
+- ONLY create/modify:
+  - `neurogenesis/data/` (e.g. `__init__.py`, `manifest.py`, `importer.py`, `coordinates.py`, `weights.py`)
+  - `datasets/` (e.g. `datasets/flyem_cns_v1.json`)
+  - `tests/test_data_layer.py`
+- DO NOT modify other files.
+
+### Deliverables & Requirements
+1. Dataset manifest specification and fetcher (`neurogenesis/data/manifest.py`).
+2. Streaming connectome importer using pyarrow (`neurogenesis/data/importer.py`):
+   - Streams neuron annotations (soma coordinates, predicted transmitters).
+   - Streams synapse tables directly into sparse connectivity.
+   - Filter criteria: spatial bounding box, cell type regex, synapse weight cutoff.
+3. Coordinate transformation adapter (`neurogenesis/data/coordinates.py`): converts physical voxels to normalized [0, 1]³ space.
+4. Synaptic weight mapper (`neurogenesis/data/weights.py`): count-to-weight mapping (linear, Hill/saturating, Param).
+5. Comprehensive unit tests in `tests/test_data_layer.py` using synthetic small parquet/feather fixtures.
+6. Run `cd viz && npm run build:kernel && cd .. && JAX_PLATFORMS=cpu pytest -q` and ensure all tests pass.
+```
+
+---
+
+## Agent 29: Tasks P1–P4 — Transmitter & Receptor Pharmacology Profiles
+**Branch:** `task/P1-P4-pharmacology-profiles`
+
+```text
+You are working on tasks P1, P2, P3, and P4 (Pharmacology profiles) from `docs/ROADMAP.md` in `neurogenesis-sim`.
+Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/P1-P4-pharmacology-profiles`.
+
+### Strict Rules
+- No hardcoded chemical names in core simulation code. Core operates on integer receptor class IDs.
+- External profiles in `profiles/<profile_id>.json`.
+- Dynamic context-dependent effects (e.g. developmental shift in reversal potential via chloride equilibrium).
+
+### Strict File Isolation
+- ONLY create/modify:
+  - `neurogenesis/pharmacology/` (e.g. `__init__.py`, `profile.py`, `switches.py`)
+  - `profiles/` (e.g. `profiles/drosophila_standard.json`, `profiles/mammalian_cortex.json`)
+  - `tests/test_pharmacology.py`
+- DO NOT modify existing spiking models or stages outside your scope.
+
+### Deliverables & Requirements
+1. Profile loader and validator (`neurogenesis/pharmacology/profile.py`).
+2. Multi-channel conductance / current calculator mapping (transmitter, receptor_expression) -> postsynaptic action.
+3. Developmental shift stage/operator (`neurogenesis/pharmacology/switches.py`).
+4. Unit tests in `tests/test_pharmacology.py` verifying dynamic reversal potentials and multi-receptor kinetics.
+5. Run `cd viz && npm run build:kernel && cd .. && JAX_PLATFORMS=cpu pytest -q` and ensure all tests pass.
+```
+
+---
+
+## Agent 30: Tasks N1–N4 — Branching Neurites & SWC Skeletons
+**Branch:** `task/N1-N4-branching-neurites`
+
+```text
+You are working on tasks N1, N2, N3, and N4 (Branching neurites & morphologies) from `docs/ROADMAP.md` in `neurogenesis-sim`.
+Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/N1-N4-branching-neurites`.
+
+### Low-Compute Rules
+- Low-memory struct-of-arrays representation: O(N_nodes) memory.
+- Conduction delay calculated from path length along neurites + axonal velocity.
+
+### Strict File Isolation
+- ONLY create/modify:
+  - `neurogenesis/morphology/` (e.g. `__init__.py`, `arbor.py`, `swc.py`, `proximity.py`)
+  - `neurogenesis/stages/grow_arbors.py`
+  - `tests/test_morphology.py`
+- DO NOT modify other files.
+
+### Deliverables & Requirements
+1. `ArborStore` representation (`neurogenesis/morphology/arbor.py`) storing tree nodes, radii, parent indices, and compartment types.
+2. SWC format reader and downsampler (`neurogenesis/morphology/swc.py`).
+3. `grow_arbors` stage (`neurogenesis/stages/grow_arbors.py`): stochastic branching constrained by boundaries and fields.
+4. Synapse formation by branch proximity (Peters' rule) and path-length delay calculation (`neurogenesis/morphology/proximity.py`).
+5. Unit tests in `tests/test_morphology.py`.
+6. Run `cd viz && npm run build:kernel && cd .. && JAX_PLATFORMS=cpu pytest -q` and ensure all tests pass.
+```
+
+---
+
+## Agent 31: Tasks I5–I6 — Connectome Fitting Targets & Optic-Lobe Column Example
+**Branch:** `task/I5-I6-connectome-targets-example`
+
+```text
+You are working on tasks I5 and I6 (Connectome fitting targets & optic-lobe benchmark example) from `docs/ROADMAP.md` in `neurogenesis-sim`.
+Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/I5-I6-connectome-targets-example`.
+
+### Strict File Isolation
+- ONLY create/modify:
+  - `neurogenesis/data/targets.py`
+  - `examples/example_optic_lobe_column.py`
+  - `tests/test_optic_lobe_example.py`
+- DO NOT modify other files.
+
+### Deliverables & Requirements
+1. In `neurogenesis/data/targets.py`, implement target extractors from connectome data for `neurogenesis.fitting` (cell type densities, connection probability profiles, convergence/divergence degrees).
+2. In `examples/example_optic_lobe_column.py`, implement the motion-detection subcircuit example (Mi1, Tm3, Mi4, Mi9 -> T4) simulated on CPU in under 2 minutes.
+3. Test that the example runs to completion with valid spiking activity in `tests/test_optic_lobe_example.py`.
+4. Run `cd viz && npm run build:kernel && cd .. && JAX_PLATFORMS=cpu pytest -q` and ensure all tests pass.
+```
+

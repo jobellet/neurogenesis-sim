@@ -30,11 +30,17 @@ Project (JSON + .npz, versioned schema)
 ├── Schedule          ordered list of Stage configs, possibly repeated or looped
 │     Stage = operator + parameters; every parameter is a Param:
 │             const(value) | gene(path, low, high) | field(name, transform) | fit(target, metric) | expr(formula)
+├── Data Sources      (optional) public connectome / reconstruction datasets & filters (Phase I)
+├── Pharmacology      (optional) profile reference & transmitter-receptor dynamics (Phase P)
+├── Morphology        (optional) branching neurite & arbor configurations (Phase N)
 └── Plan              (existing BodyPlan) still usable: a plan is compiled into a default schedule
 
 Tissue (struct of arrays, the state that stages transform)
   position (N, 3), parent / lineage id, birth stage, cell type, region label, expression (N, K genes),
-  sign (exc / inh), neuron parameters, alive flag  +  Connectivity (sparse: pre, post, weight, delay)
+  sign (exc / inh), neuron parameters, alive flag,
+  transmitter (N, int8), receptor_expression (N, R, float32),
+  morphology (optional ArborStore: nodes, compartments, branches)  +
+  Connectivity (sparse: pre, post, weight, delay, receptor_class)
 
 Stages (operators: Tissue x Params x rng -> Tissue)
   seed_cells, proliferate, apoptosis, migrate, sort / layer, mosaic, express (gene regulatory step), differentiate,
@@ -276,6 +282,106 @@ Three native desktop applications with zero developer setup required for end use
   - **H6. Linux application.** (`desktop/linux/`, e.g. GTK4 or Qt), consuming `nglif` and the bridge identically; AppImage and/or Flatpak artifact.
   - **H7. Release workflow.** GitHub Actions workflow triggered on version tags: builds and bundles all three native installer artifacts; smoke-tests bridge connection and kernel fixtures across all three operating systems.
 
+### Pre-requisite Contract Changes: Connectomes, Pharmacology & Scale
+
+Before implementing Phase I, P, and N, three versioned contract changes are delivered in dedicated PRs:
+
+**C-1. Project schema extension (contract bump).**
+- Add optional top-level sections to Project schema: `data_sources` (dataset id, files, filters), `pharmacology` (profile reference, channel properties), and `morphology` (compartment models, dendritic arbor settings).
+- Backward compatibility: schema version bump with validation ensuring existing project files load seamlessly with default values.
+
+**C-2. Tissue struct-of-arrays extensions (contract).**
+- Extend `Tissue` with optional/defaulted arrays:
+  - `transmitter`: `(N,)` `int8` (index into pharmacology profile, default 0 = undefined/classic sign).
+  - `receptor_expression`: `(N, R)` `float32` (expression levels per receptor type, default empty/neutral).
+  - `morphology`: optional reference to `ArborStore` (node arrays, branch parent indices, compartment types).
+  - Synapse connectivity arrays extended with `receptor_class`: `(E,)` `uint8`.
+- Existing stages and legacy growth keep their identical behavior and signatures.
+
+**C-3. Lift 65,535 neuron index limit to uint32 (scale invariant).**
+- Upgrade neuron indexing from `uint16` to `uint32` across all network representations, CSR indices, NGB1 binary format, and spiking kernels (Python, JAX, browser TypeScript, and C `nglif`).
+- Enables 100k+ to 1M+ neuron connectomes (such as FlyEM male CNS with 211k bodies).
+- Equivalence tests must pass across all four kernels.
+
+### Phase I: Connectome Data Layer
+
+Enable importing public connectome datasets (supervised) and using them as statistical targets for developmental fitting (semi-supervised), without hardcoding species/organ names in `neurogenesis/` core.
+
+**I1. Connectome dataset downloader & catalogue.**
+- Generic dataset manifest format (`datasets/<id>.json`): dataset URL, file checksums, license, format specifications (e.g. Feather, Parquet, CSV, SWC), citation metadata.
+- CLI command: `python -m neurogenesis data fetch <dataset_id> --target <dir>`.
+- Automated checksum verification, resumable downloads, and caching.
+
+**I2. Streaming connectome importer.**
+- Memory-efficient streaming import via `pyarrow` without loading multi-gigabyte files into monolithic Python memory:
+  - Stream neuron annotations (ID, type, soma positions, neurotransmitter predictions).
+  - Stream weights / synapse tables directly into sparse connectivity (pre, post, weight) in $O(E)$ memory.
+  - Subsetting filters: bounding box, cell type regex/list, minimum synapse count threshold.
+- Outputs standard `Tissue` or `SNNNetwork`.
+
+**I3. Coordinate frames & spatial registration.**
+- Transform physical voxel coordinates (e.g. 8 nm voxels) to normalized $[0, 1]^3$ simulation boxes and geometry coordinates.
+- Support hexagonal column coordinates and neuropil ROI masks as `Geometry` / `Field` adapters.
+
+**I4. Synapse count to synaptic weight mapping.**
+- Configurable mapping from raw anatomical synapse counts to functional conductance/weight: linear, saturating/Hill function, or parameterized via `Param` (`const`, `gene`, or `fit`).
+- Sign determination via predicted neurotransmitter and target receptor profile.
+
+**I5. Cell-type statistical targets for fitting.**
+- Extract empirical statistics from connectome data to serve as targets for Phase E (`E2` / `E3` fitting):
+  - Cell type counts and spatial density distributions;
+  - Layer- or column-specific connection probability matrices;
+  - Convergence and divergence degree distributions.
+- Enables developmental stages to grow networks that match real connectome statistics.
+
+**I6. Optic-lobe column benchmark example.**
+- Example importing a verified subcircuit (e.g. 14k-neuron visual motion detection circuit: Mi1, Tm3, Mi4, Mi9 $\to$ T4a–d) and simulating motion-direction selectivity.
+- Self-contained, runnable on CPU within minutes, with automated regression test.
+
+### Phase P: Transmitter & Receptor Pharmacology
+
+Transmitter action must depend on target receptors and developmental context, never a static fixed sign (+1 / -1) per transmitter.
+
+**P1. Pharmacology profiles & configuration.**
+- External profile definitions in `profiles/<profile_id>.json` mapping neurotransmitters and receptors to post-synaptic reversal potentials, kinetics, and conductance parameters.
+- No hardcoded chemical names inside core simulation loops; core references integer IDs.
+
+**P2. Receptor expression & assignment.**
+- Cell-type-specific or field-dependent receptor expression profiles (`Tissue.receptor_expression`).
+- Post-synaptic receptor type assignment during synaptogenesis based on transmitter-receptor compatibility rules.
+
+**P3. Developmental switches & context-dependent reversal potentials.**
+- Model developmental shifts in reversal potentials (e.g. early depolarizing to late hyperpolarizing transmission via dynamic chloride equilibria).
+- Dynamic parameterization via developmental stages (e.g. `maturation` or `activity_dependent_shift`).
+
+**P4. Multi-channel & conductance-based spiking kernels.**
+- Support multiple synaptic currents per neuron (e.g. fast excitation, slow excitation, fast inhibition, slow inhibition) driven by receptor classes.
+- Bit-for-bit equivalence across Python, JAX, TypeScript, and C `nglif`.
+
+**P5. Neuromodulation & volume transmission.**
+- Diffuse neuromodulatory fields acting on plasticity eligibility traces (interfacing Phase E `ThreeFactorRule`).
+
+### Phase N: Branching Neurites & Arbor Morphology
+
+Grow realistic arbor morphologies and calculate conduction delays based on neurite path length rather than Euclidean soma distance.
+
+**N1. ArborStore morphology representation.**
+- Low-memory struct-of-arrays representation of tree morphologies (`ArborStore`): node coordinates, radii, parent pointers, compartment labels (axon, apical dendrite, basal dendrite).
+- Seamless conversion to/from standard SWC format.
+
+**N2. `grow_arbors` developmental stage.**
+- Developmental stage growing synthetic dendritic and axonal trees using stochastic branching models constrained by tissue boundaries and morphogen guidance fields.
+
+**N3. Arbor synaptogenesis & path-length conduction delays.**
+- Synapse formation evaluated by geometric proximity between axonal and dendritic branches (Peters' rule).
+- Conduction delay calculated from physical arbor path length + axonal transmission velocity.
+
+**N4. Connectome SWC skeleton import.**
+- Import reconstructed arbor skeletons from connectome datasets into `ArborStore` format with automatic downsampling/simplification to target compartment budgets.
+
+**N5. Compartmental / dendritic attenuation simulation.**
+- Multi-compartment or passive dendritic filtering approximation in spiking simulation to capture distal vs proximal synaptic efficacy.
+
 ### Phase G: modules, docs and examples
 
 **G1. Module registry.** Versioned modules (semantic version, toolbox version range), a local catalogue file, `neurogenesis install module.json`, compatibility checks.
@@ -301,6 +407,12 @@ B1 ─┬─ B2         ├─ D3                      E1 (parallel with C)
 H1 (bridge, Mac agent) ─┬─ H2 (nglif C kernel, Mac agent)
                         ├─ H3 (UI schema export) ───┬─ H5 (Windows app)
                         └─ H4 (embedded runtimes) ──┴─ H6 (Linux app) ── H7 (release)
+
+Contracts: C-1 (Project schema) ─┬─ C-2 (Tissue SOAs) ── C-3 (uint32 index lift)
+                                 ├─ I1 ─ I2 ─ I3 ─ I4 ── I5 (fitting targets) ── I6 (benchmark)
+                                 ├─ P1 ─ P2 ─ P3 ── P4 (conductance kernel) ── P5
+                                 └─ N1 ─ N2 ─ N3 ── N4 (SWC import) ────────── N5
+
 G1 any time after A1 ; G2 after the stages it uses ; G3 last
 ```
 
@@ -309,3 +421,4 @@ G1 any time after A1 ; G2 after the stages it uses ; G3 last
 2. **M2:** B1–B3, C1–C4, C7, C8 (with D2), C13; example G2.3 runs.
 3. **M3:** B4, B5, C5, C6, C9–C12, E1, E2; examples G2.1, G2.2 and G2.4.
 4. **M4:** H1–H4 merged; the three native desktop apps (macOS, Windows, Linux) load a Project, dynamically render schedule and parameter editors from the UI schema, run development through the bridge, and simulate live with `nglif`.
+5. **M5:** C-1..C-3, Phase I (connectome data layer & streaming import), Phase P (pharmacology profiles & multi-channel kernels), Phase N (morphology arbors & SWC import); example I6 (optic lobe column benchmark) runs.
