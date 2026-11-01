@@ -53,20 +53,19 @@ class Express:
         W = resolve(W_param, genome, fields, None) if W_param is not None else None
         
         if W is None:
-            return tissue
-            
-        if isinstance(W, list):
+            W = np.zeros((K, K), dtype=np.float32)
+        elif isinstance(W, list):
             W = np.array(W, dtype=np.float32)
         elif isinstance(W, np.ndarray):
             W = W.astype(np.float32)
         else:
-            return tissue
+            W = np.zeros((K, K), dtype=np.float32)
             
         if W.shape != (K, K):
             if len(W.shape) == 1 and len(W) == K*K:
                 W = W.reshape(K, K)
             else:
-                return tissue
+                W = np.zeros((K, K), dtype=np.float32)
                 
         morphogens = params.get("morphogens")
         morphogens_val = resolve(morphogens, genome, fields, None) if morphogens is not None else []
