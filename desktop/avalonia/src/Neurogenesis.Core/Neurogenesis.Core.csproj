@@ -6,4 +6,7 @@
   <ItemGroup>
     <EmbeddedResource Include="Style\default_visual_style.json" LogicalName="default_visual_style.json" />
   </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="JsonSchema.Net" Version="9.6.0" />
+  </ItemGroup>
 </Project>
