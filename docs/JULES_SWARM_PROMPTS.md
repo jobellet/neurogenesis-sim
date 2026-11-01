@@ -6,10 +6,22 @@ This document contains isolated, copy-paste prompts for autonomous Jules agents 
 1. **Strict File Isolation**: Each agent only creates or modifies files within its dedicated domain.
 2. **No Shared Index/Doc Edits**: Agents do **not** modify shared entry points (`neurogenesis/__init__.py`, `README.md`, `docs/ROADMAP.md`).
 3. **Execution Waves**:
-   - **Wave 1 (Active)**: Independent foundations (A1, A2, B1, D1, E1, F6).
-   - **Wave 1.5 (Contract & Core Scheduler)**: A3 + A4 (Param sources, stage registry with `pkgutil` auto-import, scheduler) followed by A5 (legacy compiler equivalence).
-   - **Wave 2 (Minimal Roadmap Stages & Fields)**: Clean, generic implementations of B2–B4, C1–C7, C10–C12, D2 strictly adhering to the roadmap without speculative biological scope creep.
-   - **Wave 3 (Closing the Loop & GUI Editor)**: C13 (freeze & compile), D3 (development cost model), E2–E4 (fitting & validation), F1–F5 (schedule & field editors), G1–G2 (module registry & examples).
+   - **Wave 1 (Complete)**: Independent foundations (A1, A2, B1, D1, E1, F6) merged on main.
+   - **Wave 1.5 (Complete)**: Core contracts A3+A4 (Param sources, scheduler, dynamic stage auto-discovery) and A5 (clean decomposed legacy compiler with native `legacy_stream`).
+   - **Wave 2 (Active Parallel)**: Clean, generic developmental stages & fields (B2, B3–B5, D2, C1–C3, C4–C5, C6–C7, C8–C9, C10–C12) adhering strictly to roadmap interfaces.
+   - **Wave 3 (Closing the Loop & Optimization)**: C13 (freeze & compile), D3 (development cost model), E2–E4 (fitting, workflows, validation harness), G1–G3 (module registry & examples).
+   - **Phase H (Native Desktop Applications)**:
+     - H1 (bridge) & H2 (portable C kernel `nglif` + NGB1 + fixtures) owned by the Mac agent (PR #5).
+     - H3 (UI schema export) dispatched to Jules after H1 merges.
+     - H4 (embedded runtime packaging scripts using `python-build-standalone`).
+     - H5 (Windows + Linux Avalonia C# / .NET 8 app in `desktop/avalonia/`) owned by the Avalonia agent on Windows.
+     - H6 (Linux packaging extras, optional / later).
+     - H7 (Desktop release workflow).
+     - *Strict rules for Desktop Apps*:
+       * Jules agents NEVER touch `desktop/mac/` (owned by the Mac agent) nor `desktop/avalonia/` (owned by the Avalonia agent).
+       * `desktop/common/` and `neurogenesis/bridge/` are shared contracts.
+       * No app-specific duplication of shared logic. Everything about stages, Params, models, genes comes from the bridge and the UI schema. Simulation: `nglif`. Network files: NGB1. Look: `visual_spec.json`.
+       * Every app passes golden fixtures, connects to the bridge in CI, and installs without preinstalled Python.
 4. **General Biological Conventions**:
    - Generic API names: no organ or species names in `neurogenesis/` (e.g. `stop_field`, `morphogen`, `adhesion_rule`). Biological names and mechanisms are cited in docstrings.
    - Self-contained tests: each stage test creates its own toy `Tissue` directly; tests never depend on an unmerged sister branch.
@@ -597,22 +609,61 @@ Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/E2-E4-fitting
 
 ---
 
-## Agent 19: Tasks F1–F5 — GUI Schedule & Field Editors (viz/)
-**Branch:** `task/F1-F5-gui-editors`
+# Phase H: Native Desktop Applications (macOS, Windows, Linux)
+
+*Rules for desktop app tasks:*
+- Jules agents NEVER edit `desktop/mac/` (owned by the Mac agent) nor `desktop/avalonia/` (owned by the Avalonia agent).
+- `desktop/common/` and `neurogenesis/bridge/` are shared contracts (protocol, NGB1 format, UI schema, visual spec, C kernel `nglif`, golden fixtures, runtime scripts).
+- No app-specific copies of shared logic. Kernel: `nglif`. Network files: `NGB1`. Everything about stages, Params, models, genes: bridge and UI schema. Look: `visual_spec.json`.
+- Every app passes golden fixtures, connects to the bridge in CI, and installs without preinstalled Python.
+
+---
+
+## Agent 21: Task H3 — UI Schema Export from Python [Contract]
+**Branch:** `task/H3-ui-schema-export`  
+*(Wait for PR #5 / H1 to merge before starting)*
 
 ```text
-You are working on tasks F1–F5 (Project, geometry, field, and schedule editors) in `viz/`.
-Read `AGENTS.md`, `docs/ROADMAP.md`, and inspect `viz/src/` first. Work on branch `task/F1-F5-gui-editors`.
+You are working on task H3 (UI schema export from Python) from `docs/ROADMAP.md`.
+Read `AGENTS.md`, `docs/ROADMAP.md`, `desktop/common/UI_SCHEMA.md` and `neurogenesis/bridge/` first. Work on branch `task/H3-ui-schema-export`.
 
 ### Strict File Isolation
-- ONLY create/modify files within `viz/src/ui/editors/` and `viz/src/ui/ScheduleEditor.ts`
-- DO NOT modify `viz/src/sim/kernel.ts` (browser kernel equivalence), Python files, `README.md`, or `docs/ROADMAP.md`.
+- ONLY create/modify:
+  - `neurogenesis/project/ui_schema.py`
+  - `tests/test_ui_schema.py`
+- DO NOT touch `desktop/mac/`, `desktop/avalonia/`, `README.md`, or `docs/ROADMAP.md`.
 
 ### Deliverables & Requirements
-1. Implement Project load/save and undo/redo panel matching the `1.0.0` Project JSON schema.
-2. Implement schedule editor UI: an ordered list of stages with parameter switches (`const`, `gene`, `field`, `fit`, `expr`).
-3. Implement step-by-step development preview stepping through stage checkpoints.
-4. Verify with `cd viz && npm run build && cd .. && JAX_PLATFORMS=cpu pytest -q`.
+1. Implement `export_ui_schema() -> dict` in `neurogenesis/project/ui_schema.py`:
+   - Exports versioned JSON schema of:
+     - Stage registry: all registered stages, their operator names, description, Param specifications (kinds, defaults, bounds, units), and declared cost functions;
+     - Spiking neuron models: registered models, parameter specifications, FLOPs/memory cost declarations;
+     - Guidance and placement rules;
+     - Schedule gene introspection (`collect_genes`);
+     - Project schema specification.
+   - Expose CLI command `python -m neurogenesis ui-schema` (or via bridge).
+2. In `tests/test_ui_schema.py`:
+   - Validate exported schema structure against `desktop/common/UI_SCHEMA.md`;
+   - Ensure all Wave 1 & 2 registered stages appear with complete parameter metadata.
+3. Run `cd viz && npm run build:kernel && cd .. && JAX_PLATFORMS=cpu pytest -q` and ensure all tests pass.
+```
+
+---
+
+## Agent 24: Task H7 — Desktop Release Workflow
+**Branch:** `task/H7-release-workflow`  
+*(Wait for H5 Avalonia app before starting)*
+
+```text
+You are working on task H7 (Desktop release workflow) from `docs/ROADMAP.md`.
+Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/H7-release-workflow`.
+
+### Deliverables & Requirements
+1. Create `.github/workflows/release-desktop.yml`:
+   - Triggered on semver tags (`v*`);
+   - Builds macOS DMG bundle (`desktop/mac/build.sh`), Windows setup `.exe` + `.zip` (`desktop/avalonia/`), and Linux AppImage (`desktop/avalonia/`);
+   - Smoke-tests each app's bridge connection and kernel fixtures across macOS, Windows, and Linux runners;
+   - Automatically attaches release binaries to the GitHub Release.
 ```
 
 ---
@@ -643,3 +694,329 @@ Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/G1-G3-modules
 3. In `tests/test_worked_examples.py`, test that all three examples run to completion and produce valid SNNNetworks.
 4. Run `cd viz && npm run build:kernel && cd .. && JAX_PLATFORMS=cpu pytest -q` and ensure all tests pass.
 ```
+
+---
+
+# Wave 4: Connectomes, Pharmacology & Morphologies
+
+> [!IMPORTANT]
+> **Wave 4 Pre-requisites & Gating:**
+> - Wave 4 starts after Milestone 1 is accepted and after the Wave 2/3 tasks it uses: B3/B4 (fields), D1 (cell list), C11 (refinement), E2 (fitting).
+> - Tasks **K1** and **K2** (Python core contracts) can start immediately.
+> - Tasks **K3**, **K4**, and **P4** require H2 (PR #5) to be merged first (or alignment on uint32 and multi-word delays in NGB1 and `nglif`).
+> - Every agent must perform a design review against `AGENTS.md` before merge and request documentation updates via the supervisor.
+
+---
+
+## Agent 25: Task K1 — Project Schema Extension (Contract Bump 1.0.0 -> 1.1.0)
+**Branch:** `task/K1-project-schema-extension`
+
+```text
+You are working on task K1 (Project schema extension to 1.1.0) from `docs/ROADMAP.md` in `neurogenesis-sim`.
+Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/K1-project-schema-extension`.
+
+### Strict File Isolation
+- ONLY create/modify:
+  - `neurogenesis/project/schema.py`
+  - `neurogenesis/project/io.py`
+  - `tests/test_project.py`
+- DO NOT modify other files.
+
+### Deliverables & Requirements
+1. Extend the versioned Project schema in `neurogenesis/project/schema.py`:
+   - Bump SCHEMA_VERSION to "1.1.0".
+   - Add optional sections: `data_sources` (dict), `pharmacology` (dict), and `morphology` (dict).
+   - Implement `migrate_100_to_110(data: Dict[str, Any]) -> Dict[str, Any]` which injects empty defaults.
+   - Update `load_project()` in `neurogenesis/project/io.py` to transparently migrate 1.0.0 projects to 1.1.0.
+2. In `tests/test_project.py`, test:
+   - Backward compatibility: every existing 1.0.0 project fixture loads and validates identically.
+   - Validation and round-trip serialization of `data_sources`, `pharmacology`, and `morphology`.
+3. Design and scope review against `AGENTS.md` before finalizing.
+4. Run `cd viz && npm run build:kernel && cd .. && JAX_PLATFORMS=cpu pytest -q` and ensure all tests pass.
+```
+
+---
+
+## Agent 26: Task K2 — Tissue Extensions for Pharmacology & Morphology (Contract)
+**Branch:** `task/K2-tissue-pharmacology-morphology`
+
+```text
+You are working on task K2 (Tissue struct-of-arrays extensions) from `docs/ROADMAP.md` in `neurogenesis-sim`.
+Read `AGENTS.md`, `docs/ROADMAP.md`, and `neurogenesis/tissue.py` first. Work on branch `task/K2-tissue-pharmacology-morphology`.
+
+### Strict File Isolation
+- ONLY create/modify:
+  - `neurogenesis/tissue.py`
+  - `tests/test_tissue.py`
+- DO NOT modify other files.
+
+### Deliverables & Requirements
+1. Extend `Tissue` in `neurogenesis/tissue.py`:
+   - `transmitter`: `(N,)` `int8` bitmask or small list (co-transmission support; default 0 = undefined/classic sign).
+   - `receptor_expression`: `(N, R)` `float32` (expression levels per receptor type, default empty/neutral).
+   - `morphology`: optional ArborStore reference (default None).
+   - Connectivity arrays extended with:
+     - `receptor_class`: `(E,)` `uint8` (default 0);
+     - optional morphology arrays: `pre_node` `(E,)` `int32`, `post_node` `(E,)` `int32`, `path_length` `(E,)` `float32`, `dendritic_distance` `(E,)` `float32`.
+   - Ensure `compact()`, `concatenate()`, slicing, and `from_network()` / `to_network()` handle these fields seamlessly.
+   - Maintain `float64` coordinates and `clone_id` integrity.
+2. In `tests/test_tissue.py`, test:
+   - Default initialization has neutral/empty pharmacology and morphology.
+   - `compact()` and `concatenate()` correctly preserve all new fields.
+   - All existing tests pass unchanged.
+3. Design and scope review against `AGENTS.md` before finalizing.
+4. Run `cd viz && npm run build:kernel && cd .. && JAX_PLATFORMS=cpu pytest -q` and ensure all tests pass.
+```
+
+---
+
+## Agent 27: Task K3 — Array-Backed Synapse Store & uint32 Neuron Limit
+**Branch:** `task/K3-uint32-synapse-store`
+*(Starts after H2 / PR #5 merges)*
+
+```text
+You are working on task K3 (Array-backed synapse store and uint32 limit) from `docs/ROADMAP.md` in `neurogenesis-sim`.
+Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/K3-uint32-synapse-store`.
+
+### Invariants & Contracts
+- Neuron indices must be uint32 across Python, JAX, browser kernel (`viz/src/sim/kernel.ts`), and viewer MAX_NEURONS limit.
+- SNNNetwork must store synapses in a struct of arrays (`pre`, `post`, `weight`, `delay`, `receptor_class`) rather than a list of `SynapseData` objects.
+- `to_csr()` must be vectorized via `argsort(pre)`, with `synapses` property providing a thin backward-compatible list view.
+- Disallow JSON serialization for large networks; stream to `.npz` or NGB1.
+
+### Strict File Isolation
+- ONLY create/modify:
+  - `neurogenesis/spiking/network.py`
+  - `neurogenesis/spiking/reference.py`
+  - `neurogenesis/spiking/jax_backend.py`
+  - `viz/src/sim/kernel.ts`
+  - `viz/src/sim/types.ts`
+  - `tests/test_network.py`
+  - `tests/test_kernel_equivalence.py`
+- DO NOT modify `desktop/mac/`.
+
+### Deliverables & Requirements
+1. Implement vectorized struct-of-arrays synapse storage in `SNNNetwork`.
+2. Upgrade neuron indexing to `uint32` across Python, JAX, and browser kernels.
+3. Verify bit-for-bit kernel equivalence in `tests/test_kernel_equivalence.py`.
+4. Test network creation and CSR conversion with >65,535 neurons in `tests/test_network.py`.
+5. Design and scope review against `AGENTS.md` before finalizing.
+6. Run `cd viz && npm run build:kernel && cd .. && JAX_PLATFORMS=cpu pytest -q` and ensure all tests pass.
+```
+
+---
+
+## Agent 27b: Task K4 — Multi-Word Spike History for Extended Delays
+**Branch:** `task/K4-multi-word-delays`
+*(Starts after H2 / PR #5 merges)*
+
+```text
+You are working on task K4 (Multi-word spike history) from `docs/ROADMAP.md` in `neurogenesis-sim`.
+Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/K4-multi-word-delays`.
+
+### Deliverables & Requirements
+1. Generalize circular spike history buffer from 1 word (max 31 ticks) to `ceil((max_delay + 1) / 32)` 32-bit words per neuron.
+2. Implement across Python (`reference.py`), JAX (`jax_backend.py`), and browser (`kernel.ts`).
+3. Maintain exact bit-for-bit equivalence in `tests/test_kernel_equivalence.py` for delays up to 128 ms.
+4. Update `neurogenesis.cost` to account for multi-word history buffers.
+5. Design and scope review against `AGENTS.md` before finalizing.
+6. Run `cd viz && npm run build:kernel && cd .. && JAX_PLATFORMS=cpu pytest -q` and ensure all tests pass.
+```
+
+---
+
+## Agent 28: Tasks I1–I3 — Connectome Data Fetcher, Importer & Frames
+**Branch:** `task/I1-I3-connectome-data-layer`
+*(Depends on K1, K2. Requires `pip install -e ".[data]"` with lazy pyarrow)*
+
+```text
+You are working on tasks I1, I2, and I3 (Connectome data layer) from `docs/ROADMAP.md` in `neurogenesis-sim`.
+Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/I1-I3-connectome-data-layer`.
+
+### Strict Rules
+- NO species, organ, or dataset names inside `neurogenesis/` core.
+- pyarrow is imported lazily.
+- Manifests describe file roles, column mappings, and physical units. No dataset column names appear in core code.
+- Cache directory defaults to `~/.cache/neurogenesis/data` (outside repository).
+- Unit tests must NEVER download over the network; use tiny synthetic Feather/Parquet fixtures.
+- Conduction delays >31 ms must be clipped with a counted warning until K4 merges.
+
+### Strict File Isolation
+- ONLY create/modify:
+  - `neurogenesis/data/` (e.g. `__init__.py`, `manifest.py`, `importer.py`, `coordinates.py`)
+  - `datasets/` (manifest files only, e.g. `datasets/flyem_cns_v1.json`)
+  - `tests/test_data_layer.py`
+- DO NOT modify other files.
+
+### Deliverables & Requirements
+1. Manifest fetcher (`manifest.py`): prints size and license before download; resumable download with SHA256 verification.
+2. Streaming importer (`importer.py`):
+   - Reads neuron annotations via column mapping.
+   - Streams edge tables in record batches filtered with `pyarrow.compute.is_in(pre, post)` ($O(\text{selected edges})$ memory).
+   - Filters: cell type regex/list, class, region/ROI, bounding box, minimum synapse count.
+   - Records license, citation, and checksums in provenance.
+3. Coordinate transform (`coordinates.py`): affine transform mapping voxels to physical units (µm).
+4. Unit tests in `tests/test_data_layer.py`.
+5. Design and scope review against `AGENTS.md` before finalizing.
+6. Run `cd viz && npm run build:kernel && cd .. && JAX_PLATFORMS=cpu pytest -q` and ensure all tests pass.
+```
+
+---
+
+## Agent 29a: Tasks P1–P3 & I4 — Pharmacology Profiles, Context Compilation & Synapse Mapping
+**Branch:** `task/P1-P3-I4-pharmacology-profiles`
+*(Depends on K1, K2, and I1–I3)*
+
+```text
+You are working on tasks P1, P2, P3, and I4 (Pharmacology profiles and context compilation) from `docs/ROADMAP.md`.
+Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/P1-P3-I4-pharmacology-profiles`.
+
+### Strict Rules
+- No chemical names hardcoded in simulation loops (operate on integer receptor classes).
+- Default profile reproduces today's per-neuron sign bit-for-bit (A5 fingerprints unchanged).
+- Re-express existing `receptor_sign` rule (`gd["receptor"] = "inverting"`) as a profile case.
+- Support co-transmission (bitmask/list) and optional Dale's principle (mixed positive/negative synapses from one presynaptic neuron).
+- Profile entries parameterizable via `Param` (const, gene, field, expr).
+
+### Strict File Isolation
+- ONLY create/modify:
+  - `neurogenesis/pharmacology/` (e.g. `__init__.py`, `profile.py`, `compiler.py`, `switches.py`)
+  - `neurogenesis/data/weights.py`
+  - `profiles/` (e.g. `profiles/default.json`, `profiles/drosophila_cns.json`)
+  - `tests/test_pharmacology.py`
+- DO NOT modify spiking models directly.
+
+### Deliverables & Requirements
+1. Profile loader and validator (`neurogenesis/pharmacology/profile.py`) with documented biological citations.
+2. Synapse weight mapper (`neurogenesis/data/weights.py`): maps raw synapse counts to target int16 weight range (`w_clip` 512–2047) via linear, Hill, or Param.
+3. Context compiler (`neurogenesis/pharmacology/compiler.py`): compiles (transmitter, receptor_expression, context) into signed integer weight and channel assignment for `lif_int`.
+4. Developmental switches (`switches.py`): dynamic shifts in reversal potentials during development (C11) or compilation.
+5. Unit tests in `tests/test_pharmacology.py` verifying legacy compatibility, co-transmission, and dynamic switches.
+6. Design and scope review against `AGENTS.md` before finalizing.
+7. Run `cd viz && npm run build:kernel && cd .. && JAX_PLATFORMS=cpu pytest -q` and ensure all tests pass.
+```
+
+---
+
+## Agent 29b: Task P4 — Multi-Channel & Conductance Spiking Kernels
+**Branch:** `task/P4-multichannel-kernels`
+*(Depends on H2, K3, K4, and P1–P3)*
+
+```text
+You are working on task P4 (Multi-channel and conductance kernels) from `docs/ROADMAP.md` in `neurogenesis-sim`.
+Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/P4-multichannel-kernels`.
+
+### Deliverables & Requirements
+1. Integer LIF kernel: support $k$ synaptic current channels with distinct decay shifts, bit-for-bit across Python, JAX, TypeScript, and portable C `nglif`.
+2. Float models (`two_compartment`, `hh`): conductance-based synapses with reversal potentials, equivalent within floating-point tolerance.
+3. Update `neurogenesis.cost` with declared channel memory and operation scaling.
+4. Comprehensive equivalence and property tests in `tests/test_kernel_equivalence.py` and `tests/test_models.py`.
+5. Design and scope review against `AGENTS.md` before finalizing.
+6. Run `cd viz && npm run build:kernel && cd .. && JAX_PLATFORMS=cpu pytest -q` and ensure all tests pass.
+```
+
+---
+
+## Agent 30a: Tasks N1 & N4 — ArborStore Morphology & SWC Skeletons
+**Branch:** `task/N1-N4-morphology-store`
+*(Depends on K1, K2, and I3)*
+
+```text
+You are working on tasks N1 and N4 (ArborStore and SWC import) from `docs/ROADMAP.md` in `neurogenesis-sim`.
+Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/N1-N4-morphology-store`.
+
+### Architectural Invariants
+- Low-memory struct-of-arrays representation: O(N_nodes) memory.
+- Generic compartment labels: soma, axon, dendrite, neurite + user labels (supporting unipolar invertebrate neurons).
+
+### Strict File Isolation
+- ONLY create/modify:
+  - `neurogenesis/morphology/` (e.g. `__init__.py`, `arbor.py`, `swc.py`)
+  - `tests/test_morphology_store.py`
+- DO NOT modify other files.
+
+### Deliverables & Requirements
+1. `ArborStore` struct of arrays (`arbor.py`): node coordinates (float32), radii, parent indices, compartment types.
+2. SWC format reader, downsampler, and writer (`swc.py`).
+3. Downsampling algorithm to reduce reconstructed skeletons to target compartment budgets.
+4. Unit tests in `tests/test_morphology_store.py`.
+5. Design and scope review against `AGENTS.md` before finalizing.
+6. Run `cd viz && npm run build:kernel && cd .. && JAX_PLATFORMS=cpu pytest -q` and ensure all tests pass.
+```
+
+---
+
+## Agent 30b: Task N2 — grow_arbors Developmental Stage
+**Branch:** `task/N2-stage-grow-arbors`
+*(Depends on N1)*
+
+```text
+You are working on task N2 (grow_arbors stage) from `docs/ROADMAP.md` in `neurogenesis-sim`.
+Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/N2-stage-grow-arbors`.
+
+### Deliverables & Requirements
+1. Implement `grow_arbors` developmental stage in `neurogenesis/stages/grow_arbors.py`.
+2. Parameters as `Param`s: branching probability, elongation rate, branching angle, stop/target field rules, retraction.
+3. Draw randomness strictly from stage `rng`.
+4. Register via `@register_stage("grow_arbors")` with declared parameter schema and verified cost model (within factor 3).
+5. Unit tests in `tests/test_stage_grow_arbors.py`.
+6. Design and scope review against `AGENTS.md` before finalizing.
+7. Run `cd viz && npm run build:kernel && cd .. && JAX_PLATFORMS=cpu pytest -q` and ensure all tests pass.
+```
+
+---
+
+## Agent 30c: Task N3 — Arbor Synaptogenesis & Path-Length Delays
+**Branch:** `task/N3-arbor-synaptogenesis`
+*(Depends on N1, N2, and D1)*
+
+```text
+You are working on task N3 (Arbor synaptogenesis and delays) from `docs/ROADMAP.md` in `neurogenesis-sim`.
+Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/N3-arbor-synaptogenesis`.
+
+### Deliverables & Requirements
+1. Implement branch proximity search using D1 `CellList` in $O(\text{nodes})$ (Peters' rule).
+2. Calculate conduction delays from path length along neurite branches + axonal velocity.
+3. Populate per-synapse morphology fields (`pre_node`, `post_node`, `path_length`, `dendritic_distance`).
+4. Clip delays >31 ms with a counted warning until K4 merges.
+5. Unit tests in `tests/test_arbor_synaptogenesis.py`.
+6. Design and scope review against `AGENTS.md` before finalizing.
+7. Run `cd viz && npm run build:kernel && cd .. && JAX_PLATFORMS=cpu pytest -q` and ensure all tests pass.
+```
+
+---
+
+## Agent 31: Tasks I5–I6 — Connectome Fitting Targets & Optic-Lobe Column Benchmark
+**Branch:** `task/I5-I6-connectome-targets-benchmark`
+*(Depends on I1–I4, P1–P3, B3/B4, and E2)*
+
+```text
+You are working on tasks I5 and I6 (Connectome fitting targets and optic-lobe column benchmark) from `docs/ROADMAP.md`.
+Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/I5-I6-connectome-targets-benchmark`.
+
+### Scope & Invariants
+- Statistical comparison at the cell-type level (never neuron by neuron).
+- Metrics: type x type synapse matrix, counts per type, degree/weight distributions, topography (column fraction).
+- Never download over network during tests: use a small, attributed CC-BY 4.0 test fixture (`fixtures/connectome/`).
+- Do not claim direction-selectivity simulation from point neurons at somata (evaluated post N3/N5).
+
+### Strict File Isolation
+- ONLY create/modify:
+  - `neurogenesis/data/targets.py`
+  - `examples/example_optic_lobe_column.py`
+  - `fixtures/connectome/`
+  - `tests/test_optic_lobe_benchmark.py`
+- DO NOT modify other files.
+
+### Deliverables & Requirements
+1. Target extractor (`neurogenesis/data/targets.py`): extracts cell-type statistical targets and column topography for `neurogenesis.fitting` (E2).
+2. Optic-lobe column benchmark example (`examples/example_optic_lobe_column.py`):
+   - Supervised baseline importing verified subcircuit from fixture.
+   - Grown circuit: hexagonal column field, cell types assigned, developmental parameters fitted to match imported statistics.
+   - Prints statistical comparison between grown and imported networks. Runs in under 2 minutes on CPU.
+3. Unit test in `tests/test_optic_lobe_benchmark.py`.
+4. Design and scope review against `AGENTS.md` before finalizing.
+5. Run `cd viz && npm run build:kernel && cd .. && JAX_PLATFORMS=cpu pytest -q` and ensure all tests pass.
+```
+
+

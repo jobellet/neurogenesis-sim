@@ -23,14 +23,21 @@ the roadmap (e.g. "C4 migrate"), and stay within its scope.**
     see roadmap §2.1).
   - Rules (`neurogenesis.development.rules`) never draw random numbers.
   - Never use global NumPy random state, `random`, or time.
+  - `legacy_stream` mode in `run_schedule()` exists exclusively for backward compatibility with legacy plans (fingerprints).
+    New schedules must never use `legacy_stream=True`: it breaks the one-stream-per-stage isolation rule.
 - **Backward compatibility.**
   - Existing plans and genomes must grow the same networks: `tests/test_development.py` and the legacy-compiler
     fingerprints of task A5.
   - New options are off by default.
   - If a change must alter existing networks, stop and ask the maintainer.
 - **Kernel equivalence.** `lif_int` gives identical spikes in Python (`spiking/reference.py`), JAX
-  (`spiking/jax_backend.py`) and the browser (`viz/src/sim/kernel.ts`). Any change to one must be made to all three,
+  (`spiking/jax_backend.py`), the browser (`viz/src/sim/kernel.ts`), and the portable C kernel `nglif` (`desktop/common/native/nglif/`). Any change to one must be made to all four,
   with the equivalence tests passing.
+- **Desktop apps & shared contracts ownership.**
+  - Jules agents never edit `desktop/mac/` (owned by the Mac agent) nor `desktop/avalonia/` (owned by the Avalonia agent).
+  - `desktop/common/` and `neurogenesis/bridge/` are shared contracts (protocol, NGB1 binary network format, UI schema, visual spec, C kernel `nglif`, golden fixtures, runtime scripts).
+  - Change them only in dedicated tasks with a version bump, an updated spec, and all apps' CI passing.
+- **Protocol & schema versioning.** Any change to `desktop/common/PROTOCOL.md`, `UI_SCHEMA.md` or Project schema requires backward compatibility, explicit versioning and migration tests.
 - **Generality.** No species, organ, task or environment names inside `neurogenesis/`. Use them only in `examples/`,
   in tests as toy content, or in separate module repositories.
 - **Contracts.** The Project schema (A1), `Tissue` (A2), `Param` (A3) and the Stage interface (A4) are shared.
@@ -76,6 +83,8 @@ the roadmap (e.g. "C4 migrate"), and stay within its scope.**
 - [ ] New code has tests: determinism; neutral parameters = no-op; the documented behaviour; the cost declaration.
 - [ ] Existing networks unchanged (development fingerprints).
 - [ ] `cd viz && npm run build` passes if `viz/` changed.
+- [ ] Golden fixtures and contract tests pass if `desktop/common/`, `neurogenesis/bridge/`, or `nglif` changed.
+- [ ] Design and scope review pass against AGENTS.md and task contracts before merging.
 - [ ] Docs updated: README table, `docs/EXTENDING.md` or the relevant guide, the roadmap status line of your task.
 
 ## When unsure
