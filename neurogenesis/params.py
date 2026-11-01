@@ -10,12 +10,28 @@ import numpy as np
 from neurogenesis.genome.genes import get_gene
 from neurogenesis.expressions import eval_expr
 
+def _clean_json_value(val: Any) -> Any:
+    """Recursively converts tuple dictionary keys into 'src->dst' strings for JSON compatibility."""
+    if isinstance(val, dict):
+        return {
+            ("->".join(map(str, k)) if isinstance(k, tuple) else (str(k) if not isinstance(k, str) else k)): _clean_json_value(v)
+            for k, v in val.items()
+        }
+    if isinstance(val, (list, tuple)):
+        return [_clean_json_value(x) for x in val]
+    if isinstance(val, np.ndarray):
+        return val.tolist()
+    if isinstance(val, (np.integer, np.floating)):
+        return val.item()
+    return val
+
+
 @dataclass
 class Const:
-    value: Union[float, int, str, list]
+    value: Union[float, int, str, list, dict]
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"type": "Const", "value": self.value}
+        return {"type": "Const", "value": _clean_json_value(self.value)}
 
 
 @dataclass
@@ -100,7 +116,7 @@ def param_from_dict(d: Union[Dict[str, Any], Any]) -> Param:
 def param_to_dict(param: Union[Param, Any]) -> Dict[str, Any]:
     if hasattr(param, "to_dict"):
         return param.to_dict()
-    return {"type": "Const", "value": param}
+    return {"type": "Const", "value": _clean_json_value(param)}
 
 
 def _eval_expr(expr: str, variables: Dict[str, Any]) -> Union[float, np.ndarray]:
