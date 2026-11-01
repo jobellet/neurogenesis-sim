@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neurogenesis-sim"
+version = "0.1.0"
+description = "Spiking neural networks grown from genes: body plans, development, evolution, shareable modules, 3D viewer"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24", "jax>=0.4.30", "matplotlib>=3.7"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+neurogenesis = "neurogenesis.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["neurogenesis*"]

@@ -1,0 +1,20 @@
+{
+  "name": "neurogenesis-sim-viewer",
+  "version": "1.0.0",
+  "description": "3D viewer and sandbox for neurogenesis-sim networks (integer LIF kernel, bit-identical to the Python reference)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "build:kernel": "tsc src/sim/kernel.ts src/sim/types.ts --outDir ../scripts/js/build --target es2020 --module es2020 --moduleResolution node"
+  },
+  "dependencies": {
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.170.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
+}
