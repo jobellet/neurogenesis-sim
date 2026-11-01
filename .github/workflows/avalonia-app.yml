@@ -76,6 +76,9 @@ jobs:
           NG_NGB_FIXTURES: ${{ runner.temp }}/ngbfixtures
         run: dotnet test desktop/avalonia/Neurogenesis.Desktop.sln --configuration Release --no-build --verbosity normal --logger "trx"
 
+      - name: Fetch H4 runtime branch
+        run: git fetch origin task/H4-runtime-release
+
       - name: Build Windows package (Installer + Portable Zip)
         if: runner.os == 'Windows'
         shell: pwsh

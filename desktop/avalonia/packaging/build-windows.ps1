@@ -42,7 +42,8 @@ Write-Host "Provisioning standalone Python runtime via desktop/common/runtime/bu
 $RuntimeScript = Join-Path $Root "desktop\common\runtime\build_runtime.py"
 if (-not (Test-Path $RuntimeScript)) {
     Write-Host "Checking out build_runtime.py from origin/task/H4-runtime-release..."
-    git checkout origin/task/H4-runtime-release -- desktop/common/runtime
+    git fetch origin task/H4-runtime-release
+    git checkout FETCH_HEAD -- desktop/common/runtime
 }
 if (-not (Test-Path $RuntimeScript)) {
     throw "Packaging error: build_runtime.py not found at $RuntimeScript."

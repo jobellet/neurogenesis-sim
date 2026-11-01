@@ -34,7 +34,8 @@ echo "Provisioning standalone Python runtime via desktop/common/runtime/build_ru
 RUNTIME_SCRIPT="${ROOT}/desktop/common/runtime/build_runtime.py"
 if [ ! -f "${RUNTIME_SCRIPT}" ]; then
     echo "Checking out build_runtime.py from origin/task/H4-runtime-release..."
-    git checkout origin/task/H4-runtime-release -- desktop/common/runtime
+    git fetch origin task/H4-runtime-release
+    git checkout FETCH_HEAD -- desktop/common/runtime
 fi
 if [ ! -f "${RUNTIME_SCRIPT}" ]; then
     echo "ERROR: build_runtime.py not found at ${RUNTIME_SCRIPT}" >&2
