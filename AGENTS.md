@@ -34,7 +34,7 @@ the roadmap (e.g. "C4 migrate"), and stay within its scope.**
   (`spiking/jax_backend.py`), the browser (`viz/src/sim/kernel.ts`), and the portable C kernel `nglif` (`desktop/common/native/nglif/`). Any change to one must be made to all four,
   with the equivalence tests passing.
 - **Desktop apps & shared contracts ownership.**
-  - Jules agents never edit `desktop/mac/` (owned by the Mac agent).
+  - Jules agents never edit `desktop/mac/` (owned by the Mac agent) nor `desktop/avalonia/` (owned by the Avalonia agent).
   - `desktop/common/` and `neurogenesis/bridge/` are shared contracts (protocol, NGB1 binary network format, UI schema, visual spec, C kernel `nglif`, golden fixtures, runtime scripts).
   - Change them only in dedicated tasks with a version bump, an updated spec, and all apps' CI passing.
 - **Protocol & schema versioning.** Any change to `desktop/common/PROTOCOL.md`, `UI_SCHEMA.md` or Project schema requires backward compatibility, explicit versioning and migration tests.

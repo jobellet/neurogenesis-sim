@@ -264,12 +264,15 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 
 ### Phase H: Native Desktop Applications (macOS, Windows, Linux)
 
-Three native desktop applications with zero developer setup required for end users (embedded Python runtimes, native installers, portable C simulation kernel).
+Native desktop applications with zero developer setup required for end users:
+- macOS app: SwiftUI in `desktop/mac/` (built by the macOS agent).
+- Windows & Linux shared app: Avalonia (C# / .NET 8) in `desktop/avalonia/` (built by the Avalonia agent on a Windows machine).
+- Both apps consume the portable C simulation kernel (`nglif`), communicate with the embedded Python runtime via the shared bridge (`neurogenesis/bridge/`), render dynamic UI panels generated from the UI schema, and style components per `visual_spec.json`.
 
 - **Ownership & Isolation:**
   - `desktop/mac/` is owned strictly by the macOS agent.
-  - `desktop/windows/` is owned by the Windows agent.
-  - `desktop/linux/` is owned by the Linux agent.
+  - `desktop/avalonia/` is owned strictly by the Avalonia agent.
+  - Jules agents never edit `desktop/mac/` or `desktop/avalonia/`.
   - `desktop/common/` and `neurogenesis/bridge/` are shared contracts (protocol, NGB1 binary network format, UI schema, visual spec, C kernel `nglif`, golden fixtures, runtime scripts).
   - No app may duplicate shared logic. Everything about stages, Params, models, and genes is driven by the bridge and the UI schema. Visual look is specified by `visual_spec.json`. Simulation uses `nglif`.
 
@@ -277,10 +280,10 @@ Three native desktop applications with zero developer setup required for end use
   - **H1. Bridge in the package [contract].** (`neurogenesis/bridge/`, protocol spec `desktop/common/PROTOCOL.md`, automated tests) — *by the Mac agent*.
   - **H2. Portable C kernel `nglif` + NGB1 I/O [contract].** (`desktop/common/native/nglif/`, golden fixtures `fixtures/`, 3-OS CI matrix) — *by the Mac agent*.
   - **H3. UI schema export from Python [contract].** Versioned JSON export from Python (`python -m neurogenesis ui-schema`): stage registry (Params, kinds, bounds, docs), models with cost estimates, guidance/placement rules, genes of a schedule (`collect_genes`), Project schema. Jules task once H1/PR #5 is merged.
-  - **H4. Embedded Python runtime scripts.** Automated packaging scripts for embedded Python runtimes on macOS, Windows, and Linux (x86-64 and arm64).
-  - **H5. Windows application.** (`desktop/windows/`, e.g. C# / WinUI 3 or .NET + GPU renderer), consuming `nglif` through C ABI and the Python bridge via JSON-RPC/stdio protocol, dynamic panels generated from UI schema, colors from `visual_spec.json`; MSIX/installer artifact.
-  - **H6. Linux application.** (`desktop/linux/`, e.g. GTK4 or Qt), consuming `nglif` and the bridge identically; AppImage and/or Flatpak artifact.
-  - **H7. Release workflow.** GitHub Actions workflow triggered on version tags: builds and bundles all three native installer artifacts; smoke-tests bridge connection and kernel fixtures across all three operating systems.
+  - **H4. Embedded Python runtime scripts.** Automated packaging scripts using `python-build-standalone` on all three OSes (macOS, Windows, and Linux, x86-64 and arm64).
+  - **H5. Windows + Linux application (Avalonia).** (`desktop/avalonia/`, C# / .NET 8 cross-platform UI), consuming `nglif` through P/Invoke C ABI and the Python bridge via JSON-RPC/stdio protocol, dynamic panels generated from UI schema, colors from `visual_spec.json`. Packaging: Windows setup `.exe` + `.zip`, Linux AppImage. Built by the Avalonia agent.
+  - **H6. Linux packaging extras (optional / later).** Flatpak manifest and distribution testing.
+  - **H7. Release workflow.** GitHub Actions workflow triggered on version tags: builds and bundles macOS DMG (`desktop/mac/`), Windows setup/zip and Linux AppImage (`desktop/avalonia/`); smoke-tests bridge connection and kernel fixtures across all three operating systems.
 
 ### Pre-requisite Contract Changes: Connectomes, Pharmacology & Scale
 
@@ -431,8 +434,8 @@ B1 ─┬─ B2         ├─ D3                      E1 (parallel with C)
     └─ B3 ─┬─ B4  └─ E2 ─ E3 ; E4
            └─ B5
 H1 (bridge, Mac agent) ─┬─ H2 (nglif C kernel, Mac agent)
-                        ├─ H3 (UI schema export) ───┬─ H5 (Windows app)
-                        └─ H4 (embedded runtimes) ──┴─ H6 (Linux app) ── H7 (release)
+                        ├─ H3 (UI schema export) ───┬─ H5 (Avalonia app, Win+Linux) ── H7 (release)
+                        └─ H4 (python-build-standalone) ┴─ (H6 optional Linux extras)
 
 Contracts:
 K1 (schema 1.1.0) ─┬─ K2 (Tissue SOA) ─┬─ I1 ─ I2 ─ I3 ─┐
@@ -449,6 +452,6 @@ G1 any time after A1 ; G2 after the stages it uses ; G3 last
 1. **M1:** A1–A5 and D1 merged; the legacy growth runs as a schedule with identical fingerprints.
 2. **M2:** B1–B3, C1–C4, C7, C8 (with D2), C13; example G2.3 runs.
 3. **M3:** B4, B5, C5, C6, C9–C12, E1, E2; examples G2.1, G2.2 and G2.4.
-4. **M4:** H1–H4 merged; the three native desktop apps (macOS, Windows, Linux) load a Project, dynamically render schedule and parameter editors from the UI schema, run development through the bridge, and simulate live with `nglif`.
+4. **M4:** H1–H4 merged; native desktop apps (macOS SwiftUI in `desktop/mac/`, Windows + Linux Avalonia in `desktop/avalonia/`) load a Project, dynamically render schedule and parameter editors from the UI schema, run development through the bridge, and simulate live with `nglif`.
 5. **M5:** K1–K4, Phase I (connectome data layer & streaming import), Phase P (pharmacology profiles & multi-channel kernels), Phase N (morphology arbors & SWC import); example I6 (optic lobe column benchmark) runs.
 6. **M6:** Re-express legacy growth as real C stages (placement, differentiation, identity, guidance) with fingerprints deliberately regenerated and certified.

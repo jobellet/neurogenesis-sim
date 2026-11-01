@@ -13,9 +13,12 @@ This document contains isolated, copy-paste prompts for autonomous Jules agents 
    - **Phase H (Native Desktop Applications)**:
      - H1 (bridge) & H2 (portable C kernel `nglif` + NGB1 + fixtures) owned by the Mac agent (PR #5).
      - H3 (UI schema export) dispatched to Jules after H1 merges.
-     - H4 (embedded runtimes), H5 (Windows native app), H6 (Linux native app), H7 (release CI).
+     - H4 (embedded runtime packaging scripts using `python-build-standalone`).
+     - H5 (Windows + Linux Avalonia C# / .NET 8 app in `desktop/avalonia/`) owned by the Avalonia agent on Windows.
+     - H6 (Linux packaging extras, optional / later).
+     - H7 (Desktop release workflow).
      - *Strict rules for Desktop Apps*:
-       * Jules agents NEVER touch `desktop/mac/` (owned by the Mac agent).
+       * Jules agents NEVER touch `desktop/mac/` (owned by the Mac agent) nor `desktop/avalonia/` (owned by the Avalonia agent).
        * `desktop/common/` and `neurogenesis/bridge/` are shared contracts.
        * No app-specific duplication of shared logic. Everything about stages, Params, models, genes comes from the bridge and the UI schema. Simulation: `nglif`. Network files: NGB1. Look: `visual_spec.json`.
        * Every app passes golden fixtures, connects to the bridge in CI, and installs without preinstalled Python.
@@ -609,7 +612,7 @@ Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/E2-E4-fitting
 # Phase H: Native Desktop Applications (macOS, Windows, Linux)
 
 *Rules for desktop app tasks:*
-- Jules agents NEVER edit `desktop/mac/` (owned by the Mac agent).
+- Jules agents NEVER edit `desktop/mac/` (owned by the Mac agent) nor `desktop/avalonia/` (owned by the Avalonia agent).
 - `desktop/common/` and `neurogenesis/bridge/` are shared contracts (protocol, NGB1 format, UI schema, visual spec, C kernel `nglif`, golden fixtures, runtime scripts).
 - No app-specific copies of shared logic. Kernel: `nglif`. Network files: `NGB1`. Everything about stages, Params, models, genes: bridge and UI schema. Look: `visual_spec.json`.
 - Every app passes golden fixtures, connects to the bridge in CI, and installs without preinstalled Python.
@@ -628,7 +631,7 @@ Read `AGENTS.md`, `docs/ROADMAP.md`, `desktop/common/UI_SCHEMA.md` and `neurogen
 - ONLY create/modify:
   - `neurogenesis/project/ui_schema.py`
   - `tests/test_ui_schema.py`
-- DO NOT touch `desktop/mac/`, `desktop/windows/`, `desktop/linux/`, `README.md`, or `docs/ROADMAP.md`.
+- DO NOT touch `desktop/mac/`, `desktop/avalonia/`, `README.md`, or `docs/ROADMAP.md`.
 
 ### Deliverables & Requirements
 1. Implement `export_ui_schema() -> dict` in `neurogenesis/project/ui_schema.py`:
@@ -647,64 +650,9 @@ Read `AGENTS.md`, `docs/ROADMAP.md`, `desktop/common/UI_SCHEMA.md` and `neurogen
 
 ---
 
-## Agent 22: Task H5 — Native Windows Application
-**Branch:** `task/H5-windows-app`  
-*(Wait for H1–H4 before starting)*
-
-```text
-You are working on task H5 (Native Windows application) from `docs/ROADMAP.md`.
-Read `AGENTS.md`, `docs/ROADMAP.md`, `desktop/common/PROTOCOL.md`, `UI_SCHEMA.md`, and `visual_spec.json` first. Work on branch `task/H5-windows-app`.
-
-### Strict File Isolation
-- ONLY create/modify files within `desktop/windows/` and `.github/workflows/windows-app.yml`.
-- DO NOT edit `desktop/mac/`, `desktop/linux/`, `desktop/common/` (open a shared task if common needs additions), `neurogenesis/`, `README.md`, or `docs/ROADMAP.md`.
-
-### Deliverables & Requirements
-1. Build native Windows desktop application in `desktop/windows/` (C# / WinUI 3 or .NET + Direct3D/Vulkan GPU renderer):
-   - Fast 3D network navigation (orbit, pan, zoom, pick) with colours from `visual_spec.json`;
-   - Calls portable C kernel `nglif` through C ABI (P/Invoke) for live simulation;
-   - Connects to embedded Python bridge via standard stdio protocol (`desktop/common/PROTOCOL.md`);
-   - Renders inspector, project, geometry, field, and schedule panels dynamically driven by the UI schema (`desktop/common/UI_SCHEMA.md`);
-   - Imports/exports NGB1 binary network files and Project JSON.
-2. Installer / Packaging:
-   - MSIX package or standalone installer artifact bundled with embedded Python runtime (H4);
-   - Zero pre-installed developer tools or Python required on user machines.
-3. CI / Verification:
-   - GitHub Actions workflow running golden fixtures against `nglif` and verifying bridge connection.
-```
-
----
-
-## Agent 23: Task H6 — Native Linux Application
-**Branch:** `task/H6-linux-app`  
-*(Wait for H1–H4 before starting)*
-
-```text
-You are working on task H6 (Native Linux application) from `docs/ROADMAP.md`.
-Read `AGENTS.md`, `docs/ROADMAP.md`, `desktop/common/PROTOCOL.md`, `UI_SCHEMA.md`, and `visual_spec.json` first. Work on branch `task/H6-linux-app`.
-
-### Strict File Isolation
-- ONLY create/modify files within `desktop/linux/` and `.github/workflows/linux-app.yml`.
-- DO NOT edit `desktop/mac/`, `desktop/windows/`, `desktop/common/`, `neurogenesis/`, `README.md`, or `docs/ROADMAP.md`.
-
-### Deliverables & Requirements
-1. Build native Linux desktop application in `desktop/linux/` (e.g. GTK4 or Qt):
-   - Fast 3D network view with colours from `visual_spec.json`;
-   - Calls portable C kernel `nglif` through C ABI (`dlopen` / ctypes) for live simulation;
-   - Connects to embedded Python bridge via standard stdio protocol (`desktop/common/PROTOCOL.md`);
-   - Dynamically renders panels driven by UI schema;
-   - Reads/writes NGB1 binary networks and Project JSON.
-2. Packaging:
-   - AppImage and/or Flatpak artifact bundled with embedded Python runtime (H4) requiring zero external dependencies.
-3. CI / Verification:
-   - GitHub Actions workflow executing golden fixtures against `nglif` and verifying bridge communications.
-```
-
----
-
 ## Agent 24: Task H7 — Desktop Release Workflow
 **Branch:** `task/H7-release-workflow`  
-*(Wait for H5 & H6 before starting)*
+*(Wait for H5 Avalonia app before starting)*
 
 ```text
 You are working on task H7 (Desktop release workflow) from `docs/ROADMAP.md`.
@@ -713,9 +661,9 @@ Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/H7-release-wo
 ### Deliverables & Requirements
 1. Create `.github/workflows/release-desktop.yml`:
    - Triggered on semver tags (`v*`);
-   - Builds macOS DMG bundle (`desktop/mac/build.sh`), Windows MSIX/installer (`desktop/windows/`), and Linux AppImage/Flatpak (`desktop/linux/`);
+   - Builds macOS DMG bundle (`desktop/mac/build.sh`), Windows setup `.exe` + `.zip` (`desktop/avalonia/`), and Linux AppImage (`desktop/avalonia/`);
    - Smoke-tests each app's bridge connection and kernel fixtures across macOS, Windows, and Linux runners;
-   - Automatically attaches all three release binaries to the GitHub Release.
+   - Automatically attaches release binaries to the GitHub Release.
 ```
 
 ---
