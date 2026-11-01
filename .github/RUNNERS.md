@@ -9,16 +9,14 @@ Unset means GitHub-hosted.
 
 | Variable | Default | Jobs in `ci.yml` |
 |---|---|---|
-| `LINUX_RUNNER` | `"ubuntu-latest"` | python, viewer, nglif-linux |
+| `LINUX_RUNNER` | `"ubuntu-latest"` | detect-changes, python, viewer, nglif-ubuntu |
 | `MAC_RUNNER` | `"macos-latest"` | nglif-macos, mac-app |
 | `WINDOWS_RUNNER` | `"windows-latest"` | nglif-windows |
 
-On pull requests:
-- macOS and Windows jobs run on hosted runners only with the label `full-ci`, and always on a self-hosted runner;
+Jobs run only when their files changed (`detect-changes`), or on manual runs (`workflow_dispatch`). On pull requests:
+- macOS and Windows jobs run on a self-hosted runner, or on hosted runners only with the label `full-ci`;
 - draft PRs run the Python tests only;
 - self-hosted runners never run pull requests from forks.
-
-On main and on manual runs (`workflow_dispatch`), every job runs.
 
 ## A Mac as runner
 ```bash
