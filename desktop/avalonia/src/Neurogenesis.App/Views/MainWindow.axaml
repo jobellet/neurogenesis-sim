@@ -10,6 +10,8 @@
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="8">
       <Button x:Name="OpenButton" Content="Open…" Click="OnOpen" HotKey="Ctrl+O" />
       <Button Content="Frame (F)" Click="OnFrame" />
+      <Button x:Name="PlayButton" Content="{Binding SimButtonText}" Click="OnToggleSim" />
+      <Button Content="Step" Click="OnStepSim" />
       <TextBlock Text="Colour by" VerticalAlignment="Center" Margin="12,0,0,0" />
       <ComboBox x:Name="ColorModeBox" ItemsSource="{Binding ColorModes}" SelectedItem="{Binding ColorMode}" MinWidth="140" />
     </StackPanel>
@@ -36,7 +38,7 @@
       </DockPanel>
     </Border>
     <Panel>
-      <r:NetworkView x:Name="View" Scene="{Binding Scene}" Instances="{Binding Instances}" />
+      <r:NetworkView x:Name="View" Scene="{Binding Scene}" Instances="{Binding Instances}" CurrentTick="{Binding CurrentTick}" />
       <TextBlock x:Name="NoteText" Text="{Binding SceneNote}" IsVisible="{Binding SceneNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                  Margin="10" Padding="6,3" Background="#B0101318" Foreground="#FFD27F"
                  HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False" />

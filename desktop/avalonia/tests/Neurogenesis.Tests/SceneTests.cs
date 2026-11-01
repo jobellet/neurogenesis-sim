@@ -70,8 +70,8 @@ public class SceneTests
 
         var instances = new float[]
         {
-            0f, 0f, 0f, 1f, 1f, 1f, 1f, 1f,     // instance 0 at (0, 0, 0)
-            50f, 50f, 0f, 1f, 1f, 1f, 1f, 1f   // instance 1 at (50, 50, 0)
+            0f, 0f, 0f, 1f, 1f, 1f, 1f, 1f, -1f,    // instance 0 at (0, 0, 0)
+            50f, 50f, 0f, 1f, 1f, 1f, 1f, 1f, -1f  // instance 1 at (50, 50, 0)
         };
 
         // Center of viewport (500, 500) on a 1000x1000 screen

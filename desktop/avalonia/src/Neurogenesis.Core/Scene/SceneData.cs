@@ -9,8 +9,8 @@ namespace Neurogenesis.Core.Scene;
 /// float32, so large coordinates keep their precision on the GPU.</summary>
 public sealed class SceneData
 {
-    /// <summary>Floats per neuron instance: x, y, z, size scale, r, g, b, a.</summary>
-    public const int InstanceStride = 8;
+    /// <summary>Floats per neuron instance: x, y, z, size scale, r, g, b, a, lastSpike.</summary>
+    public const int InstanceStride = 9;
     /// <summary>Floats per line vertex: x, y, z, r, g, b, a.</summary>
     public const int LineStride = 7;
 
@@ -69,8 +69,8 @@ public sealed class SceneData
     }
 
     /// <summary>Instance data (<see cref="InstanceStride"/> floats each) in <paramref name="mode"/>, with
-    /// <paramref name="selected"/> (a neuron index, or -1) highlighted.</summary>
-    public float[] Instances(ColorMode mode, int selected)
+    /// <paramref name="selected"/> (a neuron index, or -1) highlighted and optional <paramref name="lastSpikes"/> per neuron.</summary>
+    public float[] Instances(ColorMode mode, int selected, int[]? lastSpikes = null)
     {
         var color = Style.Colorizer(mode, Network, InhibitoryMask);
         var a = new float[InstanceNeuron.Length * InstanceStride];
@@ -80,10 +80,12 @@ public sealed class SceneData
             var p = Pos(Network, i) - Center;
             bool sel = i == selected;
             var c = sel ? Style.SelectedColor : color(i);
+            float ls = lastSpikes != null && i < lastSpikes.Length ? lastSpikes[i] : float.NegativeInfinity;
             int o = k * InstanceStride;
             a[o] = p.X; a[o + 1] = p.Y; a[o + 2] = p.Z;
             a[o + 3] = sel ? Style.SelectedScale : 1f;
             a[o + 4] = c.X; a[o + 5] = c.Y; a[o + 6] = c.Z; a[o + 7] = c.W;
+            a[o + 8] = ls;
         }
         return a;
     }

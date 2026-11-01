@@ -19,8 +19,12 @@ public sealed unsafe class NetworkView : OpenGlControlBase
     public static readonly StyledProperty<float[]> InstancesProperty =
         AvaloniaProperty.Register<NetworkView, float[]>(nameof(Instances), Array.Empty<float>());
 
-    public SceneData? Scene { get => GetValue(SceneProperty); set => SetValue(SceneProperty, value); }
+    public static readonly StyledProperty<float> CurrentTickProperty =
+        AvaloniaProperty.Register<NetworkView, float>(nameof(CurrentTick), 0f);
+
+    public float CurrentTick { get => GetValue(CurrentTickProperty); set => SetValue(CurrentTickProperty, value); }
     /// <summary>Neuron instance data, <see cref="SceneData.InstanceStride"/> floats each.</summary>
+    public SceneData? Scene { get => GetValue(SceneProperty); set => SetValue(SceneProperty, value); }
     public float[] Instances { get => GetValue(InstancesProperty); set => SetValue(InstancesProperty, value); }
 
     /// <summary>Raised with the neuron index under a click, or -1 when the click hits none.</summary>
@@ -101,6 +105,7 @@ public sealed unsafe class NetworkView : OpenGlControlBase
         Attrib(1, 3, s, 0, divisor: 1);
         Attrib(2, 1, s, 3, divisor: 1);
         Attrib(3, 4, s, 4, divisor: 1);
+        Attrib(4, 1, s, 8, divisor: 1);
 
         _lineVbo = _gl.GenBuffer();
         _lineVao = _gl.GenVertexArray();
@@ -160,6 +165,8 @@ public sealed unsafe class NetworkView : OpenGlControlBase
             g.Uniform1(g.GetUniformLocation(_neuronProg, "uPointSize"), style.PointSizePx * (float)scaling);
             g.Uniform1(g.GetUniformLocation(_neuronProg, "uAttenuation"), style.Attenuation);
             g.Uniform1(g.GetUniformLocation(_neuronProg, "uRefDistance"), Camera.ReferenceDistance);
+            g.Uniform1(g.GetUniformLocation(_neuronProg, "uTick"), CurrentTick);
+            g.Uniform1(g.GetUniformLocation(_neuronProg, "uFlashTau"), 25.0f);
             g.BindVertexArray(_neuronVao);
             g.DrawArraysInstanced(PrimitiveType.TriangleStrip, 0, 4, (uint)_instCount);
         }

@@ -47,11 +47,28 @@ jobs:
         run: |
           python desktop/avalonia/tests/make_ngb_fixtures.py ${{ runner.temp }}/ngbfixtures
 
+      - name: Build nglif C kernel
+        run: |
+          cmake -S desktop/common/native/nglif -B build/nglif
+          cmake --build build/nglif --config Release
+          ctest --test-dir build/nglif -C Release --output-on-failure
+
       - name: Restore dependencies
         run: dotnet restore desktop/avalonia/Neurogenesis.Desktop.sln
 
       - name: Build solution
         run: dotnet build desktop/avalonia/Neurogenesis.Desktop.sln --configuration Release --no-restore
+
+      - name: Copy nglif library to tests output
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            mkdir -p desktop/avalonia/tests/Neurogenesis.Tests/bin/Release/net8.0/
+            cp build/nglif/Release/nglif.dll desktop/avalonia/tests/Neurogenesis.Tests/bin/Release/net8.0/ || cp build/nglif/nglif.dll desktop/avalonia/tests/Neurogenesis.Tests/bin/Release/net8.0/
+          else
+            mkdir -p desktop/avalonia/tests/Neurogenesis.Tests/bin/Release/net8.0/
+            cp build/nglif/libnglif.so desktop/avalonia/tests/Neurogenesis.Tests/bin/Release/net8.0/
+          fi
 
       - name: Run xUnit tests
         env:
