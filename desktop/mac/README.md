@@ -10,15 +10,17 @@ later and needs only the Command Line Tools, not Xcode.
 ```
 
 `NG_PYTHON` sets the Python to use. It needs numpy, jax and matplotlib, and by default the build picks the first such
-Python it finds (conda first). `NG_REPO` sets the toolbox checkout the app drives. It defaults to the repository's main
-worktree, so work that other agents merge appears in the app. You can change both later in **Roadmap status → Python**.
+Python it finds (conda first). `NG_REPO` sets the toolbox checkout the app imports: the app runs
+`python -m neurogenesis.bridge` with that folder first on `PYTHONPATH`. It defaults to the repository's main worktree,
+so work that other agents merge appears in the app. You can change both later in **Roadmap status → Python**. Shared
+pieces (the protocol, and later the C kernel and UI schemas) are in `../common/` (see `../README.md`).
 
 ## How it works
 | Part | File | What it does |
 |---|---|---|
 | Live kernel | `Sources/LIFKernel.swift` | The `lif_int` integer kernel. It gives identical spikes to `reference.py` and `jax_backend.py`, and `tests/test_desktop_kernel.py` checks this. It runs on its own thread (`SimEngine.swift`) at any speed, from 0.1× real time to maximum. |
 | 3D view | `Sources/Renderer.swift`, `MetalView.swift` | Metal, instanced. Neurons flash when they spike, synapses light up when a presynaptic spike leaves, and region boxes and geometry sample clouds are drawn too. |
-| Toolbox | `backend/ngbridge.py`, `Sources/Bridge.swift` | A Python child process speaking JSON lines. Networks travel as binary NGB1 files (float64 and int32), not JSON. |
+| Toolbox | `Sources/Bridge.swift` → `python -m neurogenesis.bridge` | A Python child process speaking JSON lines (`../common/PROTOCOL.md`). Networks travel as binary NGB1 files (float64 and int32), not JSON. |
 | Panels | `Sources/Panels.swift` | Project (A1), Geometry (B1, B2), Fields (B3–B5), Body plan, Genome, Schedule (A3, A4, C1–C13), Development, Network, Simulation, Plasticity (E1), Evolution (E2, E3), Modules (G1), Cost (D3), Analysis (E4), and Roadmap status. |
 
 **Placeholders.** The bridge checks which roadmap tasks are present in the checkout (`capabilities`). A task that has
@@ -49,5 +51,5 @@ the estimate, and *Roadmap status → This Mac* shows the machine.
 
 ## Tests
 ```bash
-JAX_PLATFORMS=cpu pytest -q "desktop app/Mac/tests"
+JAX_PLATFORMS=cpu pytest -q desktop/mac/tests tests/test_bridge.py
 ```

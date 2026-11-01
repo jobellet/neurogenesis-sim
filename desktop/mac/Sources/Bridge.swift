@@ -7,8 +7,8 @@ struct BridgeError: LocalizedError {
     var errorDescription: String? { message }
 }
 
-/// The Python toolbox, as a child process speaking JSON lines (backend/ngbridge.py). Calls are async; long jobs send
-/// progress events. The process is started lazily and restarted if it dies.
+/// The Python toolbox, as a child process speaking JSON lines: `python -m neurogenesis.bridge`
+/// (desktop/common/PROTOCOL.md). Calls are async; long jobs send progress events. Started lazily, restarted if it dies.
 final class Bridge {
     private var process: Process?
     private var stdin: FileHandle?
@@ -25,10 +25,10 @@ final class Bridge {
 
     var python: String
     var repo: String
-    let script: String
+    static let protocolVersion = "1.0"
 
-    init(python: String, repo: String, script: String) {
-        self.python = python; self.repo = repo; self.script = script
+    init(python: String, repo: String) {
+        self.python = python; self.repo = repo
     }
 
     func start() {
@@ -50,14 +50,16 @@ final class Bridge {
         ready = false
         let p = Process()
         p.executableURL = URL(fileURLWithPath: python)
-        p.arguments = ["-u", script]
+        p.arguments = ["-u", "-m", "neurogenesis.bridge"]
         var env = ProcessInfo.processInfo.environment
-        env["NEUROGENESIS_REPO"] = repo
+        if !repo.isEmpty {                      // a source checkout takes precedence over an installed toolbox
+            env["PYTHONPATH"] = repo + (env["PYTHONPATH"].map { ":" + $0 } ?? "")
+        }
         env["JAX_PLATFORMS"] = "cpu"
         env["PYTHONUNBUFFERED"] = "1"
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         p.environment = env
-        p.currentDirectoryURL = URL(fileURLWithPath: repo)
+        p.currentDirectoryURL = URL(fileURLWithPath: repo.isEmpty ? NSTemporaryDirectory() : repo)
         let inPipe = Pipe(), outPipe = Pipe(), errPipe = Pipe()
         p.standardInput = inPipe; p.standardOutput = outPipe; p.standardError = errPipe
         outPipe.fileHandleForReading.readabilityHandler = { [weak self] h in
@@ -96,6 +98,10 @@ final class Bridge {
             if let ev = obj["event"] as? String {
                 if ev == "ready" {
                     ready = true
+                    let proto = (obj["data"] as? [String: Any])?["protocol"] as? String ?? "?"
+                    if proto.split(separator: ".").first != Bridge.protocolVersion.split(separator: ".").first {
+                        DispatchQueue.main.async { self.onLog?("bridge protocol \(proto), app expects \(Bridge.protocolVersion): some features may fail") }
+                    }
                     let w = readyWaiters; readyWaiters.removeAll(); w.forEach { $0() }
                     DispatchQueue.main.async { self.onStatus?("Python ready") }
                 } else if ev == "progress", let job = obj["job"] as? Int {

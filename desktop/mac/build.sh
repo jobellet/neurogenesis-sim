@@ -7,14 +7,18 @@
 #   NG_PYTHON=/path/to/python NG_REPO=/path/to/neurogenesis-sim ./build.sh
 #
 # NG_PYTHON: a Python with numpy, jax and matplotlib (default: the first of conda / python3 that has them).
-# NG_REPO: the neurogenesis-sim checkout the app drives (default: the main worktree of this repository, where merged
-#          work lands, so that features merged later appear in the app).
+# NG_REPO: the neurogenesis-sim checkout whose toolbox the app imports (python -m neurogenesis.bridge with this
+#          folder first on PYTHONPATH; default: the main worktree of this repository, where merged work lands).
 # Both can be changed later in the app (Roadmap status → Python).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 cd "$HERE"
 MAIN_WT="$(git -C "$HERE" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')"
-REPO="${NG_REPO:-${MAIN_WT:-$(cd "$HERE/../.." && pwd)}}"
+OWN="$(cd "$HERE/../.." && pwd)"
+if [[ -n "$MAIN_WT" && ! -f "$MAIN_WT/neurogenesis/bridge/__main__.py" ]]; then
+  MAIN_WT="$OWN"            # the main worktree has no bridge yet (not merged): use this checkout
+fi
+REPO="${NG_REPO:-${MAIN_WT:-$OWN}}"
 ARCH="$(uname -m)"
 INSTALL=1
 [[ "${1:-}" == "--no-install" ]] && INSTALL=0
@@ -51,7 +55,6 @@ for s in 16 32 128 256 512; do
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 
-cp backend/ngbridge.py "$APP/Contents/Resources/ngbridge.py"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

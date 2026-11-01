@@ -58,7 +58,7 @@ struct Network {
         return c < 0 ? "–" : "#\(c)"
     }
 
-    // MARK: NGB1 binary exchange with the Python bridge (layout in backend/ngbridge.py write_network)
+    // MARK: NGB1 binary exchange with the Python bridge (layout: desktop/common/PROTOCOL.md, section 6)
 
     static func readNGB(_ url: URL) throws -> Network {
         let data = try Data(contentsOf: url, options: .mappedIfSafe)

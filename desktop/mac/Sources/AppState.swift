@@ -122,7 +122,7 @@ final class AppState: ObservableObject {
     init() {
         engine = SimEngine(Network())
         let cfg = AppConfig.load()
-        bridge = Bridge(python: cfg.python, repo: cfg.repo, script: cfg.bridgeScript)
+        bridge = Bridge(python: cfg.python, repo: cfg.repo)
         bridge.onStatus = { [weak self] s in self?.bridgeStatus = s; if s == "Python ready" { self?.refreshToolbox() } }
         bridge.onLog = { [weak self] s in
             for line in s.split(separator: "\n") where !line.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -1032,21 +1032,17 @@ final class AppState: ObservableObject {
     }
 }
 
-/// Where the toolbox and its Python are; written by build.sh into the app bundle, overridable in Settings.
+/// Which Python runs the bridge and which toolbox checkout it imports (empty: the installed package). Written by
+/// build.sh into the app bundle, overridable in Roadmap status → Python.
 struct AppConfig {
     var python: String
     var repo: String
-    var bridgeScript: String
 
     static func load() -> AppConfig {
-        let b = Bundle.main
-        let info = b.infoDictionary ?? [:]
+        let info = Bundle.main.infoDictionary ?? [:]
         let d = UserDefaults.standard
-        let script = b.path(forResource: "ngbridge", ofType: "py")
-            ?? URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent().appendingPathComponent("../backend/ngbridge.py").path
         return AppConfig(python: d.string(forKey: "python") ?? info["NGPython"] as? String ?? "/usr/bin/python3",
-                         repo: d.string(forKey: "repo") ?? info["NGRepo"] as? String ?? FileManager.default.currentDirectoryPath,
-                         bridgeScript: script)
+                         repo: d.string(forKey: "repo") ?? info["NGRepo"] as? String ?? "")
     }
 
     func save() {

@@ -1,9 +1,8 @@
 """The desktop app's native lif_int kernel (Sources/LIFKernel.swift) gives the same spikes as the Python reference and
 the JAX kernel, through the NGB1 exchange format of the bridge.
 
-    JAX_PLATFORMS=cpu pytest -q "desktop app/Mac/tests"        (macOS with the Swift toolchain; builds the harness once)
+    JAX_PLATFORMS=cpu pytest -q desktop/mac/tests        (macOS with the Swift toolchain; builds the harness once)
 """
-import importlib.util
 import shutil
 import subprocess
 import sys
@@ -17,12 +16,7 @@ REPO = MAC.parents[1]
 sys.path.insert(0, str(REPO))
 CLI = MAC / "build" / "kernel_cli"
 
-spec = importlib.util.spec_from_file_location("ngbridge", MAC / "backend" / "ngbridge.py")
-ngbridge = importlib.util.module_from_spec(spec)
-_stdout = sys.stdout
-spec.loader.exec_module(ngbridge)
-sys.stdout = _stdout
-
+from neurogenesis.bridge import write_network  # noqa: E402
 from neurogenesis.spiking.morphology import MorphogeneticEngine  # noqa: E402
 from neurogenesis.spiking.reference import IntegerSNNSimulator  # noqa: E402
 
@@ -40,7 +34,7 @@ def cli():
 
 def native_spikes(cli, net, ticks, tmp_path, ext=None):
     f = tmp_path / "net.ngb"
-    ngbridge.write_network(net, f)
+    write_network(net, f)
     args = [str(cli), str(f), str(ticks)]
     if ext is not None:
         (tmp_path / "ext.bin").write_bytes(np.asarray(ext, "<i4").tobytes())
@@ -75,12 +69,3 @@ def test_native_kernel_matches_jax_with_external_current(cli, tmp_path):
         st, spk, _ = jax_backend.tick(a, st, ext)
         ref += [(t, int(i)) for i in np.nonzero(np.asarray(spk))[0]]
     assert native_spikes(cli, net, 200, tmp_path, ext) == ref
-
-
-def test_ngb_round_trip_keeps_every_field(tmp_path):
-    net = MorphogeneticEngine.generate_cortical_column(50, seed=6)
-    f = tmp_path / "n.ngb"
-    ngbridge.write_network(net, f)
-    back = ngbridge.read_network(f)
-    assert [vars(n) for n in back.neurons] == [vars(n) for n in net.neurons]
-    assert [vars(s) for s in back.synapses] == [vars(s) for s in net.synapses]

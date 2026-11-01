@@ -1,14 +1,12 @@
-"""Bridge between the Neurogenesis desktop app and the neurogenesis toolbox: JSON lines over stdin / stdout.
+"""JSON-lines server that lets desktop apps (and any other client) drive the toolbox: python -m neurogenesis.bridge
 
-Request  {"id": 7, "method": "grow", "params": {...}}
-Reply    {"id": 7, "result": {...}}  or  {"id": 7, "error": "message", "trace": "..."}
-Event    {"event": "progress", "job": 7, "data": {...}}       (long jobs: evolution)
-
-Networks travel as binary files (format NGB1, see write_network) in a temporary directory, not as JSON, so that large
-networks load in milliseconds. Every feature of the roadmap is probed at run time (method "capabilities"): what other
-contributors merge lights up in the app without changing it. Library prints go to stderr; stdout carries only replies.
-
-The toolbox is imported from NEUROGENESIS_REPO (set by the app; default: the checkout this file lives in).
+Protocol (desktop/common/PROTOCOL.md, version PROTOCOL_VERSION): one JSON object per line on stdin / stdout.
+  request   {"id": 7, "method": "grow", "params": {...}}
+  reply     {"id": 7, "result": {...}}   or   {"id": 7, "error": "message", "kind": "error" | "resource", "trace": "..."}
+  event     {"event": "ready" | "progress", ...}
+Networks travel as NGB1 binary files (neurogenesis.bridge.ngb), not as JSON. Every roadmap feature is probed at run time
+("capabilities"), so clients enable what the installed toolbox provides. Heavy methods check memory and disk first and
+refuse with kind "resource" when the action would not fit. Library prints go to stderr; stdout carries only messages.
 """
 from __future__ import annotations
 
@@ -19,7 +17,6 @@ import json
 import os
 import re
 import shutil
-import struct
 import subprocess
 import sys
 import tempfile
@@ -28,21 +25,23 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-REPO = Path(os.environ.get("NEUROGENESIS_REPO") or Path(__file__).resolve().parents[3])
-sys.path.insert(0, str(REPO))
-os.environ.setdefault("JAX_PLATFORMS", "cpu")
+import numpy as np
 
-_OUT = sys.stdout
-sys.stdout = sys.stderr
+from .ngb import NGB_VERSION, read_network, write_network as _write_network
+
+PROTOCOL_VERSION = "1.0"
+
+_OUT = sys.__stdout__
 _LOCK = threading.Lock()
-TMP = Path(tempfile.mkdtemp(prefix="ngbridge-"))
+_TMP: list[Path] = []
 _COUNTER = [0]
 
-import numpy as np  # noqa: E402
 
-NEURON_I32 = ("mode", "shift_v", "shift_s", "base_weight", "burst_period", "burst_duty", "refractory", "role",
-              "compartment", "threshold")
-NEURON_F64 = ("poisson_hz", "conn_radius", "conn_prob")
+def tmpdir() -> Path:
+    """Directory of the network files of this server (created on first use)."""
+    if not _TMP:
+        _TMP.append(Path(tempfile.mkdtemp(prefix="ngbridge-")))
+    return _TMP[0]
 
 
 def send(obj):
@@ -74,56 +73,17 @@ def _jsonable(x):
 
 def _tmpfile(suffix):
     _COUNTER[0] += 1
-    return TMP / f"n{_COUNTER[0]}{suffix}"
+    return tmpdir() / f"n{_COUNTER[0]}{suffix}"
 
 
-# ---------------------------------------------------------------------------------------------------------- networks
 def write_network(net, path=None, extra=None):
-    """NGB1: magic, N, E, 0 (int32); positions (N, 3) f64; directions (N, 3) f64; NEURON_I32 fields (N,) i32 each;
-    NEURON_F64 fields (N,) f64 each; pre, post, weight, delay (E,) i32 each. Little endian. Float64 keeps the Poisson
-    thresholds and distances exactly as in Python."""
+    """Writes a network as NGB1 (a temporary file by default); returns {path, neurons, synapses, morphology, ...extra}."""
     path = Path(path or _tmpfile(".ngb"))
-    ns, ss = net.neurons, net.synapses
-    N, E = len(ns), len(ss)
-    with open(path, "wb") as f:
-        f.write(b"NGB1" + struct.pack("<iii", N, E, 0))
-        f.write(np.asarray([(n.x, n.y, n.z) for n in ns], "<f8").reshape(N, 3).tobytes())
-        f.write(np.asarray([(n.dir_x, n.dir_y, n.dir_z) for n in ns], "<f8").reshape(N, 3).tobytes())
-        for a in NEURON_I32:
-            f.write(np.asarray([getattr(n, a) for n in ns], "<i4").tobytes())
-        for a in NEURON_F64:
-            f.write(np.asarray([getattr(n, a) for n in ns], "<f8").tobytes())
-        for a in ("pre", "post", "weight", "delay"):
-            f.write(np.asarray([getattr(s, a) for s in ss], "<i4").tobytes())
-    out = dict(path=str(path), neurons=N, synapses=E, morphology=net.morphology)
+    _write_network(net, path)
+    out = dict(path=str(path), neurons=net.num_neurons, synapses=net.num_synapses, morphology=net.morphology)
     if extra:
         out.update(extra)
     return out
-
-
-def read_network(path):
-    from neurogenesis.spiking.network import NeuronData, SNNNetwork, SynapseData
-    b = Path(path).read_bytes()
-    assert b[:4] == b"NGB1", "not an NGB1 network file"
-    N, E, _ = struct.unpack("<iii", b[4:16])
-    o = 16
-
-    def take(dt, n):
-        nonlocal o
-        a = np.frombuffer(b, dt, n, o)
-        o += a.nbytes
-        return a
-    pos = take("<f8", 3 * N).reshape(N, 3)
-    dirs = take("<f8", 3 * N).reshape(N, 3)
-    ints = {a: take("<i4", N) for a in NEURON_I32}
-    flts = {a: take("<f8", N) for a in NEURON_F64}
-    syn = {a: take("<i4", E) for a in ("pre", "post", "weight", "delay")}
-    neurons = [NeuronData(id=i, x=float(pos[i, 0]), y=float(pos[i, 1]), z=float(pos[i, 2]), dir_x=float(dirs[i, 0]),
-                          dir_y=float(dirs[i, 1]), dir_z=float(dirs[i, 2]),
-                          **{a: int(ints[a][i]) for a in NEURON_I32}, **{a: float(flts[a][i]) for a in NEURON_F64})
-               for i in range(N)]
-    synapses = [SynapseData(int(p), int(q), int(w), int(d)) for p, q, w, d in zip(syn["pre"], syn["post"], syn["weight"], syn["delay"])]
-    return SNNNetwork(morphology="Desktop", neurons=neurons, synapses=synapses)
 
 
 # ------------------------------------------------------------------------------------------------------ resources
@@ -182,7 +142,7 @@ def _ensure(bytes_needed, action, disk=0):
                             f"computer stays responsive). Make it smaller (fewer cells, sparser projections), or quit "
                             f"other apps and try again.")
     if disk:
-        free = shutil.disk_usage(TMP).free
+        free = shutil.disk_usage(tmpdir()).free
         if disk > 0.5 * free:
             raise ResourceError(f"{action} needs about {_human(disk)} of temporary disk space, but only {_human(free)} is free.")
     return dict(bytes=int(bytes_needed), available=int(avail), physical=int(phys))
@@ -225,7 +185,7 @@ def grow_estimate(plan, g, projections=None):
 def m_resources(p):
     """This machine's memory, cores and temporary disk."""
     return dict(available=available_memory(), physical=physical_memory(), cores=os.cpu_count(),
-                disk_free=shutil.disk_usage(TMP).free, fraction=FRACTION)
+                disk_free=shutil.disk_usage(tmpdir()).free, fraction=FRACTION)
 
 
 def m_estimate_grow(p):
@@ -317,8 +277,10 @@ def m_capabilities(p):
         ("core", "Cost estimates", _has("neurogenesis.cost", "estimate")),
     ]
     import platform
+    import neurogenesis
     return dict(tasks=[dict(task=t, name=n, available=bool(a)) for t, n, a in T], python=sys.version.split()[0],
-                executable=sys.executable, repo=str(REPO), platform=platform.platform())
+                executable=sys.executable, repo=str(Path(neurogenesis.__file__).resolve().parents[1]),
+                platform=platform.platform(), protocol=PROTOCOL_VERSION, ngb=NGB_VERSION)
 
 
 # ------------------------------------------------------------------------------------------------ network sources
@@ -577,74 +539,45 @@ def m_stages(p):
     return dict(available=reg is not None, stages=out)
 
 
-PARAM_TYPES = ("Const", "Gene", "Field", "Fit", "Expr")
-
-
-def _param(d):
-    """A schedule parameter as an A3 Param. The app stores {"type": "Const" | "Gene" | "Field" | "Fit" | "Expr", ...}
-    with gene paths as lists (toolbox gene paths: keys, "src->dst" projections, array indices). Uses A3's own
-    param_from_dict when it exists; otherwise builds the dataclass, joining the path with dots if A3 wants a string."""
-    if not isinstance(d, dict):
-        return d
-    params = importlib.import_module("neurogenesis.params")
-    d = dict(d)
-    kind = d.get("type") or str(d.get("source", "const")).capitalize()
-    d["type"] = kind
-    if kind == "Gene" and isinstance(d.get("path"), str):
-        d["path"] = [x for x in d["path"].replace("/", ".").split(".") if x]
-    if kind == "Gene":
-        d["path"] = [int(x) if isinstance(x, str) and x.isdigit() else x for x in d["path"]]
-    for name in ("param_from_dict", "from_dict"):
-        fn = getattr(params, name, None)
-        if callable(fn):
-            try:
-                return fn(d)
-            except Exception:
-                try:
-                    return fn({**d, "path": list(_gene_path(d["path"]))} if kind == "Gene" else d)
-                except Exception:
-                    pass
-    if kind not in PARAM_TYPES or not hasattr(params, kind):
-        return d
-    cls = getattr(params, kind)
-    known = set(inspect.signature(cls).parameters)
-    kw = {k: v for k, v in d.items() if k in known}
-    if kind == "Gene":
-        ann = str(inspect.signature(cls).parameters["path"].annotation)
-        kw["path"] = ".".join(map(str, kw["path"])) if "str" in ann else _gene_path(kw["path"])
-    return cls(**kw)
-
-
-def _import_plugins(project):
-    for m in project.get("plugins") or []:
-        importlib.import_module(m)
+def _gene_key(k):
+    """A gene path element from JSON: "src->dst" is a projection (tuple), digit strings are array indices."""
+    if isinstance(k, str) and "->" in k:
+        return tuple(k.split("->"))
+    if isinstance(k, str) and k.isdigit():
+        return int(k)
+    return k
 
 
 def _schedule(project):
-    """Schedule entries in the A4 form {name, operator, params (Param objects), when, repeat}."""
+    """Schedule entries as A4 reads them: {name, operator, params, when, repeat}, gene paths in the toolbox form.
+    Accepts the app's older {"stage": ...} spelling."""
     out = []
     for k, st in enumerate(project.get("schedule", [])):
         st = dict(st)
         st["operator"] = st.get("operator") or st.pop("stage", None)
         st.setdefault("name", f"{k + 1}_{st['operator']}")
-        st["params"] = {n: _param(v) for n, v in (st.get("params") or {}).items()}
+        params = {}
+        for n, v in (st.get("params") or {}).items():
+            if isinstance(v, dict) and isinstance(v.get("path"), (list, str)):
+                path = v["path"] if isinstance(v["path"], list) else [x for x in re.split(r"[./]", v["path"]) if x]
+                v = {**v, "path": [_gene_key(x) for x in path]}
+            params[n] = v
+        st["params"] = params
         out.append(st)
     return out
 
 
 def m_run_schedule(p):
-    """Run a Project's schedule through A4's run_schedule, keeping the tissue after every stage."""
+    """Runs a Project's schedule with A4's run_schedule, keeping the tissue after every stage."""
     if stage_registry() is None:
-        raise RuntimeError("the stage scheduler (task A4) is not merged yet; use 'Develop step by step' meanwhile")
-    mod = importlib.import_module("neurogenesis.stages")
+        raise RuntimeError("the stage scheduler (task A4) is not available in this toolbox")
+    from neurogenesis.stages import run_schedule
     d = dict(p["project"])
-    _import_plugins(d)
     d["schedule"] = _schedule(d)
     unknown = [s["operator"] for s in d["schedule"] if s["operator"] not in stage_registry()]
     if unknown:
-        raise RuntimeError(f"stages not implemented yet: {', '.join(unknown)} (tasks C1–C13 in progress)")
-    kw = {"checkpoints": True} if "checkpoints" in inspect.signature(mod.run_schedule).parameters else {}
-    res = mod.run_schedule(d, _genome(d.get("genome")), int(p.get("seed", 0)), **kw)
+        raise RuntimeError(f"stages not implemented yet: {', '.join(unknown)} (tasks C1–C13)")
+    res = run_schedule(d, _genome(d.get("genome")), int(p.get("seed", 0)), checkpoints=True)
     tissues = list(res) if isinstance(res, (list, tuple)) else [res]
     labels = [f"{s['name']} ({r + 1}/{s.get('repeat', 1)})" if s.get("repeat", 1) > 1 else s["name"]
               for s in d["schedule"] for r in range(int(s.get("repeat", 1)))]
@@ -668,6 +601,10 @@ def m_schedule_info(p):
                 return "/".join("->".join(x) if isinstance(x, tuple) else str(x) for x in g)
             return str(g)
         out["genes"] = [show(g) for g in importlib.import_module("neurogenesis.params").collect_genes(sched)]
+        out["gene_list"] = [dict(path=["->".join(x) if isinstance(x, tuple) else x for x in g[0]], lo=g[1], hi=g[2],
+                                 integer=bool(g[3]) if len(g) > 3 else False)
+                            for g in importlib.import_module("neurogenesis.params").collect_genes(sched)
+                            if isinstance(g, (tuple, list)) and len(g) >= 3 and isinstance(g[0], (tuple, list))]
     if _has("neurogenesis.stages.base", "schedule_cost"):
         try:
             b, o = importlib.import_module("neurogenesis.stages.base").schedule_cost({**d, "schedule": sched}, int(p.get("N", 1000)), int(p.get("E", 100000)))
@@ -860,18 +797,41 @@ def m_module_save(p):
 
 
 def m_module_compose(p):
+    """Composes modules (compose(): {prefix: Module}); prefixes default to the file names. links: [src, dst] or
+    [src, dst, guidance genes] with prefixed region names; missing genes get neutral defaults. Modules are placed side
+    by side along x unless offsets {prefix: [dx, dy, dz]} are given."""
     from neurogenesis.genome.io import to_json
     from neurogenesis.modules import Module, compose
-    mods = [Module.load(x) for x in p["paths"]]
-    m = compose(p.get("name", "composite"), mods, links=[tuple(x) for x in p.get("links", [])])
+    mods, prefixes = {}, p.get("prefixes") or []
+    x = 0.0
+    offsets = dict(p.get("offsets") or {})
+    for k, path in enumerate(p["paths"]):
+        m = Module.load(path)
+        prefix = prefixes[k] if k < len(prefixes) else re.sub(r"\W+", "_", Path(path).name.split(".")[0]) or f"m{k}"
+        base, j = prefix, 1
+        while prefix in mods:
+            j += 1
+            prefix = f"{base}{j}"
+        mods[prefix] = m
+        if prefix not in offsets:
+            offsets[prefix] = (x, 0.0, 0.0)
+        x += max((r.origin[0] + r.size[0] for r in m.plan.regions), default=0.0) + 20.0
+    neutral = dict(B=np.eye(3), c=np.zeros(3), sigma=0.3, p0=0.5, w=100.0)
+    links = [(l[0], l[1], {**neutral, **(l[2] if len(l) > 2 else {})}) for l in p.get("links", [])]
+    m = compose(p.get("name", "composite"), mods, links=links, offsets={k: tuple(v) for k, v in offsets.items()})
     est = grow_estimate(m.plan, m.genome)
     _ensure(est["bytes"], f"Growing {m.name} ({est['neurons']} cells, ~{est['synapses']} synapses)", est["disk"])
     net = m.grow(int(p.get("seed", 0)))
-    return dict(name=m.name, plan=m.plan.to_dict(), genome=to_json(m.genome),
+    return dict(name=m.name, plan=m.plan.to_dict(), genome=to_json(m.genome), prefixes=list(mods),
                 network=write_network(net, extra=_network_extra(m.plan)))
 
 
 # ----------------------------------------------------------------------------------------------------- dispatch
+def m_ping(p):
+    """Liveness check: "pong"."""
+    return "pong"
+
+
 LONG = {"evolve"}
 METHODS = {k[2:]: v for k, v in list(globals().items()) if k.startswith("m_") and callable(v)}
 _POOL = ThreadPoolExecutor(max_workers=1)          # requests run one at a time, in order
@@ -893,6 +853,8 @@ def warm_up():
 def handle(req):
     rid, method, params = req.get("id"), req.get("method"), req.get("params") or {}
     try:
+        if method not in METHODS:
+            raise KeyError(f"unknown method {method!r} (protocol {PROTOCOL_VERSION}; see desktop/common/PROTOCOL.md)")
         fn = METHODS[method]
         res = fn(params, job=rid) if method in LONG else fn(params)
         send(dict(id=rid, result=res))
@@ -906,8 +868,11 @@ def handle(req):
 
 
 def main():
+    """Serve requests from stdin until it closes. Library prints are sent to stderr."""
+    sys.stdout = sys.stderr
+    os.environ.setdefault("JAX_PLATFORMS", "cpu")
     warm_up()
-    send(dict(event="ready", data=dict(python=sys.version.split()[0], repo=str(REPO))))
+    send(dict(event="ready", data=dict(python=sys.version.split()[0], protocol=PROTOCOL_VERSION, ngb=NGB_VERSION)))
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -921,7 +886,3 @@ def main():
             send(dict(id=req.get("id"), result="pong"))
             continue
         (_LONG_POOL if req.get("method") in LONG else _POOL).submit(handle, req)
-
-
-if __name__ == "__main__":
-    main()
