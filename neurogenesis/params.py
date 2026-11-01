@@ -185,7 +185,9 @@ def resolve(
         if positions is not None and cell_indices is not None:
             pos_to_use = positions[cell_indices]
             
-        if hasattr(field_obj, 'sample') and pos_to_use is not None:
+        if hasattr(field_obj, 'values') and pos_to_use is not None:
+            val = field_obj.values(pos_to_use)
+        elif hasattr(field_obj, 'sample') and pos_to_use is not None:
             val = field_obj.sample(pos_to_use)
         elif callable(field_obj) and pos_to_use is not None:
             val = field_obj(pos_to_use)

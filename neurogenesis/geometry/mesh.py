@@ -181,7 +181,7 @@ class MeshGeometry(Geometry):
         result[in_box] = (intersections % 2) == 1
         return result
 
-    def sample(self, n: int, rng: np.random.Generator) -> np.ndarray:
+    def sample_points(self, n: int, rng: np.random.Generator) -> np.ndarray:
         # Uniform sampling inside the mesh (rejection sampling from bounding box)
         box_size = self._max_bounds - self._min_bounds
         box_center = self._min_bounds + box_size / 2.0
@@ -198,7 +198,7 @@ class MeshGeometry(Geometry):
             
             # Since sampling is slow, we can use the voxel cache to speed up rejection sampling!
             # Sample from the voxel cache first, then verify with ray-casting!
-            c_samples = self.voxel_cache.sample(n * 2, rng)
+            c_samples = self.voxel_cache.sample_points(n * 2, rng)
             mask = self.contains(c_samples)
             valid = c_samples[mask]
             if len(valid) > 0:

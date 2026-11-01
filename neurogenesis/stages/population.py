@@ -6,6 +6,7 @@ from typing import Dict, Any, Tuple
 from neurogenesis.stages.base import register_stage
 from neurogenesis.tissue import Tissue
 from neurogenesis.params import resolve
+from neurogenesis.geometry import Geometry
 
 @register_stage("seed_cells")
 class SeedCells:
@@ -40,17 +41,22 @@ class SeedCells:
             return tissue
 
         # Get geometry
-        geometry_name = params.get("geometry", None)
-        geometry = None
-        if geometry_name is not None and isinstance(geometry_name, str):
-            geometry = fields.get(geometry_name)
-        elif "geometry" in params and hasattr(params["geometry"], "sample"):
-            geometry = params["geometry"]
-
-        if geometry is not None and hasattr(geometry, "sample"):
-            positions = geometry.sample(N, rng).astype(np.float64)
-        else:
-            # Check if there is an explicit position given, else (0,0,0)
+        geom_param = params.get("geometry", None)
+        if geom_param is not None:
+            resolved_geom = resolve(geom_param, genome, fields)
+            if isinstance(resolved_geom, str):
+                if resolved_geom not in fields:
+                    raise ValueError(f"Geometry {resolved_geom!r} not found in project geometry/fields.")
+                geometry = fields[resolved_geom]
+            elif isinstance(resolved_geom, Geometry):
+                geometry = resolved_geom
+            else:
+                raise TypeError(f"Expected geometry name or Geometry object, got {type(resolved_geom).__name__}.")
+            
+            if not isinstance(geometry, Geometry):
+                raise TypeError(f"Object {geom_param!r} is of type {type(geometry).__name__}, expected Geometry with sample_points().")
+            positions = geometry.sample_points(N, rng).astype(np.float64)
+        elif "position" in params:
             pos_param = params.get("position", [0.0, 0.0, 0.0])
             pos = resolve(pos_param, genome, fields)
             if isinstance(pos, (list, tuple, np.ndarray)):
@@ -58,6 +64,8 @@ class SeedCells:
             else:
                 pos = np.array([0.0, 0.0, 0.0], dtype=np.float64)
             positions = np.tile(pos, (N, 1))
+        else:
+            raise ValueError("seed_cells requires either 'geometry' or 'position' parameter.")
             
         region_param = params.get("region", 0)
         region = int(resolve(region_param, genome, fields))
