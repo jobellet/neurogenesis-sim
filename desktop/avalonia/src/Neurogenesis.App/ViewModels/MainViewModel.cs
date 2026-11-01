@@ -1,8 +1,11 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Neurogenesis.Core.Ngb;
+using Neurogenesis.Core.Project;
 using Neurogenesis.Core.Scene;
+using Neurogenesis.Core.Schema;
 using Neurogenesis.Core.Simulation;
 using Neurogenesis.Core.Style;
 
@@ -10,30 +13,113 @@ namespace Neurogenesis.App.ViewModels;
 
 public sealed record FieldRow(string Name, string Value);
 
-/// <summary>State of the main window in Step 3: includes in-app simulation with nglif.</summary>
+/// <summary>State of the main window: the open network, its scene, the colour mode, the inspector, and the project/schedule.</summary>
 public sealed partial class MainViewModel : ObservableObject
 {
     public VisualStyle Style { get; } = VisualStyle.Default;
     public IReadOnlyList<ColorMode> ColorModes => Style.ColorModes;
     public ObservableCollection<FieldRow> Inspector { get; } = new();
 
-    [ObservableProperty] private string _status = "Open a network file (.ngb).";
+    public ProjectDocument Project { get; }
+    public UiSchemaDocument? UiSchema { get; }
+
+    [ObservableProperty] private string _status = "Open a network file (.ngb) or configure schedule.";
     [ObservableProperty] private string _sceneNote = "";
     [ObservableProperty] private string _title = "Neurogenesis";
     [ObservableProperty] private ColorMode _colorMode;
     [ObservableProperty] private SceneData? _scene;
     [ObservableProperty] private float[] _instances = Array.Empty<float>();
     [ObservableProperty, NotifyPropertyChangedFor(nameof(HasSelection))] private int _selected = -1;
-    [ObservableProperty] private float _currentTick = 0f;
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(SimButtonText))] private bool _isSimulating = false;
+
+    [ObservableProperty] private bool _canUndo;
+    [ObservableProperty] private bool _canRedo;
 
     public bool HasSelection => Selected >= 0;
     public string SimButtonText => IsSimulating ? "Pause" : "Simulate";
-    private SimulationEngine? _simEngine;
 
     public MainViewModel()
     {
         _colorMode = Style.ColorModes[0];
+        Project = new ProjectDocument();
+        Project.DocumentChanged += (s, e) =>
+        {
+            CanUndo = Project.CanUndo;
+            CanRedo = Project.CanRedo;
+        };
+
+        var (success, _, doc) = UiSchemaLoader.LoadDefault();
+        if (success && doc != null)
+        {
+            UiSchema = doc;
+            // Populate project with default stage if empty
+            if (Project.Schedule.Count == 0 && doc.Stages.Count > 0)
+            {
+                var seedStage = doc.Stages.FirstOrDefault(st => st.Operator == "seed_cells") ?? doc.Stages[0];
+                Project.AddStage(seedStage);
+            }
+        }
+    }
+
+    public void Undo()
+    {
+        if (Project.Undo())
+        {
+            CanUndo = Project.CanUndo;
+            CanRedo = Project.CanRedo;
+            Status = "Undo applied.";
+        }
+    }
+
+    public void Redo()
+    {
+        if (Project.Redo())
+        {
+            CanUndo = Project.CanUndo;
+            CanRedo = Project.CanRedo;
+            Status = "Redo applied.";
+        }
+    }
+
+    public void AddStage(StageSpec spec)
+    {
+        Project.AddStage(spec);
+        Status = $"Added stage '{spec.Title}'.";
+    }
+
+    public void RemoveStage(int index)
+    {
+        Project.RemoveStage(index);
+        Status = $"Removed stage #{index + 1}.";
+    }
+
+    public void MoveStage(int fromIndex, int toIndex)
+    {
+        Project.MoveStage(fromIndex, toIndex);
+    }
+
+    public void UpdateParam(int stageIndex, string paramName, JsonNode? value)
+    {
+        Project.UpdateParam(stageIndex, paramName, value);
+    }
+
+    public void UpdateStageName(int index, string name)
+    {
+        Project.UpdateStageName(index, name);
+    }
+
+    public void UpdateStageRepeat(int index, int repeat)
+    {
+        Project.UpdateStageRepeat(index, repeat);
+    }
+
+    public void UpdateStageWhen(int index, string? when)
+    {
+        Project.UpdateStageWhen(index, when);
+    }
+
+    public void SetNeuronModel(string modelName)
+    {
+        Project.NeuronModel = modelName;
     }
 
     /// <summary>Reads an NGB1 file and builds its scene off the UI thread.</summary>
@@ -78,6 +164,10 @@ public sealed partial class MainViewModel : ObservableObject
             foreach (var (name, text) in s.Network.NeuronFields(value)) Inspector.Add(new FieldRow(name, text));
         Refresh();
     }
+
+    [ObservableProperty] private float _currentTick = 0f;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(SimButtonText))] private bool _isSimulating = false;
+    private SimulationEngine? _simEngine;
 
     public void StartSimulation()
     {

@@ -29,6 +29,9 @@ public partial class MainWindow : Window
             await vm.OpenAsync(path);
     }
 
+    private void OnUndo(object? sender, RoutedEventArgs e) => (DataContext as MainViewModel)?.Undo();
+    private void OnRedo(object? sender, RoutedEventArgs e) => (DataContext as MainViewModel)?.Redo();
+
     private void OnFrame(object? sender, RoutedEventArgs e) => View.Frame();
 
     private void OnToggleSim(object? sender, RoutedEventArgs e)
