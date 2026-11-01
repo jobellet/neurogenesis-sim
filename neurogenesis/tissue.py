@@ -24,7 +24,7 @@ class SparseConnectivity:
 class Tissue:
     positions: np.ndarray
     directions: np.ndarray
-    lineage_id: np.ndarray
+    cell_id: np.ndarray
     parent_id: np.ndarray
     clone_id: np.ndarray
     birth_stage: np.ndarray
@@ -48,14 +48,23 @@ class Tissue:
     threshold: np.ndarray
     connectivity: SparseConnectivity
     expression_names: List[str] = field(default_factory=list)
-    _next_lineage_id: int = 0
+    _next_cell_id: int = 0
+
+    @property
+    def lineage_id(self) -> np.ndarray:
+        """Alias for backward compatibility."""
+        return self.cell_id
+
+    @lineage_id.setter
+    def lineage_id(self, val: np.ndarray) -> None:
+        self.cell_id = val
 
     @classmethod
     def empty(cls, K: int = 0) -> Tissue:
         return cls(
             positions=np.zeros((0, 3), dtype=np.float64),
             directions=np.zeros((0, 3), dtype=np.float32),
-            lineage_id=np.zeros(0, dtype=np.int32),
+            cell_id=np.zeros(0, dtype=np.int32),
             parent_id=np.zeros(0, dtype=np.int32),
             clone_id=np.zeros(0, dtype=np.int32),
             birth_stage=np.zeros(0, dtype=np.int32),
@@ -72,18 +81,18 @@ class Tissue:
             conn_prob=np.zeros(0, dtype=np.float32),
             burst_period=np.zeros(0, dtype=np.int32),
             burst_duty=np.zeros(0, dtype=np.int32),
-            poisson_hz=np.zeros(0, dtype=np.float32),
+            poisson_hz=np.zeros(0, dtype=np.float64),
             refractory=np.zeros(0, dtype=np.int32),
             role=np.zeros(0, dtype=np.int32),
             compartment=np.zeros(0, dtype=np.int32),
             threshold=np.zeros(0, dtype=np.int32),
             connectivity=SparseConnectivity.empty(),
             expression_names=[],
-            _next_lineage_id=0
+            _next_cell_id=0
         )
 
     def add_cells(self, N: int, positions: Optional[np.ndarray] = None, K: int = 0, parent_ids: Optional[np.ndarray] = None, **kwargs) -> None:
-        """Adds N new cells. Lineage ids are automatically assigned."""
+        """Adds N new cells. cell_ids are automatically assigned."""
         if N == 0:
             return
         
@@ -97,28 +106,58 @@ class Tissue:
         if "directions" not in kwargs:
             dir[:, 0] = 1.0  # Default to (1, 0, 0)
         
-        lin_id = np.arange(self._next_lineage_id, self._next_lineage_id + N, dtype=np.int32)
-        self._next_lineage_id += N
+        c_id = np.arange(self._next_cell_id, self._next_cell_id + N, dtype=np.int32)
+        self._next_cell_id += N
         
         par_id = parent_ids if parent_ids is not None else np.full(N, -1, dtype=np.int32)
-        clone_id = kwargs.get("clone_id", lin_id if parent_ids is None else np.where(par_id >= 0, par_id, lin_id))
+        
+        # Proper clone_id resolution:
+        # If explicitly passed in kwargs, use it.
+        # Otherwise: for founder cells (par_id == -1), clone_id = c_id.
+        # For child cells, lookup parent's clone_id in self.clone_id!
+        if "clone_id" in kwargs:
+            c_clone_id = np.asarray(kwargs["clone_id"], dtype=np.int32)
+        else:
+            c_clone_id = np.zeros(N, dtype=np.int32)
+            # Map existing cells by cell_id to clone_id
+            id_to_clone = {}
+            if len(self.cell_id) > 0:
+                id_to_clone = dict(zip(self.cell_id, self.clone_id))
+            for idx in range(N):
+                pid = par_id[idx]
+                if pid == -1 or pid not in id_to_clone:
+                    c_clone_id[idx] = c_id[idx]
+                else:
+                    c_clone_id[idx] = id_to_clone[pid]
+
         birth = kwargs.get("birth_stage", np.zeros(N, dtype=np.int32))
         ctype = kwargs.get("cell_type", np.zeros(N, dtype=np.int32))
         reg = kwargs.get("region", np.zeros(N, dtype=np.int32))
         expr = kwargs.get("expression", np.zeros((N, K), dtype=np.float32))
+        
+        # Single source of truth for sign:
+        # sign is +1 (exc) or -1 (inh)
         sgn = kwargs.get("sign", np.ones(N, dtype=np.int8))
+        sgn = np.asarray(sgn, dtype=np.int8)
         alv = kwargs.get("alive", np.ones(N, dtype=bool))
         
-        # Neuron parameters
+        # Neuron parameters - aligned with grow.py defaults
         mode = kwargs.get("mode", np.zeros(N, dtype=np.int32))
         shift_v = kwargs.get("shift_v", np.full(N, 5, dtype=np.int32))
         shift_s = kwargs.get("shift_s", np.full(N, 4, dtype=np.int32))
-        base_weight = kwargs.get("base_weight", np.full(N, 180, dtype=np.int32))
-        conn_radius = kwargs.get("conn_radius", np.full(N, 28.0, dtype=np.float32))
-        conn_prob = kwargs.get("conn_prob", np.full(N, 0.38, dtype=np.float32))
+        
+        # base_weight: magnitude is 1 by default (or abs of provided base_weight), signed by sgn
+        if "base_weight" in kwargs:
+            raw_bw = np.asarray(kwargs["base_weight"], dtype=np.int32)
+            base_weight = np.abs(raw_bw) * np.where(sgn >= 0, 1, -1)
+        else:
+            base_weight = np.where(sgn >= 0, 1, -1).astype(np.int32)
+
+        conn_radius = kwargs.get("conn_radius", np.zeros(N, dtype=np.float32))
+        conn_prob = kwargs.get("conn_prob", np.zeros(N, dtype=np.float32))
         burst_period = kwargs.get("burst_period", np.full(N, 200, dtype=np.int32))
         burst_duty = kwargs.get("burst_duty", np.full(N, 24, dtype=np.int32))
-        poisson_hz = kwargs.get("poisson_hz", np.full(N, 25.0, dtype=np.float32))
+        poisson_hz = kwargs.get("poisson_hz", np.full(N, 25.0, dtype=np.float64))
         refractory = kwargs.get("refractory", np.zeros(N, dtype=np.int32))
         role = kwargs.get("role", np.zeros(N, dtype=np.int32))
         compartment = kwargs.get("compartment", np.full(N, -1, dtype=np.int32))
@@ -129,9 +168,9 @@ class Tissue:
 
         self.positions = np.concatenate([self.positions, pos])
         self.directions = np.concatenate([self.directions, dir])
-        self.lineage_id = np.concatenate([self.lineage_id, lin_id])
+        self.cell_id = np.concatenate([self.cell_id, c_id])
         self.parent_id = np.concatenate([self.parent_id, par_id])
-        self.clone_id = np.concatenate([self.clone_id, clone_id])
+        self.clone_id = np.concatenate([self.clone_id, c_clone_id])
         self.birth_stage = np.concatenate([self.birth_stage, birth])
         self.cell_type = np.concatenate([self.cell_type, ctype])
         self.region = np.concatenate([self.region, reg])
@@ -170,8 +209,9 @@ class Tissue:
         # Subset arrays
         self.positions = self.positions[alive_mask]
         self.directions = self.directions[alive_mask]
-        self.lineage_id = self.lineage_id[alive_mask]
+        self.cell_id = self.cell_id[alive_mask]
         self.parent_id = self.parent_id[alive_mask]
+        self.clone_id = self.clone_id[alive_mask]
         self.birth_stage = self.birth_stage[alive_mask]
         self.cell_type = self.cell_type[alive_mask]
         self.region = self.region[alive_mask]
@@ -199,7 +239,6 @@ class Tissue:
             post_valid = (self.connectivity.post >= 0) & (self.connectivity.post < N)
             syn_mask = pre_valid & post_valid
             
-            # Additional check: both pre and post must be alive
             pre_alive = np.zeros_like(syn_mask, dtype=bool)
             post_alive = np.zeros_like(syn_mask, dtype=bool)
             pre_alive[syn_mask] = alive_mask[self.connectivity.pre[syn_mask]]
@@ -215,32 +254,33 @@ class Tissue:
     def subset(self, indices: np.ndarray) -> Tissue:
         """Returns a new Tissue with only the given cell indices (assumes connectivity only between subset)."""
         t = Tissue(
-            positions=self.positions[indices],
-            directions=self.directions[indices],
-            lineage_id=self.lineage_id[indices],
-            parent_id=self.parent_id[indices],
-            clone_id=self.clone_id[indices],
-            birth_stage=self.birth_stage[indices],
-            cell_type=self.cell_type[indices],
-            region=self.region[indices],
-            expression=self.expression[indices],
-            sign=self.sign[indices],
-            alive=self.alive[indices],
-            mode=self.mode[indices],
-            shift_v=self.shift_v[indices],
-            shift_s=self.shift_s[indices],
-            base_weight=self.base_weight[indices],
-            conn_radius=self.conn_radius[indices],
-            conn_prob=self.conn_prob[indices],
-            burst_period=self.burst_period[indices],
-            burst_duty=self.burst_duty[indices],
-            poisson_hz=self.poisson_hz[indices],
-            refractory=self.refractory[indices],
-            role=self.role[indices],
-            compartment=self.compartment[indices],
-            threshold=self.threshold[indices],
+            positions=self.positions[indices].copy(),
+            directions=self.directions[indices].copy(),
+            cell_id=self.cell_id[indices].copy(),
+            parent_id=self.parent_id[indices].copy(),
+            clone_id=self.clone_id[indices].copy(),
+            birth_stage=self.birth_stage[indices].copy(),
+            cell_type=self.cell_type[indices].copy(),
+            region=self.region[indices].copy(),
+            expression=self.expression[indices].copy(),
+            sign=self.sign[indices].copy(),
+            alive=self.alive[indices].copy(),
+            mode=self.mode[indices].copy(),
+            shift_v=self.shift_v[indices].copy(),
+            shift_s=self.shift_s[indices].copy(),
+            base_weight=self.base_weight[indices].copy(),
+            conn_radius=self.conn_radius[indices].copy(),
+            conn_prob=self.conn_prob[indices].copy(),
+            burst_period=self.burst_period[indices].copy(),
+            burst_duty=self.burst_duty[indices].copy(),
+            poisson_hz=self.poisson_hz[indices].copy(),
+            refractory=self.refractory[indices].copy(),
+            role=self.role[indices].copy(),
+            compartment=self.compartment[indices].copy(),
+            threshold=self.threshold[indices].copy(),
             connectivity=SparseConnectivity.empty(),
-            _next_lineage_id=self._next_lineage_id
+            expression_names=list(self.expression_names),
+            _next_cell_id=self._next_cell_id
         )
         
         if len(self.connectivity.pre) > 0:
@@ -252,7 +292,6 @@ class Tissue:
             post_valid = (self.connectivity.post >= 0) & (self.connectivity.post < N)
             syn_mask = pre_valid & post_valid
             
-            # Map indices
             mapped_pre = np.where(syn_mask, inv_map[self.connectivity.pre], -1)
             mapped_post = np.where(syn_mask, inv_map[self.connectivity.post], -1)
             
@@ -261,8 +300,8 @@ class Tissue:
             t.connectivity = SparseConnectivity(
                 pre=mapped_pre[valid],
                 post=mapped_post[valid],
-                weight=self.connectivity.weight[valid],
-                delay=self.connectivity.delay[valid]
+                weight=self.connectivity.weight[valid].copy(),
+                delay=self.connectivity.delay[valid].copy()
             )
         
         return t
@@ -277,19 +316,52 @@ class Tissue:
             if t.expression.shape[1] != K:
                 raise ValueError("Cannot concatenate Tissues with different expression dimensions")
 
+        # Preserve expression names
+        expr_names = list(tissues[0].expression_names)
+        for t in tissues[1:]:
+            if not expr_names and t.expression_names:
+                expr_names = list(t.expression_names)
+
         offsets = np.cumsum([0] + [len(t.alive) for t in tissues[:-1]])
         
+        # Ensure unique cell_id, parent_id, clone_id across concatenated tissues:
+        # Shift cell_ids, parent_ids, and clone_ids by distinct ID offsets
+        id_offsets = [0]
+        cur_id_offset = 0
+        for t in tissues[:-1]:
+            # Each tissue may have max id = max(cell_id, clone_id, _next_cell_id)
+            max_id = max(
+                t._next_cell_id,
+                int(np.max(t.cell_id)) + 1 if len(t.cell_id) > 0 else 0,
+                int(np.max(t.clone_id)) + 1 if len(t.clone_id) > 0 else 0
+            )
+            cur_id_offset += max_id
+            id_offsets.append(cur_id_offset)
+
+        shifted_cell_ids = []
+        shifted_parent_ids = []
+        shifted_clone_ids = []
+        for t, id_off in zip(tissues, id_offsets):
+            shifted_cell_ids.append(t.cell_id + id_off)
+            shifted_parent_ids.append(np.where(t.parent_id >= 0, t.parent_id + id_off, -1))
+            shifted_clone_ids.append(t.clone_id + id_off)
+
         pre = np.concatenate([t.connectivity.pre + offset for t, offset in zip(tissues, offsets) if len(t.connectivity.pre) > 0] or [np.zeros(0, dtype=np.int32)])
         post = np.concatenate([t.connectivity.post + offset for t, offset in zip(tissues, offsets) if len(t.connectivity.post) > 0] or [np.zeros(0, dtype=np.int32)])
         weight = np.concatenate([t.connectivity.weight for t in tissues if len(t.connectivity.weight) > 0] or [np.zeros(0, dtype=np.int32)])
         delay = np.concatenate([t.connectivity.delay for t in tissues if len(t.connectivity.delay) > 0] or [np.zeros(0, dtype=np.int32)])
         
+        total_next_id = cur_id_offset + max(
+            tissues[-1]._next_cell_id,
+            int(np.max(tissues[-1].cell_id)) + 1 if len(tissues[-1].cell_id) > 0 else 0
+        )
+
         return cls(
             positions=np.concatenate([t.positions for t in tissues]),
             directions=np.concatenate([t.directions for t in tissues]),
-            lineage_id=np.concatenate([t.lineage_id for t in tissues]),
-            parent_id=np.concatenate([t.parent_id for t in tissues]),
-            clone_id=np.concatenate([t.clone_id for t in tissues]),
+            cell_id=np.concatenate(shifted_cell_ids),
+            parent_id=np.concatenate(shifted_parent_ids),
+            clone_id=np.concatenate(shifted_clone_ids),
             birth_stage=np.concatenate([t.birth_stage for t in tissues]),
             cell_type=np.concatenate([t.cell_type for t in tissues]),
             region=np.concatenate([t.region for t in tissues]),
@@ -310,12 +382,16 @@ class Tissue:
             compartment=np.concatenate([t.compartment for t in tissues]),
             threshold=np.concatenate([t.threshold for t in tissues]),
             connectivity=SparseConnectivity(pre, post, weight, delay),
-            _next_lineage_id=max(t._next_lineage_id for t in tissues)
+            expression_names=expr_names,
+            _next_cell_id=total_next_id
         )
 
     def to_network(self) -> SNNNetwork:
         net = SNNNetwork()
         N = len(self.alive)
+        
+        # Single source of truth for polarity: sign (+1 or -1) governs the sign of base_weight
+        # base_weight in SNNNetwork = abs(self.base_weight) * (1 if sign >= 0 else -1)
         net.neurons = [
             NeuronData(
                 id=int(i),
@@ -328,7 +404,7 @@ class Tissue:
                 mode=int(self.mode[i]),
                 shift_v=int(self.shift_v[i]),
                 shift_s=int(self.shift_s[i]),
-                base_weight=int(self.base_weight[i]),
+                base_weight=int(abs(int(self.base_weight[i])) * (1 if self.sign[i] >= 0 else -1)),
                 conn_radius=float(self.conn_radius[i]),
                 conn_prob=float(self.conn_prob[i]),
                 burst_period=int(self.burst_period[i]),
@@ -384,7 +460,8 @@ class Tissue:
         if N == 0:
             return t
             
-        positions = np.array([[n.x, n.y, n.z] for n in net.neurons], dtype=np.float32)
+        # Float64 for positions and float64 for poisson_hz for bit-for-bit fidelity
+        positions = np.array([[n.x, n.y, n.z] for n in net.neurons], dtype=np.float64)
         directions = np.array([[n.dir_x, n.dir_y, n.dir_z] for n in net.neurons], dtype=np.float32)
         mode = np.array([n.mode for n in net.neurons], dtype=np.int32)
         shift_v = np.array([n.shift_v for n in net.neurons], dtype=np.int32)
@@ -394,11 +471,13 @@ class Tissue:
         conn_prob = np.array([n.conn_prob for n in net.neurons], dtype=np.float32)
         burst_period = np.array([n.burst_period for n in net.neurons], dtype=np.int32)
         burst_duty = np.array([n.burst_duty for n in net.neurons], dtype=np.int32)
-        poisson_hz = np.array([n.poisson_hz for n in net.neurons], dtype=np.float32)
+        poisson_hz = np.array([n.poisson_hz for n in net.neurons], dtype=np.float64)
         refractory = np.array([n.refractory for n in net.neurons], dtype=np.int32)
         role = np.array([n.role for n in net.neurons], dtype=np.int32)
         compartment = np.array([n.compartment for n in net.neurons], dtype=np.int32)
         threshold = np.array([n.threshold for n in net.neurons], dtype=np.int32)
+        
+        # Single source of truth: sign matches base_weight polarity
         sign = np.where(base_weight >= 0, np.ones(N, dtype=np.int8), np.full(N, -1, dtype=np.int8))
         
         t.add_cells(
@@ -435,7 +514,7 @@ class Tissue:
         """Returns the total number of bytes consumed by all NumPy arrays in this tissue."""
         total = 0
         arrays = [
-            self.positions, self.directions, self.lineage_id, self.parent_id,
+            self.positions, self.directions, self.cell_id, self.parent_id, self.clone_id,
             self.birth_stage, self.cell_type, self.region, self.expression,
             self.sign, self.alive, self.mode, self.shift_v, self.shift_s,
             self.base_weight, self.conn_radius, self.conn_prob, self.burst_period,

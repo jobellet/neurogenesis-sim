@@ -426,20 +426,25 @@ class Union(Geometry):
     def contains(self, points: np.ndarray) -> np.ndarray:
         return self.a.contains(points) | self.b.contains(points)
 
-    def sample(self, n: int, rng: np.random.Generator) -> np.ndarray:
+    def sample(self, n: int, rng: np.random.Generator, max_attempts: int = 100) -> np.ndarray:
         # Rejection sampling from bounding box
         mins, maxs = self.bounding_box()
         box = Box((mins + maxs) / 2.0, maxs - mins)
         
         samples = []
         collected = 0
+        attempts = 0
         while collected < n:
+            attempts += 1
+            if attempts > max_attempts:
+                raise RuntimeError(f"Sampling Union exceeded {max_attempts} iterations; geometry may be empty.")
             # We sample more to compensate for rejection
             c_samples = box.sample(n, rng)
             mask = self.contains(c_samples)
             valid = c_samples[mask]
-            samples.append(valid)
-            collected += len(valid)
+            if len(valid) > 0:
+                samples.append(valid)
+                collected += len(valid)
             
         return np.concatenate(samples, axis=0)[:n]
 
@@ -475,16 +480,21 @@ class Difference(Geometry):
     def contains(self, points: np.ndarray) -> np.ndarray:
         return self.a.contains(points) & ~self.b.contains(points)
 
-    def sample(self, n: int, rng: np.random.Generator) -> np.ndarray:
+    def sample(self, n: int, rng: np.random.Generator, max_attempts: int = 100) -> np.ndarray:
         # Rejection sampling from 'a'
         samples = []
         collected = 0
+        attempts = 0
         while collected < n:
+            attempts += 1
+            if attempts > max_attempts:
+                raise RuntimeError(f"Sampling Difference exceeded {max_attempts} iterations; geometry may be empty.")
             c_samples = self.a.sample(n, rng)
             mask = ~self.b.contains(c_samples)
             valid = c_samples[mask]
-            samples.append(valid)
-            collected += len(valid)
+            if len(valid) > 0:
+                samples.append(valid)
+                collected += len(valid)
             
         return np.concatenate(samples, axis=0)[:n]
 
