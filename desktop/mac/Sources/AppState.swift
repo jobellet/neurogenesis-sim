@@ -523,7 +523,7 @@ final class AppState: ObservableObject {
         case 53: selection = []; return true                      // escape
         case 3: frameAll(); return true                           // F
         case 49: running.toggle(); return true                    // space
-        case 33, 30 where tool == .add:                           // [ and ]: move the placement plane
+        case 33 where tool == .add, 30 where tool == .add:        // [ and ]: move the placement plane
             let (lo, hi) = sceneBounds()
             placeLevel += Double(max((hi[placeAxis] - lo[placeAxis]) / 20, 0.5)) * (e.keyCode == 30 ? 1 : -1)
             return true

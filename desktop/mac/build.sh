@@ -38,8 +38,12 @@ mkdir -p build
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-echo "Compiling (swiftc -O, $ARCH)…"
-swiftc -O -swift-version 5 -parse-as-library -target "$ARCH-apple-macos14.0" Sources/*.swift \
+NGLIF="$HERE/../common/native/nglif"
+echo "Compiling the shared C kernel nglif ($ARCH)…"
+clang -std=c11 -O2 -Wall -Wextra -target "$ARCH-apple-macos14.0" -c "$NGLIF/nglif.c" -o build/nglif.o
+
+echo "Compiling the app (swiftc -O, $ARCH)…"
+swiftc -O -swift-version 5 -parse-as-library -target "$ARCH-apple-macos14.0" -I "$NGLIF" Sources/*.swift build/nglif.o \
   -framework Metal -framework MetalKit -o "$APP/Contents/MacOS/Neurogenesis"
 
 echo "Icon…"
