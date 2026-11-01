@@ -29,6 +29,7 @@ jobs:
           filters: |
             python:
               - 'neurogenesis/**'
+              - 'scripts/benchmark_performance.py'
               - 'tests/**'
               - 'pyproject.toml'
               - 'viz/src/sim/**'
@@ -88,6 +89,49 @@ jobs:
         env:
           JAX_PLATFORMS: cpu
         run: python -m neurogenesis estimate --neurons 3e8 --synapses-per-neuron 5000 --seconds 1
+
+  performance:
+    # Compare fixed CPU workloads with the most recent successful main-branch benchmark.
+    needs: detect-changes
+    if: >-
+      (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.python == 'true') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+      - name: Download latest main-branch baseline
+        if: github.event_name == 'pull_request'
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: ci.yml
+          branch: main
+          name: performance-baseline
+          path: performance-baseline
+          if_no_artifact_found: warn
+      - name: Run benchmarks and enforce the 30% regression limit
+        env:
+          JAX_PLATFORMS: cpu
+        run: >-
+          python scripts/benchmark_performance.py
+          --output performance.json
+          --baseline performance-baseline/performance.json
+      - name: Save main-branch baseline
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-baseline
+          path: performance.json
+          retention-days: 90
 
   viewer:
     needs: detect-changes

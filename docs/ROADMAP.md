@@ -90,7 +90,7 @@ GUI (viz/): geometry and field editor, schedule editor, step-by-step development
 | Genome / evolution | gene paths, [0, 1] coding, gene groups, JSON; island model, robust fitness, audits | `Param` sources (hand / gene / field / fit); supervised fitting; multi-objective |
 | Modules | save / load, composition, plugins, neuron model recorded | module registry and versioning; validation harness |
 | GUI | 3D viewer and per-neuron editing of a finished network | geometry and field editor, schedule editor, development preview, Project import / export |
-| CI | GitHub Actions: tests on Python 3.10 and 3.12, browser-kernel equivalence, viewer build, cost command line | coverage and performance regression checks |
+| CI | GitHub Actions: tests on Python 3.10 and 3.12, browser-kernel equivalence, viewer build, cost command line, fixed CPU performance benchmarks with a 30% regression limit | coverage |
 
 ---
 
@@ -230,7 +230,7 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 - **Dependencies:** D1, D2.
 
 **D5. Performance regression CI.**
-- Timing of fixed benchmarks stored per commit; CI fails if a benchmark is more than 30 % slower.
+- `scripts/benchmark_performance.py` runs fixed CPU simulation and cell-list workloads. Main-branch timings are stored as a CI artifact; pull requests compare against the latest successful main run and fail if a benchmark is more than 30 % slower. The first main run seeds the baseline artifact.
 
 ### Phase E: learning and optimisation
 

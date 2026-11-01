@@ -80,6 +80,7 @@ Module("demo", plan, genome, inputs=["sensor"], outputs=["map"]).save("demo.modu
 GitHub Actions (`.github/workflows/ci.yml`), on every push:
 - every test on Python 3.10 and 3.12;
 - the browser kernel compiled, so that the Python / JAX / browser equivalence tests run and are never skipped;
+- fixed CPU performance benchmarks compared with the latest successful main-branch baseline (a regression above 30% fails);
 - the cost estimator from the command line;
 - the viewer type-checked and built.
 
