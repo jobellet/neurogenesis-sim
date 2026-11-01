@@ -9,6 +9,7 @@ import {
   SharedSimulationMemory,
 } from '../sim/types';
 import { safeLoad } from '../sim/memory';
+import { PopulationFilter } from './PopulationFilter';
 
 export class RasterCanvas {
   private container: HTMLElement;
@@ -29,6 +30,8 @@ export class RasterCanvas {
   private populationSpikeCount = 0;
   private lastRateCheck = performance.now();
   private currentPopRate = 0;
+  
+  public popFilter: PopulationFilter | null = null;
 
   constructor(container: HTMLElement, private mem: SharedSimulationMemory) {
     this.container = container;
@@ -125,18 +128,25 @@ export class RasterCanvas {
     const xPos = w - dx;
 
     for (let i = 0; i < numNeurons; i++) {
+      if (this.popFilter?.isHidden(i)) continue;
+        
       if ((spikeBitfield[i] & 1) === 1) {
         frameSpikes++;
         // Map neuron ID [0, numNeurons - 1] to canvas Y [0, h - 2]
         const yPos = Math.floor((i / numNeurons) * (h - 2));
 
-        const mode = neuronMode[i];
-        if (mode === NeuronMode.POISSON || mode === NeuronMode.BURSTER) {
-          ctx.fillStyle = this.colorPacemaker;
-        } else if (baseWeight[i] < 0) {
-          ctx.fillStyle = this.colorInhibitory;
+        const customColor = this.popFilter?.getColor(i);
+        if (customColor) {
+            ctx.fillStyle = customColor;
         } else {
-          ctx.fillStyle = this.colorExcitatory;
+            const mode = neuronMode[i];
+            if (mode === NeuronMode.POISSON || mode === NeuronMode.BURSTER) {
+              ctx.fillStyle = this.colorPacemaker;
+            } else if (baseWeight[i] < 0) {
+              ctx.fillStyle = this.colorInhibitory;
+            } else {
+              ctx.fillStyle = this.colorExcitatory;
+            }
         }
 
         ctx.fillRect(xPos, yPos, dx, 2);
@@ -147,9 +157,11 @@ export class RasterCanvas {
 
     // 4. Draw horizontal indicator line for selected neuron
     if (selectedId >= 0 && selectedId < numNeurons) {
-      const selectedY = Math.floor((selectedId / numNeurons) * (h - 2));
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-      ctx.fillRect(w - dx, selectedY, dx, 1);
+      if (!this.popFilter?.isHidden(selectedId)) {
+        const selectedY = Math.floor((selectedId / numNeurons) * (h - 2));
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.fillRect(w - dx, selectedY, dx, 1);
+      }
     }
 
     // 5. Update population rate telemetry overlay
@@ -161,13 +173,23 @@ export class RasterCanvas {
       this.lastRateCheck = now;
 
       const selectedInfo = selectedId >= 0 ? ` | SELECTED: #${selectedId}` : '';
+      
+      let legend = '';
+      if (!this.popFilter || this.popFilter.colorMode === 'role') {
+        legend = `
+          <span class="raster-legend-item"><span class="legend-dot dot-cyan"></span> Exc</span>
+          <span class="raster-legend-item"><span class="legend-dot dot-magenta"></span> Inh</span>
+          <span class="raster-legend-item"><span class="legend-dot dot-gold"></span> Burster/Poisson</span>
+          <span class="raster-legend-item"><span class="legend-dot" style="background:#4dff59"></span> Input</span>
+          <span class="raster-legend-item"><span class="legend-dot" style="background:#ff801a"></span> Output</span>
+          <span class="raster-legend-sep">|</span>
+        `;
+      } else {
+        legend = `<span class="raster-legend-item">Colored by ${this.popFilter.colorMode}</span><span class="raster-legend-sep">|</span>`;
+      }
+      
       this.overlayInfoEl.innerHTML = `
-        <span class="raster-legend-item"><span class="legend-dot dot-cyan"></span> Exc</span>
-        <span class="raster-legend-item"><span class="legend-dot dot-magenta"></span> Inh</span>
-        <span class="raster-legend-item"><span class="legend-dot dot-gold"></span> Burster/Poisson</span>
-        <span class="raster-legend-item"><span class="legend-dot" style="background:#4dff59"></span> Input</span>
-        <span class="raster-legend-item"><span class="legend-dot" style="background:#ff801a"></span> Output</span>
-        <span class="raster-legend-sep">|</span>
+        ${legend}
         <span class="raster-stat">POPULATION: <strong>${this.currentPopRate.toLocaleString()} spikes/sec</strong></span>
         <span class="raster-stat">${selectedInfo}</span>
         <span class="raster-scale">TIME SCALE: 1 col = 1 frame (~16ms)</span>

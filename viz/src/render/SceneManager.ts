@@ -6,6 +6,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { PopulationFilter } from '../ui/PopulationFilter';
 import {
   MAX_NEURONS,
   ControlIndex,
@@ -43,6 +44,7 @@ export class SceneManager {
   private aPosAttr: THREE.InstancedBufferAttribute;
   private aStateAttr: THREE.InstancedBufferAttribute;
   private aTypeAttr: THREE.InstancedBufferAttribute;
+  private aColorAttr: THREE.InstancedBufferAttribute;
 
   private selectionRing: THREE.Mesh;
   private axonArrow: THREE.ArrowHelper;
@@ -82,6 +84,8 @@ export class SceneManager {
   public onNeuronSelected: ((id: number | null) => void) | null = null;
   public onNeuronSpawnRequested: ((x: number, y: number, z: number) => void) | null = null;
   public onSynapseDragComplete: ((preId: number, postId: number, dist: number) => void) | null = null;
+  public popFilter: PopulationFilter | null = null;
+
   public onNeuronDeleteRequested: ((id: number) => void) | null = null;
 
   public showGlobalSynapses = false;
@@ -163,14 +167,17 @@ export class SceneManager {
     const posData = new Float32Array(MAX_NEURONS * 3);
     const stateData = new Float32Array(MAX_NEURONS * 2);
     const typeData = new Float32Array(MAX_NEURONS);
+    const colorData = new Float32Array(MAX_NEURONS * 3);
 
     this.aPosAttr = new THREE.InstancedBufferAttribute(posData, 3);
     this.aStateAttr = new THREE.InstancedBufferAttribute(stateData, 2);
     this.aTypeAttr = new THREE.InstancedBufferAttribute(typeData, 1);
+    this.aColorAttr = new THREE.InstancedBufferAttribute(colorData, 3);
 
     somaGeom.setAttribute('aPosition', this.aPosAttr);
     somaGeom.setAttribute('aState', this.aStateAttr);
     somaGeom.setAttribute('aType', this.aTypeAttr);
+    somaGeom.setAttribute('aColor', this.aColorAttr);
 
     this.scene.add(this.instancedSomas);
 
@@ -302,27 +309,46 @@ export class SceneManager {
     const posAttrArray = this.aPosAttr.array as Float32Array;
     const typeAttrArray = this.aTypeAttr.array as Float32Array;
 
+    const colorAttrArray = this.aColorAttr.array as Float32Array;
+
     for (let i = 0; i < numNeurons; i++) {
       const idx3 = i * 3;
+      
+      if (this.popFilter?.isHidden(i)) {
+        posAttrArray[idx3] = 1e6;
+        posAttrArray[idx3 + 1] = 1e6;
+        posAttrArray[idx3 + 2] = 1e6;
+        continue;
+      }
+
       posAttrArray[idx3] = pos[idx3];
       posAttrArray[idx3 + 1] = pos[idx3 + 1];
       posAttrArray[idx3 + 2] = pos[idx3 + 2];
 
-      const mode = this.mem.neuronMode[i];
-      const role = this.mem.role[i];
-      if (role === 1) {
-        typeAttrArray[i] = 3.0;            // input neuron (role 1)
-      } else if (role === 2) {
-        typeAttrArray[i] = 4.0;            // output neuron (role 2)
-      } else if (mode === NeuronMode.POISSON || mode === NeuronMode.BURSTER) {
-        typeAttrArray[i] = 2.0;
+      const customColor = this.popFilter?.getColorRGB(i);
+      if (customColor) {
+        typeAttrArray[i] = 10.0; // Custom Color marker
+        colorAttrArray[idx3] = customColor[0];
+        colorAttrArray[idx3 + 1] = customColor[1];
+        colorAttrArray[idx3 + 2] = customColor[2];
       } else {
-        typeAttrArray[i] = this.mem.baseWeight[i] >= 0 ? 0.0 : 1.0;
+        const mode = this.mem.neuronMode[i];
+        const role = this.mem.role[i];
+        if (role === 1) {
+          typeAttrArray[i] = 3.0;            // input neuron (role 1)
+        } else if (role === 2) {
+          typeAttrArray[i] = 4.0;            // output neuron (role 2)
+        } else if (mode === NeuronMode.POISSON || mode === NeuronMode.BURSTER) {
+          typeAttrArray[i] = 2.0;
+        } else {
+          typeAttrArray[i] = this.mem.baseWeight[i] >= 0 ? 0.0 : 1.0;
+        }
       }
     }
 
     this.aPosAttr.needsUpdate = true;
     this.aTypeAttr.needsUpdate = true;
+    this.aColorAttr.needsUpdate = true;
     this.updateGlobalSynapseGeometry();
 
     if (numNeurons === 0) {
@@ -346,9 +372,10 @@ export class SceneManager {
         const yi = pos[i * 3 + 1];
         const zi = pos[i * 3 + 2];
 
+        if (this.popFilter?.isHidden(i)) continue;
         for (let s = start; s < end; s++) {
           const j = this.mem.colIdx[s];
-          if (j < numNeurons) {
+          if (j < numNeurons && !this.popFilter?.isHidden(j)) {
             lineCoords.push(xi, yi, zi);
             lineCoords.push(pos[j * 3], pos[j * 3 + 1], pos[j * 3 + 2]);
           }
@@ -396,7 +423,7 @@ export class SceneManager {
     const outEnd = this.mem.rowPtr[selectedId + 1];
     for (let s = outStart; s < outEnd; s++) {
       const j = this.mem.colIdx[s];
-      if (j >= this.cachedNumNeurons) continue;
+      if (j >= this.cachedNumNeurons || this.popFilter?.isHidden(j)) continue;
       const w = this.mem.weights[s];
       const xj = pos[j * 3];
       const yj = pos[j * 3 + 1];
@@ -412,7 +439,7 @@ export class SceneManager {
 
     // 2. Incoming connections
     for (let k = 0; k < this.cachedNumNeurons; k++) {
-      if (k === selectedId) continue;
+      if (k === selectedId || this.popFilter?.isHidden(k)) continue;
       const kStart: number = this.mem.rowPtr[k];
       const kEnd: number = this.mem.rowPtr[k + 1];
       for (let s: number = kStart; s < kEnd; s++) {
@@ -914,6 +941,7 @@ export class SceneManager {
     // 2. Draw Synapses
     if (numNeurons > 0) {
       for (let i = 0; i < numNeurons; i++) {
+        if (this.popFilter?.isHidden(i)) continue;
         if (!this.showGlobalSynapses && i !== selectedId) continue;
         const start = rowPtr[i];
         const end = rowPtr[i + 1];
@@ -922,7 +950,7 @@ export class SceneManager {
 
         for (let s = start; s < end; s++) {
           const j = colIdx[s];
-          if (j >= numNeurons) continue;
+          if (j >= numNeurons || this.popFilter?.isHidden(j)) continue;
           const xj = toX(pos[j * 3]);
           const yj = toY(pos[j * 3 + 2]);
           const isExc = weights[s] >= 0;
@@ -938,6 +966,7 @@ export class SceneManager {
 
       // 3. Draw Travelling Pulses
       for (let i = 0; i < numNeurons; i++) {
+        if (this.popFilter?.isHidden(i)) continue;
         const bf = this.mem.spikeBitfield[i];
         if (bf === 0) continue;
         const start = rowPtr[i];
@@ -948,7 +977,7 @@ export class SceneManager {
         for (let s = start; s < end; s++) {
           const delay = this.mem.delays[s];
           const j = colIdx[s];
-          if (j >= numNeurons) continue;
+          if (j >= numNeurons || this.popFilter?.isHidden(j)) continue;
           const xj = toX(pos[j * 3]);
           const yj = toY(pos[j * 3 + 2]);
           const isExc = weights[s] >= 0;
@@ -970,6 +999,7 @@ export class SceneManager {
 
       // 4. Draw Somas
       for (let i = 0; i < numNeurons; i++) {
+        if (this.popFilter?.isHidden(i)) continue;
         const sx = toX(pos[i * 3]);
         const sy = toY(pos[i * 3 + 2]);
 
@@ -979,12 +1009,17 @@ export class SceneManager {
           this.mem.visualFlash[i] = flash;
         }
 
-        const mode = this.mem.neuronMode[i];
         let color = '#00f0ff';
-        if (mode === NeuronMode.POISSON || mode === NeuronMode.BURSTER) {
-          color = '#ffd700';
-        } else if (this.mem.baseWeight[i] < 0) {
-          color = '#ff007f';
+        const customColor = this.popFilter?.getColor(i);
+        if (customColor) {
+            color = customColor;
+        } else {
+            const mode = this.mem.neuronMode[i];
+            if (mode === NeuronMode.POISSON || mode === NeuronMode.BURSTER) {
+              color = '#ffd700';
+            } else if (this.mem.baseWeight[i] < 0) {
+              color = '#ff007f';
+            }
         }
 
         const r = flash > 120 ? 8 : 5.5;
@@ -1063,6 +1098,7 @@ export class SceneManager {
       const yi = pos[i * 3 + 1];
       const zi = pos[i * 3 + 2];
 
+      if (this.popFilter?.isHidden(i)) return;
       const start = this.mem.rowPtr[i];
       const end = this.mem.rowPtr[i + 1];
 
@@ -1073,7 +1109,7 @@ export class SceneManager {
         for (let b = 1; b <= delay; b++) {
           if ((bf >>> b) & 1) {
             const j = this.mem.colIdx[s];
-            if (j >= this.cachedNumNeurons) continue;
+            if (j >= this.cachedNumNeurons || this.popFilter?.isHidden(j)) continue;
 
             const pIdx = pulseCount;
             const pIdx3 = pIdx * 3;

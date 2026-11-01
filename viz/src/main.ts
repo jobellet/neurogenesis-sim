@@ -91,6 +91,14 @@ const appContainer = document.getElementById('app') || document.body;
 sceneManager = new SceneManager(appContainer, simMem);
 const inspector = new Inspector(appContainer, simMem, spatialHash);
 const rasterCanvas = new RasterCanvas(appContainer, simMem);
+import { PopulationFilter } from "./ui/PopulationFilter";
+const popFilter = new PopulationFilter(appContainer, simMem);
+rasterCanvas.popFilter = popFilter;
+sceneManager.popFilter = popFilter;
+popFilter.onFilterChanged = () => {
+  sceneManager.syncPositionsFromMemory();
+  sceneManager.updateGlobalSynapseGeometry();
+};
 
 // 5. Connect Callbacks
 sceneManager.onNeuronSelected = (id: number | null) => {

@@ -6,18 +6,21 @@
 export const somaVertexShader = /* glsl */ `
   attribute vec3 aPosition;
   attribute vec2 aState; // x: vNorm in [-0.25, 1.0], y: visualFlash in [0.0, 1.0]
-  attribute float aType; // 0: Excitatory, 1: Inhibitory, 2: Burster/Poisson, 3: Input, 4: Output (neuron role)
+  attribute float aType; // 0: Excitatory, 1: Inhibitory, 2: Burster/Poisson, 3: Input, 4: Output (neuron role), 10: Custom Color
+  attribute vec3 aColor; 
 
   varying vec3 vNormal;
   varying vec3 vWorldPos;
   varying vec3 vViewDir;
   varying vec2 vState;
   varying float vType;
+  varying vec3 vColor;
 
   void main() {
     vNormal = normalize(normalMatrix * normal);
     vState = aState;
     vType = aType;
+    vColor = aColor;
 
     // Radius expansion up to +35% during spike flash
     float flashScale = 1.0 + 0.35 * smoothstep(0.3, 1.0, aState.y);
@@ -36,6 +39,7 @@ export const somaFragmentShader = /* glsl */ `
   varying vec3 vViewDir;
   varying vec2 vState;
   varying float vType;
+  varying vec3 vColor;
 
   uniform vec3 uSelectedColor;
   uniform float uSelectedId;
@@ -77,8 +81,10 @@ export const somaFragmentShader = /* glsl */ `
       typeColor = vec3(1.0, 0.85, 0.15); // Burster/Poisson: Gold
     } else if (vType < 3.5) {
       typeColor = vec3(0.3, 1.0, 0.35);  // Input (role 1): Green
-    } else {
+    } else if (vType < 4.5) {
       typeColor = vec3(1.0, 0.5, 0.1);   // Output (role 2): Orange
+    } else {
+      typeColor = vColor;                // Custom Color
     }
 
     // Blend base state color with type characteristic
