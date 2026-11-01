@@ -1,12 +1,14 @@
 """NGB1: the binary network format exchanged between the bridge and the desktop apps (desktop/common/PROTOCOL.md).
 
-Little endian, no padding:
+Little endian, no padding::
+
   header      b"NGB1", int32 N (neurons), int32 E (synapses), int32 flags (0)
   neurons     positions (N, 3) float64, directions (N, 3) float64,
               then one int32 column (N,) per NEURON_I32 field, one float64 column (N,) per NEURON_F64 field
   synapses    pre, post, weight, delay: one int32 column (E,) each
   extensions  only when flags bit 0 is set: int32 C, then C optional named columns (EXT_DTYPES), which readers that do
               not know them skip
+
 Float64 keeps positions and Poisson rates exactly as in Python, so a round trip changes nothing.
 """
 from __future__ import annotations

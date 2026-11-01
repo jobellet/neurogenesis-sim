@@ -68,6 +68,9 @@ Module("demo", plan, genome, inputs=["sensor"], outputs=["map"]).save("demo.modu
 ```
 
 ## Documentation
+The full documentation (tutorials, use cases, integration guides, API reference, literature) is a Sphinx site in
+`docs/`. It is built by `.github/workflows/docs.yml` and published on GitHub Pages once the repository is public. To
+build it locally: `pip install -r docs/requirements.txt && sphinx-build -b html docs docs/_build/html`. Key pages:
 - `docs/ROADMAP.md`: target architecture (geometry, fields, tissue, stages, parameter sources, GUI), design rules and
   the task list.
 - `AGENTS.md`: rules for contributors and agents (determinism, backward compatibility, low compute, tests).

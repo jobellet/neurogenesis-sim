@@ -5,3 +5,7 @@ viz/node_modules/
 viz/dist/
 scripts/js/build/
 !AGENTS.md
+
+# documentation build and scratch
+docs/_build/
+docs/_scripts/_work/

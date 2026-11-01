@@ -1,0 +1,25 @@
+# File formats
+
+| Format | Content | Writer / reader | Spec |
+|---|---|---|---|
+| Project JSON (+ `.npz` sidecar) | geometry, fields, schedule, genome, plan, plugins, neuron model | `neurogenesis.project.Project` | {doc}`../reference/project-format` |
+| Network JSON | neurons and synapses of an `SNNNetwork` | `net.save_json`, `SNNNetwork.load_json` | readable; for small and medium networks |
+| NGB1 | binary network: int32 indices, float64 positions, optional extension columns | `neurogenesis.bridge.ngb` | {doc}`../reference/bridge-protocol` (section 6) |
+| Module JSON (`neurogenesis-module/1`) | plan, genome, interface, validation, provenance | `Module.save`, `Module.load` | {doc}`../tutorials/modules` |
+| Genome JSON | genome with `"src->dst"` projection keys | `neurogenesis.genome.to_json`, `from_json` | {doc}`../getting-started/concepts` |
+| CSR arrays | `row_ptr`, `col_idx`, `weights`, `delays` | `net.to_csr()` | kernels |
+
+## Exchanging networks
+```python
+from neurogenesis.spiking.network import SNNNetwork
+net = SNNNetwork.load_json("network.json")
+row_ptr, col_idx, weights, delays = net.to_csr()          # NumPy arrays (presynaptic rows)
+```
+The CSR arrays can be loaded into SciPy (`scipy.sparse.csr_matrix((weights, col_idx, row_ptr))`), NetworkX or any
+graph library.
+
+```{admonition} PLACEHOLDER
+:class: placeholder
+Exporters to community formats: SONATA (Dai et al. 2020), NeuroML / LEMS (Gleeson et al. 2010), and import of
+SWC morphologies (planned, task N4).
+```
