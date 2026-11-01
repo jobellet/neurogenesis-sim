@@ -99,3 +99,9 @@ def test_composition_merges_plugins_rules_and_region_genes():
     net = c.grow(0)
     t = tonic_current(net, c.plan, c.genome)
     assert set(t[region_of(net, c.plan, "a.map")].tolist()) == {20} and t[region_of(net, c.plan, "b.map")].sum() == 0
+
+
+def test_fi_curve_is_monotone_with_a_threshold():
+    from neurogenesis.analysis import fi_curve
+    f = fi_curve([0, 4, 8, 12, 20, 40, 80, 160], ticks=500)
+    assert f[0] == 0 and np.all(np.diff(f) >= 0) and f[-1] > 0.15 and f[-1] <= 1 / 4 + 1e-9    # refractory 3: at most 1 in 4 ticks
