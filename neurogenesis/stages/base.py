@@ -125,7 +125,8 @@ def run_schedule(
     project: Dict[str, Any],
     genome: Dict[str, Any],
     seed: int,
-    checkpoints: bool = False
+    checkpoints: bool = False,
+    legacy_stream: bool = False
 ) -> Union[Tissue, List[Tissue]]:
     # 1. Import plugins
     for plugin in project.get("plugins", []):
@@ -137,6 +138,9 @@ def run_schedule(
     
     tissue = Tissue.empty()
     checkpoints_list = []
+    
+    # Shared RNG stream if legacy_stream=True
+    legacy_rng = np.random.default_rng(seed) if legacy_stream else None
         
     for stage_idx, config in enumerate(schedule_configs):
         stage_name = config.get("name", f"stage_{stage_idx}")
@@ -157,8 +161,11 @@ def run_schedule(
         )
         
         for rep in range(stage.repeat):
-            # Seed stream is isolated by (seed, name_salt, rep) - inserting a stage doesn't alter others!
-            rng = np.random.default_rng([seed, name_salt, rep])
+            # Seed stream is isolated by (seed, name_salt, rep) unless legacy_stream is enabled
+            if legacy_stream:
+                rng = legacy_rng
+            else:
+                rng = np.random.default_rng([seed, name_salt, rep])
             
             tissue = stage.run(tissue, genome, fields, rng, rep=rep)
             
