@@ -10,6 +10,7 @@ desktop/
     UI_SCHEMA.md    what the toolbox offers to the apps' editors (+ ui_schema.schema.json, ui_schema.example.json)
     native/nglif/   the live simulation kernel in portable C11 (lif_int + NGB1 I/O), used by every app
     fixtures/       golden networks and spike rasters every native kernel must reproduce
+    runtime/        builds the relocatable Python + toolbox that release builds embed (no Python needed by users)
   mac/       Swift, SwiftUI and Metal
   windows/   (built by another agent)
   linux/     (built by another agent)
@@ -22,7 +23,7 @@ desktop/
 | UI schema: the format (owned by the apps) | `common/UI_SCHEMA.md`, `ui_schema.schema.json`, `ui_schema.example.json`; `tests/test_ui_schema.py` | done |
 | UI schema exporter (`python -m neurogenesis ui-schema`) | `neurogenesis/` | roadmap H3 (another agent) |
 | Panels generated from the UI schema, and the visual spec | `common/visual_spec.json`, the apps | after H3 |
-| Embedded Python runtime | `common/runtime/` | planned |
+| Embedded Python runtime | `common/runtime/build_runtime.py` (macOS, Linux and Windows targets); `release.yml` builds the Mac disk images | done for macOS |
 
 **Rules for shared files.**
 - **Bump on breaking changes.** If you change the protocol, the NGB1 format or the UI schema in a way that breaks

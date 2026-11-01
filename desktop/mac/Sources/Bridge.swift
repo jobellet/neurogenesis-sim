@@ -52,6 +52,10 @@ final class Bridge {
         p.executableURL = URL(fileURLWithPath: python)
         p.arguments = ["-u", "-m", "neurogenesis.bridge"]
         var env = ProcessInfo.processInfo.environment
+        if python == AppConfig.bundledPython {  // the embedded runtime: isolated from any Python set up on this Mac
+            for k in ["PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "VIRTUAL_ENV", "CONDA_PREFIX"] { env.removeValue(forKey: k) }
+            env["PYTHONNOUSERSITE"] = "1"
+        }
         if !repo.isEmpty {                      // a source checkout takes precedence over an installed toolbox
             env["PYTHONPATH"] = repo + (env["PYTHONPATH"].map { ":" + $0 } ?? "")
         }

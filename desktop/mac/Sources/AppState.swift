@@ -1032,17 +1032,26 @@ final class AppState: ObservableObject {
     }
 }
 
-/// Which Python runs the bridge and which toolbox checkout it imports (empty: the installed package). Written by
-/// build.sh into the app bundle, overridable in Roadmap status → Python.
+/// Which Python runs the bridge and which toolbox checkout it imports (empty: the toolbox installed in that Python).
+/// Release builds embed a runtime (desktop/common/runtime) in Contents/Resources/python: NGPython "@bundled" selects
+/// it. Written by build.sh into Info.plist; the user can override both in Roadmap status → Python.
 struct AppConfig {
     var python: String
     var repo: String
 
+    /// The embedded runtime's interpreter, if this app has one.
+    static var bundledPython: String? {
+        guard let r = Bundle.main.resourcePath else { return nil }
+        let p = r + "/python/bin/python3"
+        return FileManager.default.isExecutableFile(atPath: p) ? p : nil
+    }
+
     static func load() -> AppConfig {
         let info = Bundle.main.infoDictionary ?? [:]
         let d = UserDefaults.standard
-        return AppConfig(python: d.string(forKey: "python") ?? info["NGPython"] as? String ?? "/usr/bin/python3",
-                         repo: d.string(forKey: "repo") ?? info["NGRepo"] as? String ?? "")
+        var python = d.string(forKey: "python") ?? info["NGPython"] as? String ?? "@bundled"
+        if python == "@bundled" { python = bundledPython ?? "/usr/bin/python3" }
+        return AppConfig(python: python, repo: d.string(forKey: "repo") ?? info["NGRepo"] as? String ?? "")
     }
 
     func save() {

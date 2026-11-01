@@ -4,6 +4,8 @@
 #
 #   ./build.sh                      build, install, add to the Dock
 #   ./build.sh --no-install         build only (build/Neurogenesis.app)
+#   ./build.sh --runtime DIR        embed the Python runtime DIR/python (desktop/common/runtime/build_runtime.py):
+#                                   the app then needs no Python on the Mac (release builds: see release.sh)
 #   NG_PYTHON=/path/to/python NG_REPO=/path/to/neurogenesis-sim ./build.sh
 #
 # NG_PYTHON: a Python with numpy, jax and matplotlib (default: the first of conda / python3 that has them).
@@ -21,17 +23,28 @@ fi
 REPO="${NG_REPO:-${MAIN_WT:-$OWN}}"
 ARCH="$(uname -m)"
 INSTALL=1
-[[ "${1:-}" == "--no-install" ]] && INSTALL=0
+RUNTIME=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --no-install) INSTALL=0 ;;
+    --runtime) RUNTIME="$(cd "$2" && pwd)"; shift ;;
+    *) echo "unknown option $1"; exit 2 ;;
+  esac
+  shift
+done
 
-if [[ -z "${NG_PYTHON:-}" ]]; then
+if [[ -n "$RUNTIME" ]]; then
+  NG_PYTHON="@bundled"; REPO="${NG_REPO:-}"     # the embedded runtime has the toolbox installed
+elif [[ -z "${NG_PYTHON:-}" ]]; then
   for p in /opt/anaconda3/bin/python /opt/miniconda3/bin/python "$HOME/miniconda3/bin/python" "$HOME/anaconda3/bin/python" \
            /opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3; do
     if [[ -x "$p" ]] && "$p" -c "import numpy, jax, matplotlib" 2>/dev/null; then NG_PYTHON="$p"; break; fi
   done
 fi
 NG_PYTHON="${NG_PYTHON:-/usr/bin/python3}"
+VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$HERE/../../pyproject.toml" | head -1)"
 echo "Python:  $NG_PYTHON"
-echo "Toolbox: $REPO"
+echo "Toolbox: ${REPO:-installed in that Python}"
 
 APP="build/Neurogenesis.app"
 mkdir -p build
@@ -70,7 +83,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleExecutable</key><string>Neurogenesis</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0</string>
+  <key>CFBundleShortVersionString</key><string>${VERSION:-0.1.0}</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.education</string>
@@ -88,6 +101,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
+if [[ -n "$RUNTIME" ]]; then
+  echo "Embedding the Python runtime ($(du -sh "$RUNTIME/python" | cut -f1))…"
+  ditto "$RUNTIME/python" "$APP/Contents/Resources/python"
+  [[ -f "$RUNTIME/runtime.json" ]] && cp "$RUNTIME/runtime.json" "$APP/Contents/Resources/runtime.json"
+fi
 codesign --force --deep --sign - "$APP" 2>/dev/null || true
 echo "Built $HERE/$APP"
 

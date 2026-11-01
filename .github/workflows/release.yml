@@ -1,0 +1,74 @@
+name: Release
+
+# Desktop apps with an embedded Python runtime: built on version tags (v1.2.3; attached to the GitHub release), on pull
+# requests that touch an app or the runtime (artifacts only), or by hand (Actions -> Release -> Run).
+# Each app adds its own job.
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths: ["desktop/mac/**", "desktop/common/runtime/**", "desktop/common/native/**", ".github/workflows/release.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel     # Intel (x86_64)
+            target: macos-x86_64
+          - runner: macos-15           # Apple Silicon (arm64)
+            target: macos-arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Import the signing certificate (if configured)
+        env:
+          CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        if: env.CERT_P12 != ''
+        run: |
+          echo "$CERT_P12" | base64 --decode > cert.p12
+          security create-keychain -p ci build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p ci build.keychain
+          security import cert.p12 -k build.keychain -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k ci build.keychain
+          rm cert.p12
+      - name: Python runtime (${{ matrix.target }})
+        run: python desktop/common/runtime/build_runtime.py --target ${{ matrix.target }} --out desktop/mac/build/runtime-${{ matrix.target }}
+      - name: App and disk image
+        env:
+          NG_RUNTIME: build/runtime-${{ matrix.target }}
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: desktop/mac/release.sh
+      - name: Smoke test from the disk image (bridge handshake with an empty environment; no outside libraries)
+        run: |
+          hdiutil attach -nobrowse -mountpoint /tmp/ngdmg desktop/mac/build/Neurogenesis-*.dmg
+          desktop/mac/tools/check_bundle.sh /tmp/ngdmg/Neurogenesis.app
+          echo '{"id": 1, "method": "ping"}' | env -i HOME="$HOME" JAX_PLATFORMS=cpu \
+            /tmp/ngdmg/Neurogenesis.app/Contents/Resources/python/bin/python3 -m neurogenesis.bridge | grep '"ready"' | grep -q '"protocol": "1.0"'
+          hdiutil detach /tmp/ngdmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Neurogenesis-${{ matrix.target }}
+          path: |
+            desktop/mac/build/Neurogenesis-*.dmg
+            desktop/mac/build/Neurogenesis-*.dmg.sha256
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "Desktop apps: see desktop/*/README.md"
+          gh release upload "$GITHUB_REF_NAME" desktop/mac/build/Neurogenesis-*.dmg desktop/mac/build/Neurogenesis-*.dmg.sha256 --clobber
