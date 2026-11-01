@@ -6,10 +6,22 @@ This document contains isolated, copy-paste prompts for autonomous Jules agents 
 1. **Strict File Isolation**: Each agent only creates or modifies files within its dedicated domain.
 2. **No Shared Index/Doc Edits**: Agents do **not** modify shared entry points (`neurogenesis/__init__.py`, `README.md`, `docs/ROADMAP.md`).
 3. **Execution Waves**:
-   - **Wave 1 (Active)**: Independent foundations (A1, A2, B1, D1, E1, F6).
-   - **Wave 1.5 (Contract & Core Scheduler)**: A3 + A4 (Param sources, stage registry with `pkgutil` auto-import, scheduler) followed by A5 (legacy compiler equivalence).
-   - **Wave 2 (Minimal Roadmap Stages & Fields)**: Clean, generic implementations of B2–B4, C1–C7, C10–C12, D2 strictly adhering to the roadmap without speculative biological scope creep.
-   - **Wave 3 (Closing the Loop & GUI Editor)**: C13 (freeze & compile), D3 (development cost model), E2–E4 (fitting & validation), F1–F5 (schedule & field editors), G1–G2 (module registry & examples).
+   - **Wave 1 (Complete)**: Independent foundations (A1, A2, B1, D1, E1, F6) merged on main.
+   - **Wave 1.5 (Complete)**: Core contracts A3+A4 (Param sources, scheduler, dynamic stage auto-discovery) and A5 (clean decomposed legacy compiler with native `legacy_stream`).
+   - **Wave 2 (Active Parallel)**: Clean, generic developmental stages & fields (B2, B3–B5, D2, C1–C3, C4–C5, C6–C7, C8–C9, C10–C12) adhering strictly to roadmap interfaces.
+   - **Wave 3 (Closing the Loop & Optimization)**: C13 (freeze & compile), D3 (development cost model), E2–E4 (fitting, workflows, validation harness), G1–G3 (module registry & examples).
+   - **Phase H (Native Desktop Applications)**:
+     - H1 (bridge) & H2 (portable C kernel `nglif` + NGB1 + fixtures) owned by the Mac agent (PR #5).
+     - H3 (UI schema export) dispatched to Jules after H1 merges.
+     - H4 (embedded runtime packaging scripts using `python-build-standalone`).
+     - H5 (Windows + Linux Avalonia C# / .NET 8 app in `desktop/avalonia/`) owned by the Avalonia agent on Windows.
+     - H6 (Linux packaging extras, optional / later).
+     - H7 (Desktop release workflow).
+     - *Strict rules for Desktop Apps*:
+       * Jules agents NEVER touch `desktop/mac/` (owned by the Mac agent) nor `desktop/avalonia/` (owned by the Avalonia agent).
+       * `desktop/common/` and `neurogenesis/bridge/` are shared contracts.
+       * No app-specific duplication of shared logic. Everything about stages, Params, models, genes comes from the bridge and the UI schema. Simulation: `nglif`. Network files: NGB1. Look: `visual_spec.json`.
+       * Every app passes golden fixtures, connects to the bridge in CI, and installs without preinstalled Python.
 4. **General Biological Conventions**:
    - Generic API names: no organ or species names in `neurogenesis/` (e.g. `stop_field`, `morphogen`, `adhesion_rule`). Biological names and mechanisms are cited in docstrings.
    - Self-contained tests: each stage test creates its own toy `Tissue` directly; tests never depend on an unmerged sister branch.
@@ -597,22 +609,61 @@ Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/E2-E4-fitting
 
 ---
 
-## Agent 19: Tasks F1–F5 — GUI Schedule & Field Editors (viz/)
-**Branch:** `task/F1-F5-gui-editors`
+# Phase H: Native Desktop Applications (macOS, Windows, Linux)
+
+*Rules for desktop app tasks:*
+- Jules agents NEVER edit `desktop/mac/` (owned by the Mac agent) nor `desktop/avalonia/` (owned by the Avalonia agent).
+- `desktop/common/` and `neurogenesis/bridge/` are shared contracts (protocol, NGB1 format, UI schema, visual spec, C kernel `nglif`, golden fixtures, runtime scripts).
+- No app-specific copies of shared logic. Kernel: `nglif`. Network files: `NGB1`. Everything about stages, Params, models, genes: bridge and UI schema. Look: `visual_spec.json`.
+- Every app passes golden fixtures, connects to the bridge in CI, and installs without preinstalled Python.
+
+---
+
+## Agent 21: Task H3 — UI Schema Export from Python [Contract]
+**Branch:** `task/H3-ui-schema-export`  
+*(Wait for PR #5 / H1 to merge before starting)*
 
 ```text
-You are working on tasks F1–F5 (Project, geometry, field, and schedule editors) in `viz/`.
-Read `AGENTS.md`, `docs/ROADMAP.md`, and inspect `viz/src/` first. Work on branch `task/F1-F5-gui-editors`.
+You are working on task H3 (UI schema export from Python) from `docs/ROADMAP.md`.
+Read `AGENTS.md`, `docs/ROADMAP.md`, `desktop/common/UI_SCHEMA.md` and `neurogenesis/bridge/` first. Work on branch `task/H3-ui-schema-export`.
 
 ### Strict File Isolation
-- ONLY create/modify files within `viz/src/ui/editors/` and `viz/src/ui/ScheduleEditor.ts`
-- DO NOT modify `viz/src/sim/kernel.ts` (browser kernel equivalence), Python files, `README.md`, or `docs/ROADMAP.md`.
+- ONLY create/modify:
+  - `neurogenesis/project/ui_schema.py`
+  - `tests/test_ui_schema.py`
+- DO NOT touch `desktop/mac/`, `desktop/avalonia/`, `README.md`, or `docs/ROADMAP.md`.
 
 ### Deliverables & Requirements
-1. Implement Project load/save and undo/redo panel matching the `1.0.0` Project JSON schema.
-2. Implement schedule editor UI: an ordered list of stages with parameter switches (`const`, `gene`, `field`, `fit`, `expr`).
-3. Implement step-by-step development preview stepping through stage checkpoints.
-4. Verify with `cd viz && npm run build && cd .. && JAX_PLATFORMS=cpu pytest -q`.
+1. Implement `export_ui_schema() -> dict` in `neurogenesis/project/ui_schema.py`:
+   - Exports versioned JSON schema of:
+     - Stage registry: all registered stages, their operator names, description, Param specifications (kinds, defaults, bounds, units), and declared cost functions;
+     - Spiking neuron models: registered models, parameter specifications, FLOPs/memory cost declarations;
+     - Guidance and placement rules;
+     - Schedule gene introspection (`collect_genes`);
+     - Project schema specification.
+   - Expose CLI command `python -m neurogenesis ui-schema` (or via bridge).
+2. In `tests/test_ui_schema.py`:
+   - Validate exported schema structure against `desktop/common/UI_SCHEMA.md`;
+   - Ensure all Wave 1 & 2 registered stages appear with complete parameter metadata.
+3. Run `cd viz && npm run build:kernel && cd .. && JAX_PLATFORMS=cpu pytest -q` and ensure all tests pass.
+```
+
+---
+
+## Agent 24: Task H7 — Desktop Release Workflow
+**Branch:** `task/H7-release-workflow`  
+*(Wait for H5 Avalonia app before starting)*
+
+```text
+You are working on task H7 (Desktop release workflow) from `docs/ROADMAP.md`.
+Read `AGENTS.md` and `docs/ROADMAP.md` first. Work on branch `task/H7-release-workflow`.
+
+### Deliverables & Requirements
+1. Create `.github/workflows/release-desktop.yml`:
+   - Triggered on semver tags (`v*`);
+   - Builds macOS DMG bundle (`desktop/mac/build.sh`), Windows setup `.exe` + `.zip` (`desktop/avalonia/`), and Linux AppImage (`desktop/avalonia/`);
+   - Smoke-tests each app's bridge connection and kernel fixtures across macOS, Windows, and Linux runners;
+   - Automatically attaches release binaries to the GitHub Release.
 ```
 
 ---
