@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 import numpy as np
 from typing import Dict, Any, Type, Optional, List, Union
 
+from ..expressions import eval_expr
+
 _FIELD_REGISTRY: Dict[str, Type['Field']] = {}
 
 def register_field(name: str):
@@ -152,7 +154,10 @@ class AnalyticField(Field):
         y = points[..., 1] if points.shape[-1] > 1 else np.zeros_like(x)
         z = points[..., 2] if points.shape[-1] > 2 else np.zeros_like(x)
         env = {"x": x, "y": y, "z": z, "np": np, "exp": np.exp, "sin": np.sin, "cos": np.cos, "pi": np.pi}
-        return eval(self.expr, env)
+        res = eval_expr(self.expr, env)
+        if np.isscalar(res):
+            return np.full(points.shape[:-1], res, dtype=float)
+        return np.asarray(res, dtype=float)
 
     def to_dict(self) -> Dict[str, Any]:
         return {'type': 'AnalyticField', 'expr': self.expr}

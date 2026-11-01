@@ -11,6 +11,7 @@ from neurogenesis.params import Param, param_from_dict, param_to_dict, resolve
 from neurogenesis.tissue import Tissue
 from neurogenesis.geometry import Geometry, geometry_from_dict, _GEOMETRY_REGISTRY
 from neurogenesis.fields import Field, field_from_dict, _FIELD_REGISTRY
+from neurogenesis.expressions import eval_expr
 
 STAGE_REGISTRY: Dict[str, type] = {}
 
@@ -37,7 +38,7 @@ def _eval_condition(condition: str, tissue: Tissue, genome: Dict[str, Any], stag
         "np": np
     }
     try:
-        return bool(eval(condition, {"__builtins__": {}}, env))
+        return bool(eval_expr(condition, env))
     except Exception as e:
         raise ValueError(f"Failed to evaluate stage condition '{condition}': {e}")
 

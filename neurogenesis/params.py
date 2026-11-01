@@ -8,6 +8,7 @@ from typing import Union, List, Dict, Any, Optional, Tuple
 import numpy as np
 
 from neurogenesis.genome.genes import get_gene
+from neurogenesis.expressions import eval_expr
 
 @dataclass
 class Const:
@@ -107,29 +108,7 @@ def _eval_expr(expr: str, variables: Dict[str, Any]) -> Union[float, np.ndarray]
     
     Translates ^ to power (**) rather than bitwise XOR.
     """
-    operators = {
-        ast.Add: op.add, ast.Sub: op.sub, ast.Mult: op.mul,
-        ast.Div: op.truediv, ast.Pow: op.pow, ast.BitXor: op.pow,  # Map ^ to pow!
-        ast.USub: op.neg
-    }
-
-    def eval_node(node):
-        if isinstance(node, ast.Constant):
-            return node.value
-        elif isinstance(node, ast.Name):
-            if node.id not in variables:
-                raise ValueError(f"Variable '{node.id}' not found in formula context")
-            return variables[node.id]
-        elif isinstance(node, ast.BinOp):
-            left = eval_node(node.left)
-            right = eval_node(node.right)
-            return operators[type(node.op)](left, right)
-        elif isinstance(node, ast.UnaryOp):
-            return operators[type(node.op)](eval_node(node.operand))
-        else:
-            raise TypeError(f"Unsupported expression node: {type(node)}")
-            
-    return eval_node(ast.parse(expr, mode='eval').body)
+    return eval_expr(expr, variables)
 
 
 def _apply_transform(val: Union[float, np.ndarray], transform: Optional[str]) -> Union[float, np.ndarray]:
