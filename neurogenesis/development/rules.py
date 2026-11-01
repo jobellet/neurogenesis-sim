@@ -1,4 +1,12 @@
-"""Axon-guidance rules: how a projection's targets and connection probabilities depend on genes and cell identity.
+"""Developmental rules: the extension points of growth.
+
+Five phases, each a list of named rules in the plan (BodyPlan.rules); a rule acts only when the genes it reads are present,
+so adding a rule to a plan never changes networks whose genomes do not use it. Rules must not draw random numbers.
+  placement    PlacementContext: moves the local positions of a region's neurons, after their placement and before
+               their sign is drawn (e.g. "mosaic": homotypic repulsion);
+  shift, target, probability    GuidanceContext: axon guidance of a projection (below);
+  weight       WeightContext: modifies the weights of a projection's new synapses before rounding and clipping
+               (e.g. "receptor_sign": sign-inverting receptors).
 
 Growth of a projection src -> dst (neurogenesis.development.grow):
   shift   = c                                         then every "shift" rule
@@ -14,7 +22,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-RULES = {"shift": {}, "target": {}, "probability": {}}
+RULES = {"placement": {}, "shift": {}, "target": {}, "probability": {}, "weight": {}}
 
 
 @dataclass
@@ -31,8 +39,25 @@ class GuidanceContext:
     p: np.ndarray | None = None
 
 
+@dataclass
+class PlacementContext:
+    region: str
+    pos: np.ndarray              # (n, 3) local positions, modified in place by rules
+    genome: dict
+
+
+@dataclass
+class WeightContext:
+    src: str
+    dst: str
+    pre: np.ndarray              # (S,) source index within the region of each new synapse
+    post: np.ndarray             # (S,) target index within the region
+    w: np.ndarray                # (S,) float weights (sign from the source neuron), modified by rules
+    gd: dict
+
+
 def register(phase, name):
-    """Decorator: register a guidance rule for a phase ("shift", "target" or "probability")."""
+    """Decorator: register a rule for a phase ("placement", "shift", "target", "probability" or "weight")."""
     def deco(fn):
         RULES[phase][name] = fn
         return fn
@@ -75,3 +100,38 @@ def source_sign(ctx):
     """gd["source"] = "exc" or "inh": the projection is made only by excitatory or only by inhibitory neurons."""
     if ctx.gd.get("source") in ("exc", "inh"):
         ctx.p = ctx.p * (ctx.inhibitory_src == (ctx.gd["source"] == "inh"))[:, None]
+
+
+@register("target", "topographic")
+def topographic(ctx):
+    """Point-to-point map (matched gradients): along the axes set in gd["topographic"] (e.g. [1, 1, 0]), the target equals
+    the source's own local position, instead of the sigmoid map."""
+    if "topographic" in ctx.gd:
+        m = np.asarray(ctx.gd["topographic"], bool)
+        ctx.target = ctx.target.copy()
+        ctx.target[:, m] = ctx.pos_src[:, m]
+
+
+@register("placement", "mosaic")
+def mosaic(ctx, iters=None):
+    """Homotypic repulsion (regular mosaics of a cell type): genome["mosaic"][region] = {"spacing": d, "iters": n}; cells
+    closer than d in the (u, v) plane push each other apart, n deterministic relaxation steps."""
+    mg = ctx.genome.get("mosaic", {}).get(ctx.region)
+    if not mg or len(ctx.pos) < 2:
+        return
+    d0 = float(mg["spacing"])
+    for _ in range(int(mg.get("iters", 20))):
+        uv = ctx.pos[:, :2]
+        diff = uv[:, None, :] - uv[None, :, :]
+        dist = np.sqrt((diff ** 2).sum(-1))
+        push = np.clip(d0 - dist, 0.0, None) / np.maximum(dist, 1e-9)   # coincident cells (diff = 0) do not move each other
+        np.fill_diagonal(push, 0.0)
+        ctx.pos[:, :2] = np.clip(uv + 0.5 * (push[:, :, None] * diff).sum(1), 0.0, 1.0)
+
+
+@register("weight", "receptor_sign")
+def receptor_sign(ctx):
+    """gd["receptor"] = "inverting": the postsynaptic receptor inverts the transmitter's effect (e.g. a metabotropic
+    glutamate receptor that closes a cation channel), so an excitatory source inhibits this target and vice versa."""
+    if ctx.gd.get("receptor") == "inverting":
+        ctx.w = -ctx.w

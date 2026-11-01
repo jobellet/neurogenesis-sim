@@ -22,7 +22,7 @@ import numpy as np
 from ..spiking.network import NeuronData, SNNNetwork, SynapseData
 from .differentiation import differentiate, identities, sigmoid
 from .plan import BodyPlan
-from .rules import RULES, GuidanceContext
+from .rules import RULES, GuidanceContext, PlacementContext, WeightContext
 
 DEFAULT_EXCITABILITY = dict(shift_v=5, shift_s=4)
 
@@ -38,6 +38,11 @@ def grow(plan: BodyPlan, genome: dict, seed: int = 0, regions=None, projections=
     projections = [tuple(p) for p in projections] if projections is not None else plan.projections
     allowed = set(plan.projections)
     assert set(projections) <= allowed, "only projections listed in the plan may grow"
+    ko = genome.get("knockout", {})                                       # virtual knockouts (neurogenesis.development.knockout)
+    if ko:
+        comps = [c for c in comps if c not in set(ko.get("regions", ()))]
+        gone = {tuple(p) for p in ko.get("projections", ())}
+        projections = [p for p in projections if p not in gone]
     local, kind = {}, {}
     for c in comps:                                                       # 1. placement and sign
         reg = plan.region(c)
@@ -45,6 +50,10 @@ def grow(plan: BodyPlan, genome: dict, seed: int = 0, regions=None, projections=
             n = int(np.clip(round(genome["count"][c]), *reg.count_bounds))
             m = genome["migration"][c]
             local[c] = np.clip(m["mean"] + m["spread"] * rng.standard_normal((n, 3)), 0.0, 1.0)
+            ctx = PlacementContext(c, local[c], genome)
+            for r in plan.rules.get("placement", ()):
+                RULES["placement"][r](ctx)
+            local[c] = ctx.pos
             ih = genome["inhibitory"][c]
             kind[c] = rng.random(n) < sigmoid(ih["a0"] + local[c] @ ih["a"])
         else:
@@ -105,8 +114,11 @@ def grow(plan: BodyPlan, genome: dict, seed: int = 0, regions=None, projections=
         pre, post = np.nonzero(rng.random(ctx.p.shape) < ctx.p)
         wc = int(gd.get("wc", genome.get("w_clip", 512)))
         inh = gd.get("inh", genome.get("inh_weight_factor"))
-        for i, j in zip(pre, post):
-            w = gd["w"] * (-inh if kind[src][i] else 1.0) * (0.9 + 0.2 * rng.random())
+        ws = np.asarray([gd["w"] * (-inh if kind[src][i] else 1.0) * (0.9 + 0.2 * rng.random()) for i in pre], float)
+        wctx = WeightContext(src, dst, pre, post, ws, gd)
+        for r in plan.rules.get("weight", ()):
+            RULES["weight"][r](wctx)
+        for i, j, w in zip(pre, post, wctx.w):
             d = np.linalg.norm(absolute[src][i] - absolute[dst][j])
             synapses.append(SynapseData(pre=int(start[src] + i), post=int(start[dst] + j), weight=int(np.clip(round(w), -wc, wc)),
                                         delay=int(np.clip(round(d / plan.conduction_velocity), 1, plan.max_delay))))
@@ -117,3 +129,26 @@ def region_of(net: SNNNetwork, plan: BodyPlan, region: str) -> np.ndarray:
     """Indices of the neurons of a region in a grown network."""
     cid = plan.ids[region]
     return np.asarray([i for i, n in enumerate(net.neurons) if n.compartment == cid], int)
+
+
+def knockout(genome: dict, regions=(), projections=()) -> dict:
+    """Copy of a genome with virtual knockouts: the listed regions never form, the listed projections never grow (their
+    guidance receptor is deleted). Development of everything else uses the same random stream order, so a knockout is
+    compared with its own wild type at the same development seed."""
+    import copy
+    g = copy.copy(genome)
+    ko = dict(genome.get("knockout", {}))
+    ko["regions"] = sorted(set(ko.get("regions", ())) | set(regions))
+    ko["projections"] = sorted({tuple(p) for p in ko.get("projections", ())} | {tuple(p) for p in projections})
+    g["knockout"] = ko
+    return g
+
+
+def tonic_current(net: SNNNetwork, plan: BodyPlan, genome: dict) -> np.ndarray:
+    """Intrinsic standing current of each neuron (int32, per tick), from genome["tonic"][region] (default 0): for cells
+    depolarised at rest by their own channels. Add it to the external current of every tick of a simulation."""
+    out = np.zeros(net.num_neurons, np.int32)
+    for c, v in genome.get("tonic", {}).items():
+        if c in plan.ids:
+            out[region_of(net, plan, c)] = int(round(v))
+    return out

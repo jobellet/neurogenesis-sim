@@ -95,7 +95,8 @@ class Region:
         return self.placement is None
 
 
-DEFAULT_RULES = dict(shift=("identity_offset",), target=("lamina",), probability=("identity_expression", "no_autapse", "source_sign"))
+DEFAULT_RULES = dict(placement=("mosaic",), shift=("identity_offset",), target=("topographic", "lamina"),
+                     probability=("identity_expression", "no_autapse", "source_sign"), weight=("receptor_sign",))
 
 
 @dataclass
@@ -108,8 +109,12 @@ class BodyPlan:
     max_delay: int = 31
     ids: dict = field(default_factory=dict)                    # region name -> compartment id stored on each neuron
     rules: dict = field(default_factory=lambda: dict(DEFAULT_RULES))
+    plugins: list = field(default_factory=list)                # Python modules that register the plan's extra rules
 
     def __post_init__(self):
+        import importlib
+        for m in self.plugins:                                  # extra rules travel with the plan
+            importlib.import_module(m)
         self.projections = [tuple(p) for p in self.projections]
         if not self.ids:
             self.ids = {r.name: i for i, r in enumerate(self.regions)}
@@ -143,7 +148,7 @@ class BodyPlan:
         rules = {k: tuple(v) for k, v in d.get("rules", DEFAULT_RULES).items()}
         return cls(name=d["name"], regions=regions, projections=[tuple(p) for p in d["projections"]],
                    conduction_velocity=d.get("conduction_velocity", 20.0), max_delay=d.get("max_delay", 31),
-                   ids=dict(d.get("ids", {})), rules=rules)
+                   ids=dict(d.get("ids", {})), rules=rules, plugins=list(d.get("plugins", [])))
 
     def save(self, path):
         Path(path).write_text(json.dumps(self.to_dict(), indent=1))

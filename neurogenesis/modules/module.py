@@ -16,7 +16,7 @@ from ..development.grow import grow
 from ..development.plan import BodyPlan, Count, FixedPlacement, Region
 from ..genome.io import from_json, to_json
 
-REGION_ROOTS = ("count", "migration", "inhibitory", "excitability", "differentiation", "identity", "types")
+REGION_ROOTS = ("count", "migration", "inhibitory", "excitability", "differentiation", "identity", "types", "mosaic", "tonic")
 FORMAT = "neurogenesis-module/1"
 
 
@@ -100,7 +100,7 @@ def compose(name, modules, links=(), offsets=None, inh_weight_factor=2.0, w_clip
     offsets: {prefix: (dx, dy, dz)} shifts a module's regions in space (this changes conduction delays of links only).
     Returns a Module whose inputs and outputs are those of the parts, prefixed.
     """
-    regions, projections, genome, inputs, outputs = [], [], {r: {} for r in REGION_ROOTS}, [], []
+    regions, projections, genome, inputs, outputs, plugins = [], [], {r: {} for r in REGION_ROOTS}, [], [], []
     genome["guidance"] = {}
     rules = None
     for prefix, m in modules.items():
@@ -113,14 +113,15 @@ def compose(name, modules, links=(), offsets=None, inh_weight_factor=2.0, w_clip
         projections += [(f"{prefix}.{s}", f"{prefix}.{d}") for s, d in m.plan.projections]
         inputs += [f"{prefix}.{r}" for r in m.inputs]
         outputs += [f"{prefix}.{r}" for r in m.outputs]
-        if rules is None:
-            rules = dict(m.plan.rules)
-        assert dict(m.plan.rules) == rules, "composed modules must use the same guidance rules"
+        rules = rules or {}
+        for phase, names in m.plan.rules.items():                 # ordered union of every module's rules, per phase
+            rules[phase] = tuple(rules.get(phase, ())) + tuple(n for n in names if n not in rules.get(phase, ()))
+        plugins += [x for x in m.plan.plugins if x not in plugins]
     for s, d, gd in links:
         projections.append((s, d))
         genome["guidance"][(s, d)] = dict(gd)
     genome["inh_weight_factor"], genome["w_clip"] = inh_weight_factor, w_clip
     genome = {k: v for k, v in genome.items() if v != {}}
-    plan = BodyPlan(name=name, regions=regions, projections=projections, rules=rules or {})
+    plan = BodyPlan(name=name, regions=regions, projections=projections, rules=rules or {}, plugins=plugins)
     return Module(name=name, plan=plan, genome=genome, inputs=inputs, outputs=outputs,
                   provenance=dict(composed_from={p: m.name for p, m in modules.items()}))

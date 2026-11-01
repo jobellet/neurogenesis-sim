@@ -23,7 +23,8 @@ cd viz && npm ci && npm run dev  # 3D viewer at http://localhost:5173 (Node >= 1
 | Body plan | `neurogenesis.development.BodyPlan` | Regions (`Region`: box in space, fixed or grown placement, role input / internal / output, imposed sign, refractory period) and allowed projections, in growth order. Plain data, saved as JSON. |
 | Genome | `neurogenesis.genome` | A nested dict. Genes are addressed by paths (`("guidance", ("a", "b"), "B", 0, 1)`), coded in [0, 1] for evolution (`from_unit`, `to_unit`) and grouped by mechanism (`guidance_genes`, `body_genes`, `differentiation_genes`, `identity_genes`, ...). |
 | Development | `neurogenesis.development.grow` | Placement and sign → differentiation (lateral inhibition, Notch–Delta type) → molecular identity → axon growth (positional chemoaffinity plus registered guidance rules). Deterministic for a given development seed; `grow_many` grows in parallel processes with identical results. |
-| Guidance rules | `neurogenesis.development.rules` | Registry of rules applied to every projection, in three phases (target shift, target, connection probability). Built in: identity-dependent target offset and receptor expression, laminar targeting, no autapse, projections made only by excitatory or inhibitory neurons. New molecular mechanisms are added with `@register(phase, name)` and listed in the plan. |
+| Developmental rules | `neurogenesis.development.rules` | The extension points of growth, in five phases: placement (e.g. mosaics), guidance shift / target / probability (identity-dependent targets and receptor expression, point-to-point topography, laminar targeting, no autapse, projections made only by excitatory or inhibitory neurons), and synaptic weight (e.g. sign-inverting receptors). Each built-in rule acts only when its gene is present. New mechanisms: `@register(phase, name)`, listed in the plan, shipped as plan `plugins`. See `docs/EXTENDING.md`. |
+| Knockouts, tonic currents | `neurogenesis.development` | `knockout(genome, regions, projections)` for virtual knockouts; `tonic_current` for standing currents of cell types (`genome["tonic"]`). |
 | Evolution | `neurogenesis.evolution` | Island model on [0, 1] gene vectors with fresh development seeds every generation; choice on validation seeds; audits on held-out seeds (`robust_value` = worst + 0.25 × mean − cost). |
 | Modules | `neurogenesis.modules` | `Module` = plan + genome + inputs / outputs + validation + provenance, saved as JSON (`neurogenesis-module/1`). `compose` assembles modules into a larger system: region names are prefixed, each module keeps its genes, and links add new projections. |
 | Viewer | `viz/` | Browser sandbox (three.js): imports any network JSON, shows neurons by role and sign, rasters, per-neuron inspection and editing. |
@@ -50,6 +51,10 @@ Module("demo", plan, genome, inputs=["sensor"], outputs=["map"]).save("demo.modu
 - Same network + kernel seed → the same spikes in Python, JAX and the browser (`tests/test_kernel.py`; the browser test
   needs `cd viz && npm run build:kernel` once).
 - Projects that depend on the toolbox should freeze fingerprints of the networks their results come from, and test them.
+
+## Extending
+`docs/EXTENDING.md`: where new biology goes (regions, rules, plugins), how to organise a module project (plan, assay,
+capacity test, evolution, audit with knockouts), and how to compose other people's modules.
 
 ## Contributing a module
 See `CONTRIBUTING.md`: a module comes with its plan, genome, interface, the stimuli and metrics used to validate it, and
