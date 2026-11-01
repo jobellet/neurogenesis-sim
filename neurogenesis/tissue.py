@@ -106,8 +106,13 @@ class Tissue:
         if "directions" not in kwargs:
             dir[:, 0] = 1.0  # Default to (1, 0, 0)
         
-        c_id = np.arange(self._next_cell_id, self._next_cell_id + N, dtype=np.int32)
-        self._next_cell_id += N
+        if "cell_id" in kwargs:
+            c_id = np.asarray(kwargs["cell_id"], dtype=np.int32)
+            if len(c_id) > 0:
+                self._next_cell_id = max(self._next_cell_id, int(np.max(c_id)) + 1)
+        else:
+            c_id = np.arange(self._next_cell_id, self._next_cell_id + N, dtype=np.int32)
+            self._next_cell_id += N
         
         par_id = parent_ids if parent_ids is not None else np.full(N, -1, dtype=np.int32)
         
@@ -394,7 +399,7 @@ class Tissue:
         # base_weight in SNNNetwork = abs(self.base_weight) * (1 if sign >= 0 else -1)
         net.neurons = [
             NeuronData(
-                id=int(i),
+                id=int(self.cell_id[i]),
                 x=float(self.positions[i, 0]),
                 y=float(self.positions[i, 1]),
                 z=float(self.positions[i, 2]),
@@ -480,9 +485,11 @@ class Tissue:
         # Single source of truth: sign matches base_weight polarity
         sign = np.where(base_weight >= 0, np.ones(N, dtype=np.int8), np.full(N, -1, dtype=np.int8))
         
+        cell_id = np.array([n.id for n in net.neurons], dtype=np.int32)
         t.add_cells(
             N, 
             positions=positions, 
+            cell_id=cell_id,
             directions=directions,
             mode=mode,
             shift_v=shift_v,
