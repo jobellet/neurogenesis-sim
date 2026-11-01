@@ -21,8 +21,8 @@ def load_generator():
 
 def test_fixtures_follow_the_reference_kernel(tmp_path):
     load_generator().make(tmp_path, check_jax=False)
-    committed = sorted(p.name for p in FIXTURES.iterdir() if p.suffix != ".py" and p.name != "README.md")
-    assert sorted(p.name for p in tmp_path.iterdir()) == committed
+    committed = sorted(p.name for p in FIXTURES.iterdir() if p.is_file() and p.suffix != ".py" and p.name != "README.md")
+    assert sorted(p.name for p in tmp_path.iterdir() if p.is_file()) == committed
     for name in committed:
         assert (tmp_path / name).read_bytes() == (FIXTURES / name).read_bytes(), f"{name} differs: regenerate with make_fixtures.py"
 
