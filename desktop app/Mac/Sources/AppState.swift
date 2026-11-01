@@ -32,10 +32,7 @@ final class AppState: ObservableObject {
     @Published var selectionCurrent: Double = 0 { didSet { updateExternal() } }
     @Published var pulseCurrent: Double = 400
     @Published var kernelSeed: Double = 12345
-    @Published private(set) var tick = 0
-    @Published private(set) var rateHz: Double = 0
-    @Published private(set) var tps: Double = 0
-    @Published private(set) var fps: Double = 0
+    let live = LiveStats()          // 10 Hz counters, observed only by the views that show them
     @Published var simModel = "lif_int"
     @Published var models: [[String: Any]] = []
     @Published var offlineResult: OfflineRun?
@@ -79,6 +76,22 @@ final class AppState: ObservableObject {
     @Published var log: [LogLine] = []
     @Published var bridgeStatus = "Python not started"
     @Published var lastError: String?
+    @Published var alert: AppAlert?
+    @Published var machine = MachineResources.current()
+    @Published var growEstimate: [String: Any] = [:]
+
+    struct AppAlert: Identifiable { let id = UUID(); let title: String; let message: String }
+
+    func showAlert(_ title: String, _ message: String) { alert = AppAlert(title: title, message: message) }
+
+    /// Runs a resource check; on refusal shows why and returns false.
+    func allowed(_ check: () throws -> Void) -> Bool {
+        do { try check(); return true } catch {
+            showAlert("Not enough resources", error.localizedDescription)
+            status = "Refused: " + error.localizedDescription
+            return false
+        }
+    }
 
     struct OfflineRun { let model: String; let ticks: Int; let t: [Int]; let i: [Int]; let rateHz: Double }
 
@@ -270,16 +283,38 @@ final class AppState: ObservableObject {
 
     // MARK: polling (10 Hz)
 
+    private var pollCount = 0
+
     private func poll() {
-        tick = engine.tick
-        tps = engine.measuredTPS
-        fps = fpsSmooth
+        pollCount += 1
         let (_, _, c) = engine.recent(200)
         let total = c.reduce(0) { $0 + Int($1) }
-        rateHz = c.isEmpty || network.neurons.isEmpty ? 0 : Double(total) / Double(network.neurons.count) / (Double(c.count) / 1000)
-        if colorMode == .activity, tick % 2 == 0 {
+        let rate = c.isEmpty || network.neurons.isEmpty ? 0 : Double(total) / Double(network.neurons.count) / (Double(c.count) / 1000)
+        live.update(tick: engine.tick, rateHz: rate, tps: engine.measuredTPS, fps: fpsSmooth)
+        if pollCount % 10 == 0 && section == .analysis && !network.regionNames.isEmpty {
+            let r = engine.rates(1000)
+            var sum = [Double](repeating: 0, count: network.regionNames.count), cnt = sum
+            for (i, n) in network.neurons.enumerated() where n.compartment >= 0 && Int(n.compartment) < sum.count && i < r.count {
+                sum[Int(n.compartment)] += Double(r[i]); cnt[Int(n.compartment)] += 1
+            }
+            live.regionRates = zip(sum, cnt).map { $1 > 0 ? $0 / $1 : 0 }
+        }
+        if colorMode == .activity, pollCount % 3 == 0, engine.running {
             lastRates = engine.rates(500)
             rebuildNeurons()
+        }
+    }
+
+    /// A Project section as it will be saved, without modifying state (safe to call while views render).
+    func projectValue(_ key: String) -> JSONValue {
+        switch key {
+        case "plan": return JSONValue(plan.dict)
+        case "genome": return genome
+        case "geometry":
+            var geo: [String: JSONValue] = [:]
+            for g in geometries { geo[g.name] = g.spec }
+            return .object(geo)
+        default: return project[key] ?? .null
         }
     }
 
@@ -447,11 +482,14 @@ final class AppState: ObservableObject {
             if status == label + "…" { status = label + ": done" }
         } catch {
             let msg = (error as? BridgeError)?.message ?? error.localizedDescription
+            let resource = error is ResourceError || (error as? BridgeError)?.isResource == true
             lastError = msg
-            status = "\(label) failed: \(msg)"
-            appendLog("\(label) failed: \(msg)", error: true)
+            status = "\(label) \(resource ? "refused" : "failed"): \(msg)"
+            appendLog(status, error: true)
             if let t = (error as? BridgeError)?.trace, !t.isEmpty { appendLog(t, error: true) }
+            showAlert(resource ? "Not enough resources" : "\(label) failed", msg)
         }
+        machine = MachineResources.current()
         busy = nil
     }
 
@@ -461,6 +499,9 @@ final class AppState: ObservableObject {
 
     func loadNGB(_ r: [String: Any], frame: Bool = false, undoable: Bool = true) throws {
         guard let path = r["path"] as? String else { throw BridgeError(message: "no network in reply") }
+        if let (n, e) = ResourceGuard.ngbHeader(path) {
+            try ResourceGuard.checkNetwork(neurons: n, synapses: e, drawn: Int(synapseCap), action: "Showing a network of \(n) neurons and \(e) synapses")
+        }
         var net = try Network.readNGB(URL(fileURLWithPath: path))
         net.morphology = r["morphology"] as? String ?? net.morphology
         net.regionNames = r["regions"] as? [String] ?? []
@@ -527,6 +568,15 @@ final class AppState: ObservableObject {
         genome = JSONValue(r["genome"])
     }
 
+    /// What growing the current plan will cost, and whether it fits (Body plan panel).
+    func checkGrowResources() {
+        action("Estimating growth") {
+            try await self.completeGenome()
+            self.growEstimate = try await self.bridge.dict("estimate_grow", ["plan": self.plan.dict, "genome": self.genome.any])
+            if self.growEstimate["fits"] as? Bool == false { self.showAlert("Not enough resources", self.growEstimate["message"] as? String ?? "") }
+        }
+    }
+
     func grow() {
         action("Growing \(plan.name)") {
             try await self.completeGenome()
@@ -580,6 +630,7 @@ final class AppState: ObservableObject {
         guard k >= 0, k < checkpoints.count else { return }
         checkpointIndex = k
         let c = checkpoints[k]
+        guard allowed({ try ResourceGuard.checkNetwork(neurons: c.neurons, synapses: c.synapses, drawn: Int(synapseCap), action: "Showing checkpoint \(c.label)") }) else { return }
         do {
             var net = try Network.readNGB(URL(fileURLWithPath: c.path))
             net.regionNames = c.regions
@@ -657,6 +708,8 @@ final class AppState: ObservableObject {
     func sampleCells(in k: Int, n: Int, inhFraction: Double, role: Int, replace: Bool, seed: Int) {
         guard k < geometries.count else { return }
         let g = geometries[k]
+        let total = (replace ? 0 : network.neurons.count) + n
+        guard allowed({ try ResourceGuard.checkNetwork(neurons: total, synapses: replace ? 0 : network.synapses.count, drawn: Int(synapseCap), action: "Sampling \(n) cells") }) else { return }
         action("Sampling \(n) cells in \(g.name)") {
             let comp = replace ? 0 : Int(self.network.neurons.map { $0.compartment }.max() ?? -1) + 1
             let r = try await self.bridge.dict("geometry_cells", ["geometry": g.spec.any, "n": n, "inh_fraction": inhFraction,
@@ -714,6 +767,7 @@ final class AppState: ObservableObject {
 
     /// Opens a Project, a module, a body plan or a network JSON, recognised by its content.
     func openFile(_ url: URL) {
+        guard allowed({ try ResourceGuard.checkJSONFile(url, action: "Opening \(url.lastPathComponent)") }) else { return }
         guard let data = try? Data(contentsOf: url), let d = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
             status = "\(url.lastPathComponent) is not JSON"; return
         }

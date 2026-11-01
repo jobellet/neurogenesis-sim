@@ -181,9 +181,7 @@ struct ProjectPanel: View {
         }
         ForEach(["metadata", "fields", "schedule", "geometry", "genome", "plan"], id: \.self) { key in
             DisclosureGroup("\(key)") {
-                JSONEditor(value: Binding(get: {
-                    app.syncProject(); return app.project[key] ?? .null
-                }, set: { v in
+                JSONEditor(value: Binding(get: { app.projectValue(key) }, set: { v in
                     app.project[key] = v
                     if key == "plan" { app.plan = PlanSpec(v) }
                     if key == "genome" { app.genome = v }
@@ -323,6 +321,15 @@ struct PlanPanel: View {
                     Button("Reset to example") { app.plan = PlanSpec.example(); app.genome = .object([:]) }
                     Button("Empty plan") { app.plan = PlanSpec(); app.genome = .object([:]) }
                     Toggle("Show region boxes", isOn: $app.showRegionBoxes)
+                }
+            }
+        }
+        Card(title: "Resources", subtitle: "Cells, expected synapses and peak memory of growing this plan, checked against what is free now. Growing refuses plans that do not fit.") {
+            HStack {
+                Button("Check") { app.checkGrowResources() }
+                if let n = app.growEstimate["neurons"] as? Int, let e = app.growEstimate["synapses"] as? Int, let b = app.growEstimate["bytes"] as? Int {
+                    Text("\(n) cells · ~\(e) synapses · \(humanBytes(UInt64(b)))")
+                        .font(.caption).foregroundStyle((app.growEstimate["fits"] as? Bool ?? true) ? Color.secondary : Color.red)
                 }
             }
         }
@@ -792,7 +799,7 @@ struct SimulationPanel: View {
                 Text(app.speed == 0 ? "max" : "\(Int(app.speed)) ms/s").monospacedDigit().frame(width: 80, alignment: .trailing)
             }
             LabeledContent("Kernel seed") { TextField("", value: $app.kernelSeed, format: .number).frame(width: 80) }
-            Text(String(format: "t = %d ms · %.1f Hz mean · %.0f ticks/s", app.tick, app.rateHz, app.tps)).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+            LiveLine(live: app.live)
         }
         Card(title: "Stimulation", subtitle: "Currents in toolbox units, added to the synaptic current every tick (as jax_backend.tick ext_current). Rheobase ≈ 8.5.") {
             Toggle("Drive input neurons (role 1)", isOn: $app.driveInputs)
@@ -1069,16 +1076,8 @@ struct AnalysisPanel: View {
         Card(title: "Mosaic regularity", subtitle: "Nearest-neighbour regularity index of the selection (or all cells), in x–y.") {
             Button("Compute") { app.regularity() }
         }
-        Card(title: "Firing rates (live)") {
-            let r = app.engine.rates(1000)
-            let names = app.network.regionNames
-            if !names.isEmpty {
-                ForEach(Array(names.enumerated()), id: \.offset) { k, name in
-                    let idx = app.network.neurons.indices.filter { app.network.neurons[$0].compartment == Int32(k) }
-                    let m = idx.isEmpty ? 0 : idx.map { Double(r[$0]) }.reduce(0, +) / Double(idx.count)
-                    HStack { Circle().fill(paletteColor(k).swiftUI).frame(width: 8, height: 8); Text(name); Spacer(); Text(String(format: "%.1f Hz", m)).monospacedDigit() }.font(.caption)
-                }
-            } else { Text(String(format: "%.1f Hz mean", app.rateHz)).font(.caption) }
+        Card(title: "Firing rates (live, last second)") {
+            RegionRates(live: app.live, names: app.network.regionNames)
             Text("Colour neurons by firing rate from the toolbar.").font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -1091,6 +1090,16 @@ struct RoadmapPanel: View {
     @State private var python = AppConfig.load().python
     @State private var repo = AppConfig.load().repo
     var body: some View {
+        Card(title: "This Mac", subtitle: "Heavy actions check these first and are refused, with an explanation, when they would not fit (at most \(Int(ResourceGuard.fraction * 100)) % of free memory, and half the RAM).") {
+            let m = app.machine
+            LabeledContent("Memory free / installed") { Text("\(humanBytes(m.available)) / \(humanBytes(m.physical))").monospacedDigit() }
+            LabeledContent("CPU cores") { Text("\(m.cores)") }
+            LabeledContent("GPU") { Text("\(m.gpuName) · \(humanBytes(m.gpuWorkingSet))") }
+            LabeledContent("Current network in the app") {
+                Text(humanBytes(ResourceGuard.networkBytes(neurons: app.network.neurons.count, synapses: app.network.synapses.count, drawnSynapses: Int(app.synapseCap)))).monospacedDigit()
+            }
+            Button("Refresh") { app.machine = MachineResources.current() }
+        }
         Card(title: "Toolbox", subtitle: app.pythonInfo) {
             Button("Refresh (re-scan merged tasks)") { app.bridge.restart(); }
             Text("Restarting the Python bridge re-imports the toolbox, so newly merged tasks appear without restarting the app.").font(.caption).foregroundStyle(.secondary)

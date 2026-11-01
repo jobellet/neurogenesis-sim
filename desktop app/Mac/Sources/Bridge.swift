@@ -3,6 +3,7 @@ import Foundation
 struct BridgeError: LocalizedError {
     let message: String
     var trace: String = ""
+    var isResource = false
     var errorDescription: String? { message }
 }
 
@@ -105,7 +106,8 @@ final class Bridge {
             }
             guard let id = obj["id"] as? Int, let cb = pending.removeValue(forKey: id) else { continue }
             if let err = obj["error"] as? String {
-                cb(.failure(BridgeError(message: err, trace: obj["trace"] as? String ?? "")))
+                cb(.failure(BridgeError(message: err.replacingOccurrences(of: "ResourceError: ", with: ""),
+                                        trace: obj["trace"] as? String ?? "", isResource: obj["kind"] as? String == "resource")))
             } else {
                 cb(.success(obj["result"] ?? NSNull()))
             }

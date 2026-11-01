@@ -28,6 +28,13 @@ the app. For example, the schedule editor writes A4 entries (`{name, operator, p
 (`{"type": "Gene", "path": "a.b", "lo", "hi"}`), and **Run schedule** works as soon as the stages it uses are
 registered.
 
+**Resources.** Heavy actions are checked against this Mac before they run: growing a plan, generating a preset,
+sampling cells, opening projects or networks, loading modules, evolution, other neuron models and plasticity. Each is
+refused with an alert if it would need more than 60 % of the memory free right now (or half the RAM). The Python side
+estimates from the inputs: legacy `grow()` builds dense Ns × Nd arrays, and every cell and synapse is a Python object.
+The app side reads the network's size from the NGB1 header before loading it. *Body plan → Resources → Check* shows
+the estimate, and *Roadmap status → This Mac* shows the machine.
+
 ## Using it
 - **Navigate:** drag to orbit; shift-drag, right-drag or ⌘-drag to pan; scroll or pinch to zoom (on a trackpad,
   two-finger scrolling orbits). Double-click centres the view on a neuron. W A S D Q E move the camera, F frames

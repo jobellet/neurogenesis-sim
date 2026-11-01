@@ -34,6 +34,7 @@ struct ContentView: View {
             InspectorView().inspectorColumnWidth(min: 240, ideal: 280, max: 400)
         }
         .toolbar { MainToolbar() }
+        .alert(item: $app.alert) { a in Alert(title: Text(a.title), message: Text(a.message), dismissButton: .default(Text("OK"))) }
         .navigationTitle(app.projectURL?.lastPathComponent ?? "Neurogenesis")
         .navigationSubtitle("\(app.network.morphology) · \(app.network.neurons.count) neurons · \(app.network.synapses.count) synapses")
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
@@ -101,13 +102,7 @@ struct HUD: View {
     @EnvironmentObject var app: AppState
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 10) {
-                Label("\(app.tick) ms", systemImage: "clock").monospacedDigit()
-                Text(String(format: "%.1f Hz", app.rateHz)).monospacedDigit()
-                Text(String(format: "%.0f ticks/s", app.tps)).monospacedDigit().foregroundStyle(.secondary)
-                Text(String(format: "%.0f fps", app.fps)).monospacedDigit().foregroundStyle(.secondary)
-            }
-            .font(.system(size: 11, weight: .medium))
+            HUDCounters(live: app.live)
             Text(app.tool.help).font(.system(size: 10)).foregroundStyle(.secondary)
             if app.colorMode == .region, !app.network.regionNames.isEmpty {
                 HStack(spacing: 8) {
@@ -403,6 +398,61 @@ struct Vec3Field: View {
                 TextField("x", value: $value.x, format: .number.precision(.fractionLength(0...3)))
                 TextField("y", value: $value.y, format: .number.precision(.fractionLength(0...3)))
                 TextField("z", value: $value.z, format: .number.precision(.fractionLength(0...3)))
+            }
+        }
+    }
+}
+
+// MARK: live counters (their own observable object: 10 Hz updates redraw only these views)
+
+final class LiveStats: ObservableObject {
+    @Published private(set) var tick = 0
+    @Published private(set) var rateHz = 0.0
+    @Published private(set) var tps = 0.0
+    @Published private(set) var fps = 0.0
+    @Published var regionRates: [Double] = []
+
+    func update(tick t: Int, rateHz r: Double, tps s: Double, fps f: Double) {
+        if t != tick { tick = t }
+        if abs(r - rateHz) > 0.05 { rateHz = r }
+        if abs(s - tps) > 1 { tps = s }
+        if abs(f - fps) > 1 { fps = f }
+    }
+}
+
+struct HUDCounters: View {
+    @ObservedObject var live: LiveStats
+    var body: some View {
+        HStack(spacing: 10) {
+            Label("\(live.tick) ms", systemImage: "clock").monospacedDigit()
+            Text(String(format: "%.1f Hz", live.rateHz)).monospacedDigit()
+            Text(String(format: "%.0f ticks/s", live.tps)).monospacedDigit().foregroundStyle(.secondary)
+            Text(String(format: "%.0f fps", live.fps)).monospacedDigit().foregroundStyle(.secondary)
+        }
+        .font(.system(size: 11, weight: .medium))
+    }
+}
+
+struct LiveLine: View {
+    @ObservedObject var live: LiveStats
+    var body: some View {
+        Text(String(format: "t = %d ms · %.1f Hz mean · %.0f ticks/s", live.tick, live.rateHz, live.tps))
+            .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+    }
+}
+
+struct RegionRates: View {
+    @ObservedObject var live: LiveStats
+    let names: [String]
+    var body: some View {
+        if names.isEmpty {
+            Text(String(format: "%.1f Hz mean", live.rateHz)).font(.caption)
+        } else {
+            ForEach(Array(names.enumerated()), id: \.offset) { k, name in
+                HStack {
+                    Circle().fill(paletteColor(k).swiftUI).frame(width: 8, height: 8); Text(name); Spacer()
+                    Text(k < live.regionRates.count ? String(format: "%.1f Hz", live.regionRates[k]) : "–").monospacedDigit()
+                }.font(.caption)
             }
         }
     }

@@ -17,7 +17,10 @@ import importlib.util
 import inspect
 import json
 import os
+import re
+import shutil
 import struct
+import subprocess
 import sys
 import tempfile
 import threading
@@ -123,6 +126,121 @@ def read_network(path):
     return SNNNetwork(morphology="Desktop", neurons=neurons, synapses=synapses)
 
 
+# ------------------------------------------------------------------------------------------------------ resources
+class ResourceError(RuntimeError):
+    """An action that would not fit in this machine's memory or disk (reported to the user, nothing is run)."""
+
+
+FRACTION = 0.6            # an action may use at most this fraction of the memory available now, and half the RAM
+NEURON_BYTES = 1200       # per neuron while growing: NeuronData object, positions, lists, the NGB1 copy
+SYNAPSE_BYTES = 320       # per synapse: SynapseData object, list entry, NGB1 columns
+NGB_NEURON, NGB_SYNAPSE = 104, 16
+
+
+def physical_memory():
+    try:
+        return int(os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE"))
+    except (ValueError, OSError, AttributeError):
+        return 8 << 30
+
+
+def available_memory():
+    """Bytes usable now without swapping: free, inactive, purgeable and speculative pages (macOS vm_stat)."""
+    try:
+        import psutil
+        return int(psutil.virtual_memory().available)
+    except ImportError:
+        pass
+    if sys.platform == "darwin":
+        try:
+            out = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=5).stdout
+            page = int(re.search(r"page size of (\d+)", out).group(1))
+            keys = ("Pages free", "Pages inactive", "Pages purgeable", "Pages speculative")
+            return page * sum(int(m.group(1)) for k in keys if (m := re.search(rf"{k}:\s+(\d+)", out)))
+        except Exception:
+            pass
+    try:
+        return int(os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE"))
+    except (ValueError, OSError, AttributeError):
+        return physical_memory() // 2
+
+
+def _human(b):
+    for unit, k in (("TB", 1 << 40), ("GB", 1 << 30), ("MB", 1 << 20), ("kB", 1 << 10)):
+        if b >= k:
+            return f"{b / k:.1f} {unit}"
+    return f"{int(b)} B"
+
+
+def _ensure(bytes_needed, action, disk=0):
+    """Refuse an action that needs more memory (or temporary disk) than this machine can give it now."""
+    avail, phys = available_memory(), physical_memory()
+    limit = min(FRACTION * avail, phys / 2)
+    if bytes_needed > limit:
+        raise ResourceError(f"{action} needs about {_human(bytes_needed)} of memory, but only {_human(avail)} is free "
+                            f"({_human(phys)} installed; at most {int(FRACTION * 100)} % of free memory is used, so the "
+                            f"computer stays responsive). Make it smaller (fewer cells, sparser projections), or quit "
+                            f"other apps and try again.")
+    if disk:
+        free = shutil.disk_usage(TMP).free
+        if disk > 0.5 * free:
+            raise ResourceError(f"{action} needs about {_human(disk)} of temporary disk space, but only {_human(free)} is free.")
+    return dict(bytes=int(bytes_needed), available=int(avail), physical=int(phys))
+
+
+def _region_sizes(plan, g):
+    sizes, rng = {}, np.random.default_rng(0)
+    gone = set((g.get("knockout") or {}).get("regions", ()))
+    for r in plan.regions:
+        if r.name in gone:
+            continue
+        if r.grown:
+            sizes[r.name] = int(np.clip(round(float((g.get("count") or {}).get(r.name, r.count_bounds[0]))), *r.count_bounds))
+        else:
+            sizes[r.name] = len(r.placement.place(g, rng))
+    return sizes
+
+
+def grow_estimate(plan, g, projections=None):
+    """Cells, expected synapses, peak memory and disk of the legacy grow(): it builds dense Ns x Nd arrays per
+    projection (distances, probabilities, random draws: about 6 float64 arrays), and Python objects per cell / synapse.
+    Expected synapses: p0 x Ns x Nd x the volume fraction of a Gaussian of width sigma in the unit cube."""
+    sizes = _region_sizes(plan, g)
+    prs = [tuple(x) for x in (projections if projections is not None else plan.projections)]
+    N = sum(sizes.values())
+    E, peak_pair = 0.0, 0
+    for (a, b) in prs:
+        if a not in sizes or b not in sizes:
+            continue
+        ns, nd = sizes[a], sizes[b]
+        gd = (g.get("guidance") or {}).get((a, b), {}) or {}
+        sigma, p0 = float(gd.get("sigma", 0.3)), float(gd.get("p0", 0.5))
+        E += p0 * ns * nd * min(1.0, (2.5066 * sigma) ** 3)
+        peak_pair = max(peak_pair, ns * nd)
+    mem = 48 * peak_pair + N * NEURON_BYTES + E * SYNAPSE_BYTES
+    return dict(neurons=int(N), synapses=int(E), dense_pairs=int(peak_pair), bytes=int(mem),
+                disk=int(N * NGB_NEURON + E * NGB_SYNAPSE), regions=sizes)
+
+
+def m_resources(p):
+    """This machine's memory, cores and temporary disk."""
+    return dict(available=available_memory(), physical=physical_memory(), cores=os.cpu_count(),
+                disk_free=shutil.disk_usage(TMP).free, fraction=FRACTION)
+
+
+def m_estimate_grow(p):
+    """What growing a plan will cost, and whether it fits now."""
+    plan, g = _plan(p["plan"]), _genome(p.get("genome"))
+    est = grow_estimate(plan, g)
+    try:
+        _ensure(est["bytes"], "Growing this plan", est["disk"])
+        est["fits"], est["message"] = True, "fits"
+    except ResourceError as e:
+        est["fits"], est["message"] = False, str(e)
+    est["available"] = available_memory()
+    return est
+
+
 # ---------------------------------------------------------------------------------------------------- capabilities
 def _has(module, attr=None):
     try:
@@ -206,6 +324,7 @@ def m_capabilities(p):
 # ------------------------------------------------------------------------------------------------ network sources
 def m_load_network(p):
     from neurogenesis.spiking.network import SNNNetwork
+    _ensure(os.path.getsize(p["path"]) * 15, f"Opening {Path(p['path']).name}")
     return write_network(SNNNetwork.load_json(p["path"]))
 
 
@@ -220,6 +339,8 @@ def m_generate(p):
     from neurogenesis.spiking.morphology import MorphogeneticEngine as M
     kind = p.get("morphology", "column")
     n, seed = int(p.get("neurons", 500)), int(p.get("seed", 42))
+    e = n * min(max(n - 1, 0), 200)             # upper estimate of the presets' synapses per neuron
+    _ensure(n * NEURON_BYTES + e * SYNAPSE_BYTES + n * 64, f"Generating a {n}-neuron {kind}", n * NGB_NEURON + e * NGB_SYNAPSE)
     cv = float(p.get("conduction_velocity", 4.0))
     if kind == "layered":
         net = M.generate_layered_network(num_neurons=n, num_layers=int(p.get("layers", 4)), conduction_velocity=cv, seed=seed)
@@ -237,6 +358,8 @@ def m_wire(p):
     """Rewire a network by distance (MorphogeneticEngine.wire_network: each neuron's radius, probability, weight)."""
     from neurogenesis.spiking.morphology import MorphogeneticEngine as M
     net = read_network(p["ngb"])
+    n = net.num_neurons
+    _ensure(n * NEURON_BYTES + n * min(n, 200) * SYNAPSE_BYTES, f"Wiring {n} neurons")
     sig = inspect.signature(M.wire_network).parameters
     kw = {k: v for k, v in dict(seed=int(p.get("seed", 0)), conduction_velocity=float(p.get("conduction_velocity", 4.0))).items()
           if k in sig}
@@ -284,6 +407,8 @@ def m_grow(p):
     from neurogenesis.development import grow
     plan, g = _plan(p["plan"]), _genome(p.get("genome"))
     prs = [tuple(x) for x in p["projections"]] if p.get("projections") is not None else None
+    est = grow_estimate(plan, g, prs)
+    _ensure(est["bytes"], f"Growing {plan.name} ({est['neurons']} cells, ~{est['synapses']} synapses)", est["disk"])
     net = grow(plan, g, int(p.get("seed", 0)), projections=prs)
     net.morphology = plan.name
     return write_network(net, extra=_network_extra(plan))
@@ -295,6 +420,9 @@ def m_grow_steps(p):
     order, so each checkpoint is exactly the network grown so far (a prefix of the final synapses)."""
     from neurogenesis.development import grow
     plan, g, seed = _plan(p["plan"]), _genome(p.get("genome")), int(p.get("seed", 0))
+    est = grow_estimate(plan, g)
+    _ensure(est["bytes"], f"Developing {plan.name} ({est['neurons']} cells, ~{est['synapses']} synapses)",
+            est["disk"] * (len(plan.projections) + 1))
     steps = [("placement, sign, differentiation, identity", [])]
     for k, pr in enumerate(plan.projections):
         steps.append((f"axon growth {pr[0]} → {pr[1]}", plan.projections[:k + 1]))
@@ -335,6 +463,9 @@ def m_project_new(p):
 
 def m_project_load(p):
     from neurogenesis.project.io import Project
+    path = Path(p["path"])
+    npz = path.with_suffix(".npz")
+    _ensure(path.stat().st_size * 12 + (npz.stat().st_size * 6 if npz.exists() else 0), f"Opening {path.name}")
     return dict(project=_jsonable(Project.load(p["path"]).to_dict()))
 
 
@@ -404,6 +535,7 @@ def m_geometry_cells(p):
     from neurogenesis.spiking.network import NeuronData, SNNNetwork
     geo = geometry_from_dict(p["geometry"])
     seed = int(p.get("seed", 0))
+    _ensure(int(p["n"]) * (NEURON_BYTES + 48), f"Sampling {int(p['n'])} cells", int(p["n"]) * NGB_NEURON)
     pts = np.asarray(_safe_sample(geo, int(p["n"]), np.random.default_rng(seed)))
     inh = np.random.default_rng([seed, 1]).random(len(pts)) < float(p.get("inh_fraction", 0.2))
     w = int(p.get("weight", 180))
@@ -562,6 +694,7 @@ def m_simulate(p):
     net = read_network(p["ngb"])
     mdl = get_model(p.get("model", "lif_int"))
     ticks = int(p.get("ticks", 500))
+    _ensure(ticks * net.num_neurons * 2 + net.num_synapses * 64, f"Simulating {ticks} ms of {net.num_neurons} neurons with {mdl.name}")
     check(mdl.name, net.num_neurons, net.num_synapses, ticks, force=bool(p.get("force", False)))
     a = jax_backend.pack(net)
     ext = np.zeros(net.num_neurons, np.int32)
@@ -629,6 +762,7 @@ def m_plasticity(p):
     kw = {k: v for k, v in (p.get("params") or {}).items() if k in inspect.signature(cls.__init__).parameters}
     rule = cls(**kw)
     N, T = net.num_neurons, int(p["ticks"])
+    _ensure(T * N * 4 * 4 + net.num_synapses * 64, f"{p.get('rule', 'STDPRule')} on {T} ms x {N} neurons (dense spike record)")
     spikes = np.zeros((T, N), np.int32)
     t, i = np.asarray(p["t"], int), np.asarray(p["i"], int)
     ok = (t >= 0) & (t < T) & (i < N)
@@ -681,6 +815,9 @@ def m_evolve(p, job=None):
     plan, base = _plan(p["plan"]), _genome(p["genome"])
     genes = [(_gene_path(g["path"]), float(g["lo"]), float(g["hi"])) for g in p["genes"]]
     target, ticks, current = float(p.get("target_hz", 10.0)), int(p.get("ticks", 200)), int(p.get("input_current", 60))
+    est = grow_estimate(plan, base)
+    seeds = int(p.get("seeds", 2))
+    _ensure(seeds * (est["bytes"] + est["neurons"] * 200 + est["synapses"] * 40), f"Evolution ({seeds} networks of ~{est['neurons']} cells per evaluation)")
 
     def evaluate(genomes, seeds):
         fit, info = [], []
@@ -707,6 +844,8 @@ def m_module_load(p):
     from neurogenesis.genome.io import to_json
     from neurogenesis.modules import Module
     m = Module.load(p["path"])
+    est = grow_estimate(m.plan, m.genome)
+    _ensure(est["bytes"], f"Growing module {m.name} ({est['neurons']} cells, ~{est['synapses']} synapses)", est["disk"])
     net = m.grow(int(p.get("seed", 0)))
     return dict(name=m.name, plan=m.plan.to_dict(), genome=to_json(m.genome), inputs=m.inputs, outputs=m.outputs,
                 description=m.description, neuron_model=m.neuron_model, validation=_jsonable(m.validation),
@@ -725,6 +864,8 @@ def m_module_compose(p):
     from neurogenesis.modules import Module, compose
     mods = [Module.load(x) for x in p["paths"]]
     m = compose(p.get("name", "composite"), mods, links=[tuple(x) for x in p.get("links", [])])
+    est = grow_estimate(m.plan, m.genome)
+    _ensure(est["bytes"], f"Growing {m.name} ({est['neurons']} cells, ~{est['synapses']} synapses)", est["disk"])
     net = m.grow(int(p.get("seed", 0)))
     return dict(name=m.name, plan=m.plan.to_dict(), genome=to_json(m.genome),
                 network=write_network(net, extra=_network_extra(m.plan)))
@@ -755,8 +896,13 @@ def handle(req):
         fn = METHODS[method]
         res = fn(params, job=rid) if method in LONG else fn(params)
         send(dict(id=rid, result=res))
+    except MemoryError:
+        send(dict(id=rid, error="ResourceError: Python ran out of memory. Make the network smaller or quit other apps.", kind="resource"))
+    except ResourceError as e:
+        send(dict(id=rid, error=f"ResourceError: {e}", kind="resource"))
     except Exception as e:
-        send(dict(id=rid, error=f"{type(e).__name__}: {e}", trace=traceback.format_exc()))
+        kind = "resource" if type(e).__name__ == "CostError" else "error"
+        send(dict(id=rid, error=f"{type(e).__name__}: {e}", trace=traceback.format_exc(), kind=kind))
 
 
 def main():
