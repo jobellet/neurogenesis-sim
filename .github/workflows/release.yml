@@ -4,13 +4,13 @@ name: Release
 # GitHub release by the publish job) or by hand (Actions -> Release -> Run). Never on pull requests, so a fork cannot
 # run code on a self-hosted runner through this workflow; tags and manual runs need write access.
 #
-# Runners, as in ci.yml (.github/RUNNERS.md): repository variables holding a JSON label or list of labels; unset means
-# GitHub-hosted. A release is smoke-tested on the architecture it targets, so each macOS target has its own variable,
-# and the job stops at once if the runner has another architecture:
-#   LINUX_RUNNER      default "ubuntu-latest"    runtimes linux-x86_64, linux-arm64 (smoke test only on Linux x86_64)
-#   WINDOWS_RUNNER    default "windows-latest"   runtimes windows-x86_64
-#   MAC_RUNNER        default "macos-15-intel"   mac macos-x86_64 (an Intel Mac)
-#   MAC_ARM64_RUNNER  default "macos-latest"     mac macos-arm64 (an Apple Silicon Mac)
+# Runners: repository variables holding a JSON label or list of labels; unset means GitHub-hosted (.github/RUNNERS.md).
+# Release builds have their own variables, separate from ci.yml's, because they must run on the exact OS and
+# architecture they target (the CI's LINUX_RUNNER may be a Mac). A job stops at once on the wrong architecture.
+#   RELEASE_LINUX_RUNNER    default "ubuntu-latest"    runtimes linux-x86_64, linux-arm64 (smoke test only on x86_64)
+#   RELEASE_WINDOWS_RUNNER  default "windows-latest"   runtimes windows-x86_64
+#   MAC_X64_RUNNER          default "macos-15-intel"   mac macos-x86_64 (an Intel Mac)
+#   MAC_ARM64_RUNNER        default "macos-latest"     mac macos-arm64 (an Apple Silicon Mac)
 # The publish job, the only one that can write to the repository, always runs GitHub-hosted.
 on:
   push:
@@ -32,9 +32,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {target: linux-x86_64, runner_var: LINUX_RUNNER, hosted: '"ubuntu-latest"', os: Linux, arch: X64}
-          - {target: windows-x86_64, runner_var: WINDOWS_RUNNER, hosted: '"windows-latest"', os: Windows, arch: X64}
-          - {target: linux-arm64, runner_var: LINUX_RUNNER, hosted: '"ubuntu-latest"', os: Linux, arch: ARM64}
+          - {target: linux-x86_64, runner_var: RELEASE_LINUX_RUNNER, hosted: '"ubuntu-latest"', os: Linux, arch: X64}
+          - {target: windows-x86_64, runner_var: RELEASE_WINDOWS_RUNNER, hosted: '"windows-latest"', os: Windows, arch: X64}
+          - {target: linux-arm64, runner_var: RELEASE_LINUX_RUNNER, hosted: '"ubuntu-latest"', os: Linux, arch: ARM64}
     runs-on: ${{ fromJSON(vars[matrix.runner_var] || matrix.hosted) }}
     defaults:
       run:
@@ -63,7 +63,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {target: macos-x86_64, runner_var: MAC_RUNNER, hosted: '"macos-15-intel"', arch: X64}
+          - {target: macos-x86_64, runner_var: MAC_X64_RUNNER, hosted: '"macos-15-intel"', arch: X64}
           - {target: macos-arm64, runner_var: MAC_ARM64_RUNNER, hosted: '"macos-latest"', arch: ARM64}
     runs-on: ${{ fromJSON(vars[matrix.runner_var] || matrix.hosted) }}
     steps:

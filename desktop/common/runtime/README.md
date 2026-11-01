@@ -34,11 +34,11 @@ from the repository variables of `.github/RUNNERS.md`; unset means GitHub-hosted
 
 | Target | Runner variable (default) | Built | Smoke-tested |
 |---|---|---|---|
-| macos-x86_64 | `MAC_RUNNER` (`macos-15-intel`) | natively, into the app and the disk image | from the mounted disk image, plus `check_bundle.sh` |
+| macos-x86_64 | `MAC_X64_RUNNER` (`macos-15-intel`) | natively, into the app and the disk image | from the mounted disk image, plus `check_bundle.sh` |
 | macos-arm64 | `MAC_ARM64_RUNNER` (`macos-latest`) | natively, as above | as above |
-| linux-x86_64 | `LINUX_RUNNER` (`ubuntu-latest`) | natively, or cross-built on another host | with `smoke_test.py`, on a Linux x86_64 runner only |
-| windows-x86_64 | `WINDOWS_RUNNER` (`windows-latest`) | natively | with `smoke_test.py` |
-| linux-arm64 | `LINUX_RUNNER` (`ubuntu-latest`) | cross-built | no: there is no arm64 Linux runner for this repository |
+| linux-x86_64 | `RELEASE_LINUX_RUNNER` (`ubuntu-latest`) | natively, or cross-built on another host | with `smoke_test.py`, on a Linux x86_64 runner only |
+| windows-x86_64 | `RELEASE_WINDOWS_RUNNER` (`windows-latest`) | natively | with `smoke_test.py` |
+| linux-arm64 | `RELEASE_LINUX_RUNNER` (`ubuntu-latest`) | cross-built | no: there is no arm64 Linux runner for this repository |
 
 A macOS job stops at once if its runner has another architecture. Python runs in a per-job virtual environment, and
 signing uses a temporary keychain, so a self-hosted machine's own Python and keychains are left as they are.
