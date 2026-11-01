@@ -14,6 +14,9 @@
       <Button Content="Open NGB…" Click="OnOpen" />
       <Button Content="Reset View" Click="OnFrame" />
       <Separator Width="1" Height="20" Margin="4,0" />
+      <Button Content="{Binding SimButtonText}" Click="OnToggleSim" />
+      <Button Content="Step" Click="OnStepSim" />
+      <Separator Width="1" Height="20" Margin="4,0" />
       <TextBlock Text="Colour by" VerticalAlignment="Center" Margin="4,0,0,0" />
       <ComboBox ItemsSource="{Binding ColorModes}" SelectedItem="{Binding ColorMode}" MinWidth="130" />
     </StackPanel>

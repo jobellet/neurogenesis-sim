@@ -3,13 +3,14 @@ using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Neurogenesis.Core.Ngb;
 using Neurogenesis.Core.Scene;
+using Neurogenesis.Core.Simulation;
 using Neurogenesis.Core.Style;
 
 namespace Neurogenesis.App.ViewModels;
 
 public sealed record FieldRow(string Name, string Value);
 
-/// <summary>State of the main window in Step 1: the open network, its scene, the colour mode, and the inspector.</summary>
+/// <summary>State of the main window in Step 3: includes in-app simulation with nglif.</summary>
 public sealed partial class MainViewModel : ObservableObject
 {
     public VisualStyle Style { get; } = VisualStyle.Default;
@@ -24,8 +25,11 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private float[] _instances = Array.Empty<float>();
     [ObservableProperty, NotifyPropertyChangedFor(nameof(HasSelection))] private int _selected = -1;
     [ObservableProperty] private float _currentTick = 0f;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(SimButtonText))] private bool _isSimulating = false;
 
     public bool HasSelection => Selected >= 0;
+    public string SimButtonText => IsSimulating ? "Pause" : "Simulate";
+    private SimulationEngine? _simEngine;
 
     public MainViewModel()
     {
@@ -41,6 +45,9 @@ public sealed partial class MainViewModel : ObservableObject
             var sw = Stopwatch.StartNew();
             var scene = await Task.Run(() => new SceneData(NgbFile.Read(path), Style));
             Selected = -1;
+            _simEngine?.Dispose();
+            _simEngine = null;
+            IsSimulating = false;
             CurrentTick = 0f;
             Scene = scene;
             Title = $"Neurogenesis — {Path.GetFileName(path)}";
@@ -72,5 +79,42 @@ public sealed partial class MainViewModel : ObservableObject
         Refresh();
     }
 
-    private void Refresh() => Instances = Scene?.Instances(ColorMode, Selected) ?? Array.Empty<float>();
+    public void StartSimulation()
+    {
+        if (Scene == null) return;
+        if (_simEngine == null)
+        {
+            _simEngine = new SimulationEngine(Scene.Network);
+            _simEngine.FrameStepped += OnSimStep;
+        }
+        _simEngine.Start();
+        IsSimulating = true;
+    }
+
+    public void StopSimulation()
+    {
+        _simEngine?.Stop();
+        IsSimulating = false;
+    }
+
+    public void StepSimulation()
+    {
+        if (Scene == null) return;
+        if (_simEngine == null)
+        {
+            _simEngine = new SimulationEngine(Scene.Network);
+            _simEngine.FrameStepped += OnSimStep;
+        }
+        _simEngine.StepOnce();
+    }
+
+    private void OnSimStep()
+    {
+        if (_simEngine == null || Scene == null) return;
+        CurrentTick = (float)_simEngine.CurrentTick;
+        Instances = Scene.Instances(ColorMode, Selected, _simEngine.LastSpikeSnapshot);
+        Status = $"Tick {_simEngine.CurrentTick:N0} — Spikes {_simEngine.TotalSpikes:N0}";
+    }
+
+    private void Refresh() => Instances = Scene?.Instances(ColorMode, Selected, _simEngine?.LastSpikeSnapshot) ?? Array.Empty<float>();
 }
