@@ -29,13 +29,19 @@ Apps start the bridge with `<out>/python/bin/python3 -m neurogenesis.bridge`, in
 checksums and pip's resolution. Review the diff, then rebuild and smoke-test every target. jax 0.4.38 is the last
 version with macOS x86_64 wheels, so every target stays on it while the Intel app exists.
 
-**What CI tests** (`.github/workflows/release.yml`; on tags, by hand, and on PRs that touch the apps or the runtime):
+**What CI tests** (`.github/workflows/release.yml`; on version tags and by hand, never on pull requests). Runners come
+from the repository variables of `.github/RUNNERS.md`; unset means GitHub-hosted:
 
-| Target | Built | Smoke-tested |
-|---|---|---|
-| macos-x86_64, macos-arm64 | yes, natively, into the app and the disk image | yes, from the mounted disk image, plus `check_bundle.sh` |
-| linux-x86_64, windows-x86_64 | yes, natively | yes, with `smoke_test.py` |
-| linux-arm64 | cross-built on x86_64 | no: there is no arm64 Linux runner for this repository |
+| Target | Runner variable (default) | Built | Smoke-tested |
+|---|---|---|---|
+| macos-x86_64 | `MAC_RUNNER` (`macos-15-intel`) | natively, into the app and the disk image | from the mounted disk image, plus `check_bundle.sh` |
+| macos-arm64 | `MAC_ARM64_RUNNER` (`macos-latest`) | natively, as above | as above |
+| linux-x86_64 | `LINUX_RUNNER` (`ubuntu-latest`) | natively, or cross-built on another host | with `smoke_test.py`, on a Linux x86_64 runner only |
+| windows-x86_64 | `WINDOWS_RUNNER` (`windows-latest`) | natively | with `smoke_test.py` |
+| linux-arm64 | `LINUX_RUNNER` (`ubuntu-latest`) | cross-built | no: there is no arm64 Linux runner for this repository |
+
+A macOS job stops at once if its runner has another architecture. Python runs in a per-job virtual environment, and
+signing uses a temporary keychain, so a self-hosted machine's own Python and keychains are left as they are.
 
 **Tests.** `tests/test_runtime_script.py` checks, without network access:
 - that every target has a committed CPython hash and a hashed lock, and that all locks list the same packages;
