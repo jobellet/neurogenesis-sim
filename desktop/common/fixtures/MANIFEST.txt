@@ -2,6 +2,7 @@
 column_saturated 300 12345 -
 column_unsaturated 300 12345 -
 column_external 300 12345 column_external.ext.i32
+column_extensions 300 12345 -
 microcircuit 300 12345 -
 layered 300 12345 -
 drivers_delays 400 12345 -

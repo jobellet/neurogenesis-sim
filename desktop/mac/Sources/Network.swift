@@ -68,6 +68,10 @@ struct Network {
             }
             let n = Int(raw.loadUnaligned(fromByteOffset: 4, as: Int32.self))
             let e = Int(raw.loadUnaligned(fromByteOffset: 8, as: Int32.self))
+            let flags = raw.loadUnaligned(fromByteOffset: 12, as: Int32.self)
+            guard flags & ~1 == 0, raw.count >= 16 + 112 * n + 16 * e else {       // bit 0: extension columns, skipped
+                throw NSError(domain: "NGB", code: 2, userInfo: [NSLocalizedDescriptionKey: "unsupported or truncated NGB1 file"])
+            }
             var o = 16
             func f64(_ count: Int) -> [Double] {
                 var a = [Double](repeating: 0, count: count)

@@ -5,6 +5,32 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* ------------------------------------------------------------------------------------------------- spike history */
+
+/* Each neuron keeps its last 32 x NGLIF_HISTORY_WORDS spikes (bit d of the history: fired d ticks ago), which bounds
+ * axonal delays to NGLIF_MAX_DELAY; longer delays never arrive. Everything about the history is in this block:
+ * NGLIF_HISTORY_WORDS 1 is the 32-bit spike register of the reference kernels (delays 0-31), and a larger width
+ * (longer delays, a later roadmap task) changes only this number. */
+#ifndef NGLIF_HISTORY_WORDS
+#define NGLIF_HISTORY_WORDS 1
+#endif
+#define NGLIF_MAX_DELAY (32 * NGLIF_HISTORY_WORDS - 1)
+
+/* Shifts a history by one tick and records whether the neuron fired now. */
+static void hist_push(uint32_t *h, uint32_t fired) {
+    for (int w = NGLIF_HISTORY_WORDS - 1; w > 0; w--) h[w] = (h[w] << 1) | (h[w - 1] >> 31);
+    h[0] = (h[0] << 1) | fired;
+}
+
+/* Whether the neuron fired in the last 32 x NGLIF_HISTORY_WORDS ticks. */
+static int hist_any(const uint32_t *h) {
+    for (int w = 0; w < NGLIF_HISTORY_WORDS; w++) if (h[w]) return 1;
+    return 0;
+}
+
+/* Whether the neuron fired exactly d ticks ago (0 <= d <= NGLIF_MAX_DELAY). */
+static int hist_bit(const uint32_t *h, uint32_t d) { return (int)((h[d >> 5] >> (d & 31u)) & 1u); }
+
 /* ------------------------------------------------------------------------------------------------ integer helpers */
 
 /* x >> k with floor semantics (Python, numpy), whatever the compiler does with negative operands. */
@@ -105,11 +131,15 @@ nglif_network *nglif_network_read(const char *path, char *err, size_t err_len) {
     if (fread(magic, 1, 4, f) != 4 || memcmp(magic, "NGB1", 4) != 0 || read_le(f, head, 4, 3) != 0 || head[0] < 0 || head[1] < 0) {
         fclose(f); set_err(err, err_len, "not an NGB1 network file", path); return NULL;
     }
-    int32_t n = head[0], e = head[1];
+    int32_t n = head[0], e = head[1], flags = head[2];
+    if (flags & ~1) { fclose(f); set_err(err, err_len, "unknown NGB1 flags (written by a newer version)", path); return NULL; }
     if (fseek(f, 0, SEEK_END) != 0) { fclose(f); set_err(err, err_len, "cannot seek", path); return NULL; }
     long size = ftell(f);
     double expected = 16.0 + 112.0 * n + 16.0 * e;
-    if (size < 0 || (double)size != expected) { fclose(f); set_err(err, err_len, "wrong size for its neuron and synapse counts", path); return NULL; }
+    /* flags bit 0: optional extension columns follow the mandatory ones; this reader skips them */
+    if (size < 0 || (flags ? (double)size < expected + 4.0 : (double)size != expected)) {
+        fclose(f); set_err(err, err_len, "wrong size for its neuron and synapse counts", path); return NULL;
+    }
     fseek(f, 16, SEEK_SET);
     nglif_network *net = nglif_network_new(n, e);
     if (!net) { fclose(f); set_err(err, err_len, "out of memory", path); return NULL; }
@@ -180,7 +210,8 @@ nglif_sim *nglif_create(const nglif_network *net, uint32_t seed) {
                        &s->v, &s->isyn, &s->phase, &s->refr, &s->last, &s->ext, &s->pulse, &s->row};
     int ok = 1;
     for (size_t k = 0; k < sizeof i32 / sizeof *i32; k++) ok = ok && (*i32[k] = (int32_t *)calloc(N + 1, sizeof(int32_t)));
-    ok = ok && (s->poisson = (uint32_t *)calloc(N, sizeof(uint32_t))) && (s->bits = (uint32_t *)calloc(N, sizeof(uint32_t)));
+    ok = ok && (s->poisson = (uint32_t *)calloc(N, sizeof(uint32_t))) &&
+         (s->bits = (uint32_t *)calloc(N * NGLIF_HISTORY_WORDS, sizeof(uint32_t)));
     if (!ok) { nglif_free(s); return NULL; }
     for (int32_t i = 0; i < n; i++) {
         s->shift_v[i] = net->shift_v[i]; s->shift_s[i] = net->shift_s[i]; s->mode[i] = net->mode[i];
@@ -205,7 +236,8 @@ nglif_sim *nglif_create(const nglif_network *net, uint32_t seed) {
         if (a < 0 || a >= n || b < 0 || b >= n) continue;
         int32_t j = fill[a]++;
         s->col[j] = b; s->weight[j] = net->weight[k];
-        s->delay[j] = (net->delay[k] < 0 || net->delay[k] > 31) ? 32u : (uint32_t)net->delay[k];   /* 32: never arrives */
+        s->delay[j] = (net->delay[k] < 0 || net->delay[k] > NGLIF_MAX_DELAY) ? (uint32_t)NGLIF_MAX_DELAY + 1u
+                                                                               : (uint32_t)net->delay[k];   /* never arrives */
     }
     free(fill);
     return s;
@@ -266,14 +298,15 @@ int32_t nglif_step(nglif_sim *s, int32_t *spikes, int32_t cap) {
         } else {
             s->v[i] = v;
         }
-        s->bits[i] = (s->bits[i] << 1) | fired;
+        hist_push(s->bits + (size_t)i * NGLIF_HISTORY_WORDS, fired);
     }
     s->has_pulse = 0;
     for (int32_t i = 0; i < n; i++) {
-        uint32_t bf = s->bits[i];
-        if (!bf) continue;
+        const uint32_t *h = s->bits + (size_t)i * NGLIF_HISTORY_WORDS;
+        if (!hist_any(h)) continue;
         for (int32_t k = s->row[i]; k < s->row[i + 1]; k++)
-            if (s->delay[k] < 32u && ((bf >> s->delay[k]) & 1u)) s->isyn[s->col[k]] = wadd(s->isyn[s->col[k]], s->weight[k]);
+            if (s->delay[k] <= (uint32_t)NGLIF_MAX_DELAY && hist_bit(h, s->delay[k]))
+                s->isyn[s->col[k]] = wadd(s->isyn[s->col[k]], s->weight[k]);
     }
     s->tick++;
     return count;

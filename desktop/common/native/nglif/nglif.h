@@ -10,7 +10,8 @@
  *   every 4th tick of the first `duty` ticks of each period;  a neuron fires when v >= threshold, unless refractory;
  *   it then resets to -256 for `refractory` ticks.  Then every synapse whose presynaptic spike, `delay` ticks old, is
  *   in the 32-tick spike register adds its weight to the target's I.
- * Integer shifts are floor divisions and additions wrap around in 32 bits, as in Python and numpy.
+ * Integer shifts are floor divisions and additions wrap around in 32 bits, as in Python and numpy. Neuron indices are
+ * int32 throughout. The spike history (and so the longest delay, 31 ticks) is set in one place in nglif.c.
  *
  * No dependencies; plain C ABI; not thread-safe per simulation (use one nglif_sim per thread).
  */
@@ -50,7 +51,8 @@ typedef struct nglif_network {
 NGLIF_API nglif_network *nglif_network_new(int32_t n, int32_t e);
 NGLIF_API void nglif_network_free(nglif_network *net);
 
-/* NGB1 files. read: NULL on error, with a message in err (if err_len > 0). write: 0 on success. */
+/* NGB1 files. read: NULL on error, with a message in err (if err_len > 0); optional extension columns are skipped and
+ * unknown flags refused. write: 0 on success (mandatory columns only). */
 NGLIF_API nglif_network *nglif_network_read(const char *path, char *err, size_t err_len);
 NGLIF_API int nglif_network_write(const nglif_network *net, const char *path);
 
