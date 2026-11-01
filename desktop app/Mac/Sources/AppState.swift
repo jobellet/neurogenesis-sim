@@ -19,7 +19,12 @@ final class AppState: ObservableObject {
     @Published var flashTau: Double = 25 { didSet { renderer?.flashTau = Float(flashTau) } }
     @Published var showGrid = true { didSet { renderer?.showGrid = showGrid } }
     @Published var showRegionBoxes = true { didSet { rebuildOverlay() } }
-    @Published var tool: Tool = .select
+    @Published var tool: Tool = .select { didSet { rebuildOverlay(); if tool != .add { renderer?.setGhost(nil) } } }
+    /// The Add tool places neurons on the plane {x[placeAxis] = placeLevel} (0 x, 1 y, 2 z): no depth ambiguity.
+    @Published var placeAxis = 2 { didSet { let (lo, hi) = sceneBounds(); placeLevel = Double((lo[placeAxis] + hi[placeAxis]) / 2) } }
+    @Published var placeLevel: Double = 0 { didSet { rebuildOverlay(); updateGhost() } }
+    private var hoverPoint: CGPoint?
+    private var viewSize: CGSize = .zero
     @Published var section: Section = .network
     @Published var showInspector = true
     @Published var showRaster = true
@@ -38,7 +43,7 @@ final class AppState: ObservableObject {
     @Published var offlineResult: OfflineRun?
 
     // editing defaults
-    @Published var newNeuron = Neuron(pos: .zero, refractory: 3)
+    @Published var newNeuron = Neuron(pos: .zero, refractory: 3) { didSet { updateGhost() } }
     @Published var newWeight: Double = 200
     @Published var newDelay: Double = 2
 
@@ -188,8 +193,8 @@ final class AppState: ObservableObject {
     func neuronColor(_ i: Int) -> SIMD4<Float> {
         let n = network.neurons[i]
         switch colorMode {
-        case .region: return paletteColor(Int(n.compartment))
-        case .sign: return inhibitory[i] ? SIMD4(0.35, 0.55, 1.0, 1) : SIMD4(0.98, 0.42, 0.30, 1)
+        case .region: return n.compartment < 0 ? signColor(inhibitory[i]) : paletteColor(Int(n.compartment))
+        case .sign: return signColor(inhibitory[i])
         case .role: return [SIMD4<Float>(0.62, 0.66, 0.72, 1), SIMD4(0.35, 0.85, 0.45, 1), SIMD4(0.98, 0.70, 0.25, 1)][Int(max(0, min(2, n.role)))]
         case .mode: return [SIMD4<Float>(0.55, 0.62, 0.75, 1), SIMD4(0.95, 0.35, 0.65, 1), SIMD4(0.40, 0.85, 0.90, 1)][Int(max(0, min(2, n.mode)))]
         case .threshold: return heat((Float(n.threshold) - 512) / 1536)
@@ -227,8 +232,7 @@ final class AppState: ObservableObject {
             let a = Int(s.pre), b = Int(s.post)
             guard a < positions.count, b < positions.count else { continue }
             let c = s.weight < 0 ? SIMD4<Float>(0.35, 0.55, 1.0, alpha) : SIMD4<Float>(0.98, 0.55, 0.35, alpha)
-            v.append(LineVertex(x: positions[a].x, y: positions[a].y, z: positions[a].z, pre: Int32(a), color: c))
-            v.append(LineVertex(x: positions[b].x, y: positions[b].y, z: positions[b].z, pre: Int32(a), color: c * SIMD4(1, 1, 1, 0.6)))
+            arrow(&v, positions[a], positions[b], c, pre: Int32(a), head: arrowHead)
         }
         r.setSynapses(v)
     }
@@ -249,8 +253,23 @@ final class AppState: ObservableObject {
             for s in network.synapses where sel.contains(s.pre) || sel.contains(s.post) {
                 let a = Int(s.pre), b = Int(s.post)
                 guard a < positions.count, b < positions.count else { continue }
-                let c: SIMD4<Float> = sel.contains(s.pre) ? SIMD4(1, 0.75, 0.3, 0.85) : SIMD4(0.4, 0.85, 1, 0.85)
-                seg(positions[a], positions[b], c, pre: s.pre)
+                let c: SIMD4<Float> = sel.contains(s.pre) ? SIMD4(1, 0.75, 0.3, 0.9) : SIMD4(0.4, 0.85, 1, 0.9)
+                arrow(&v, positions[a], positions[b], c, pre: s.pre, head: arrowHead * 1.3)
+            }
+        }
+        if tool == .add {                                   // the placement plane: a grid at x[axis] = level
+            let (lo0, hi0) = sceneBounds()
+            let pad = max(simd_reduce_max(hi0 - lo0) * 0.15, 10)
+            let lo = lo0 - pad, hi = hi0 + pad
+            let ax = placeAxis, u = (ax + 1) % 3, w = (ax + 2) % 3
+            let lv = Float(placeLevel)
+            func pt(_ a: Float, _ b: Float) -> SIMD3<Float> { var p = SIMD3<Float>(repeating: lv); p[u] = a; p[w] = b; return p }
+            let c = SIMD4<Float>(0.35, 0.85, 0.95, 0.22), edge = SIMD4<Float>(0.35, 0.85, 0.95, 0.75)
+            let k = 12
+            for j in 0...k {
+                let a = lo[u] + (hi[u] - lo[u]) * Float(j) / Float(k), b = lo[w] + (hi[w] - lo[w]) * Float(j) / Float(k)
+                seg(pt(a, lo[w]), pt(a, hi[w]), j == 0 || j == k ? edge : c)
+                seg(pt(lo[u], b), pt(hi[u], b), j == 0 || j == k ? edge : c)
             }
         }
         if showRegionBoxes {
@@ -265,6 +284,28 @@ final class AppState: ObservableObject {
             box(g.lo, g.hi, c)
         }
         r.setOverlay(v)
+    }
+
+    func signColor(_ inh: Bool) -> SIMD4<Float> { inh ? SIMD4(0.35, 0.55, 1.0, 1) : SIMD4(0.98, 0.42, 0.30, 1) }
+
+    /// Arrowhead length for this scene: a fortieth of its size.
+    var arrowHead: Float { let (lo, hi) = sceneBounds(); return max(simd_length(hi - lo) / 40, 0.5) }
+
+    /// A synapse as an arrow from pre to post: a shaft and a four-barbed head (visible from every side), stopping a
+    /// little before the postsynaptic cell so that the head is not hidden in it.
+    func arrow(_ v: inout [LineVertex], _ a: SIMD3<Float>, _ b: SIMD3<Float>, _ c: SIMD4<Float>, pre: Int32, head: Float) {
+        let d = b - a, len = simd_length(d)
+        guard len > 1e-4 else { return }
+        let dir = d / len
+        let tip = b - dir * min(len * 0.12, head * 0.5)
+        let h = min(head, len * 0.35)
+        var u = simd_cross(dir, abs(dir.y) < 0.9 ? SIMD3<Float>(0, 1, 0) : SIMD3<Float>(1, 0, 0))
+        u = simd_normalize(u)
+        let w = simd_cross(dir, u)
+        func add(_ p: SIMD3<Float>, _ col: SIMD4<Float>) { v.append(LineVertex(x: p.x, y: p.y, z: p.z, pre: pre, color: col)) }
+        add(a, c); add(tip, c * SIMD4(1, 1, 1, 0.8))
+        var hc = c; hc.w = min(1, c.w * 2.2)
+        for side in [u, -u, w, -w] { add(tip, hc); add(tip - dir * h + side * h * 0.35, hc) }
     }
 
     func rebuildCloud() {
@@ -435,7 +476,10 @@ final class AppState: ObservableObject {
                 } else { selection = [h] }
             } else if !modifiers.contains(.shift) { selection = [] }
         case .add:
-            addNeuron(at: r.planePoint(p, size: size))
+            guard let q = r.axisPlanePoint(p, size: size, axis: placeAxis, level: Float(placeLevel)) else {
+                status = "Click on the placement plane (it is seen edge-on or behind you: orbit the view)"; return
+            }
+            addNeuron(at: q)
         case .connect:
             guard let h = hit else { return }
             if selection.isEmpty { selection = [h]; status = "Source selected: click a target" }
@@ -443,6 +487,28 @@ final class AppState: ObservableObject {
         case .stimulate:
             if let h = hit { engine.inject(h, current: Int32(pulseCurrent)); status = "Pulse \(Int(pulseCurrent)) → #\(h)" }
         }
+    }
+
+    func viewHovered(_ p: CGPoint?, size: CGSize) {
+        hoverPoint = p; viewSize = size
+        updateGhost()
+    }
+
+    func cameraMoved() { if tool == .add { updateGhost() } }
+
+    /// The neuron the Add tool would place under the pointer, in its excitatory / inhibitory colour.
+    func updateGhost() {
+        guard let r = renderer else { return }
+        guard tool == .add, let p = hoverPoint, let q = r.axisPlanePoint(p, size: viewSize, axis: placeAxis, level: Float(placeLevel)) else {
+            r.setGhost(nil); return
+        }
+        var c = signColor(newNeuron.baseWeight < 0); c.w = 0.75
+        r.setGhost(PointInstance(x: q.x, y: q.y, z: q.z, size: 1.4, color: c))
+    }
+
+    func placeLevelFromSelection() {
+        guard let i = selection.first, i < network.neurons.count else { return }
+        placeLevel = network.neurons[i].pos[placeAxis]
     }
 
     func viewDoubleClicked(_ p: CGPoint, size: CGSize) {
@@ -457,6 +523,10 @@ final class AppState: ObservableObject {
         case 53: selection = []; return true                      // escape
         case 3: frameAll(); return true                           // F
         case 49: running.toggle(); return true                    // space
+        case 33, 30 where tool == .add:                           // [ and ]: move the placement plane
+            let (lo, hi) = sceneBounds()
+            placeLevel += Double(max((hi[placeAxis] - lo[placeAxis]) / 20, 0.5)) * (e.keyCode == 30 ? 1 : -1)
+            return true
         default: return false
         }
     }

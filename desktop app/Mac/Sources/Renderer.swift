@@ -153,6 +153,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var overlay: MTLBuffer?, overlayCount = 0         // selection links, wireframes, axes
     private var cloud: MTLBuffer?, cloudCount = 0              // geometry sample points
     private var grid: MTLBuffer?, gridCount = 0
+    private var ghost: MTLBuffer?                             // the neuron about to be added (Add tool)
     private var dummyLast: MTLBuffer
     private var lastFrame = CACurrentMediaTime()
 
@@ -211,6 +212,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     func setSynapses(_ v: [LineVertex]) { synapses = buffer(v); synapseCount = v.count }
     func setOverlay(_ v: [LineVertex]) { overlay = buffer(v); overlayCount = v.count }
     func setCloud(_ p: [PointInstance]) { cloud = buffer(p); cloudCount = p.count }
+    func setGhost(_ p: PointInstance?) { ghost = p.map { buffer([$0]) } ?? nil }
 
     func setGrid(lo: SIMD3<Float>, hi: SIMD3<Float>) {
         let span = max(hi.x - lo.x, hi.z - lo.z, 50) * 1.4
@@ -278,6 +280,12 @@ final class Renderer: NSObject, MTKViewDelegate {
             enc.setVertexBytes(&hasLast, length: 4, index: 3)
             enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: neuronCount)
         }
+        if let gh = ghost {
+            enc.setVertexBuffer(gh, offset: 0, index: 0)
+            enc.setVertexBuffer(dummyLast, offset: 0, index: 1)
+            enc.setVertexBytes(&no, length: 4, index: 3)
+            enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: 1)
+        }
         if let c = cloud, cloudCount > 0 {
             enc.setVertexBuffer(c, offset: 0, index: 0)
             enc.setVertexBuffer(dummyLast, offset: 0, index: 1)
@@ -320,11 +328,14 @@ final class Renderer: NSObject, MTKViewDelegate {
         return best
     }
 
-    /// Point on the plane through the orbit target facing the camera, under a view point.
-    func planePoint(_ p: CGPoint, size: CGSize) -> SIMD3<Float> {
+    /// Point under a view point on the plane {x[axis] = level}, or nil when the ray misses it (parallel, or behind).
+    func axisPlanePoint(_ p: CGPoint, size: CGSize, axis: Int, level: Float) -> SIMD3<Float>? {
         let (o, d) = camera.ray(p, size: size)
-        let nrm = camera.forward
-        let t = simd_dot(camera.target - o, nrm) / simd_dot(d, nrm)
-        return o + d * t
+        guard abs(d[axis]) > 1e-5 else { return nil }
+        let t = (level - o[axis]) / d[axis]
+        guard t > 0 else { return nil }
+        var q = o + d * t
+        q[axis] = level
+        return q
     }
 }

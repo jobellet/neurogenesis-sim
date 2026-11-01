@@ -13,10 +13,10 @@ struct ContentView: View {
                         .tag(s)
                 }
             }
-            .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 240)
+            .navigationSplitViewColumnWidth(min: 150, ideal: 190, max: 320)
         } content: {
             PanelHost()
-                .navigationSplitViewColumnWidth(min: 300, ideal: 350, max: 520)
+                .navigationSplitViewColumnWidth(min: 260, ideal: 360, max: 900)
         } detail: {
             VSplitView {
                 ZStack(alignment: .topLeading) {
@@ -31,7 +31,7 @@ struct ContentView: View {
             .safeAreaInset(edge: .bottom, spacing: 0) { StatusBar() }
         }
         .inspector(isPresented: $app.showInspector) {
-            InspectorView().inspectorColumnWidth(min: 240, ideal: 280, max: 400)
+            InspectorView().inspectorColumnWidth(min: 220, ideal: 290, max: 700)
         }
         .toolbar { MainToolbar() }
         .alert(item: $app.alert) { a in Alert(title: Text(a.title), message: Text(a.message), dismissButton: .default(Text("OK"))) }
@@ -104,6 +104,11 @@ struct HUD: View {
         VStack(alignment: .leading, spacing: 3) {
             HUDCounters(live: app.live)
             Text(app.tool.help).font(.system(size: 10)).foregroundStyle(.secondary)
+            if app.tool == .add {
+                Text(String(format: "Placement plane %@ = %.1f  ·  [ and ] move it  ·  new cell: %@", ["x", "y", "z"][app.placeAxis], app.placeLevel,
+                            app.newNeuron.baseWeight < 0 ? "inhibitory (blue)" : "excitatory (red)"))
+                    .font(.system(size: 10, weight: .medium)).foregroundStyle(.cyan)
+            }
             if app.colorMode == .region, !app.network.regionNames.isEmpty {
                 HStack(spacing: 8) {
                     ForEach(Array(app.network.regionNames.enumerated()), id: \.offset) { k, n in
@@ -173,7 +178,8 @@ final class RasterNSView: NSView {
         rows = max(net.neurons.count, 1)
         let inh = net.inhibitoryMask()
         color = net.neurons.indices.map { i in
-            let c = mode == .sign ? (inh[i] ? SIMD4<Float>(0.35, 0.55, 1, 1) : SIMD4<Float>(0.98, 0.42, 0.3, 1)) : paletteColor(Int(net.neurons[i].compartment))
+            let sign = inh[i] ? SIMD4<Float>(0.35, 0.55, 1, 1) : SIMD4<Float>(0.98, 0.42, 0.3, 1)
+            let c = mode == .sign || net.neurons[i].compartment < 0 ? sign : paletteColor(Int(net.neurons[i].compartment))
             let r = UInt32(c.x * 255), g = UInt32(c.y * 255), b = UInt32(c.z * 255)
             return 0xFF00_0000 | (b << 16) | (g << 8) | r
         }
@@ -309,29 +315,37 @@ struct NeuronEditor: View {
             }
             if count > 1 { Text("Edits apply to every selected neuron; values shown are #\(index)'s.").font(.caption).foregroundStyle(.secondary) }
             Text("Region: \(app.network.regionName(n.compartment))").font(.caption).foregroundStyle(.secondary)
-            Form {
+            VStack(alignment: .leading, spacing: 6) {
                 if count == 1 {
-                    Vec3Field(label: "Position", value: Binding(get: { app.network.neurons[index].pos },
-                                                                 set: { v in app.updateSelected { $0.pos = v } }))
+                    Vec3Field(label: "Position", help: "Where the neuron is, in space units. Distances between neurons set the axonal delays when wiring by distance.",
+                              value: Binding(get: { app.network.neurons[index].pos }, set: { v in app.updateSelected { $0.pos = v } }))
                 }
-                Picker("Driver", selection: b(\.mode)) { Text("LIF").tag(Int32(0)); Text("Poisson").tag(Int32(1)); Text("Burster").tag(Int32(2)) }
-                Picker("Role", selection: b(\.role)) { Text("internal").tag(Int32(0)); Text("input").tag(Int32(1)); Text("output").tag(Int32(2)) }
-                IntField("Threshold", b(\.threshold))
-                IntField("Leak shift (shift_v)", b(\.shiftV))
-                IntField("Synaptic shift (shift_s)", b(\.shiftS))
-                IntField("Refractory (ticks)", b(\.refractory))
-                IntField("Base weight", b(\.baseWeight))
-                IntField("Compartment", b(\.compartment))
-                if n.mode == 1 { DoubleField("Poisson rate (Hz)", b(\.poissonHz)) }
-                if n.mode == 2 { IntField("Burst period", b(\.burstPeriod)); IntField("Burst duty", b(\.burstDuty)) }
-                DoubleField("Wiring radius", b(\.connRadius))
-                DoubleField("Wiring probability", b(\.connProb))
+                Row("Driver", help: "LIF: integrates its inputs. Poisson: fires at random at its rate (a driver). Burster: fires bursts on a fixed period (an intrinsic pacemaker).") {
+                    Picker("Driver", selection: b(\.mode)) { Text("LIF").tag(Int32(0)); Text("Poisson").tag(Int32(1)); Text("Burster").tag(Int32(2)) }.labelsHidden()
+                }
+                Row("Role", help: "Input neurons receive the external drive (Simulation panel); outputs are read out. The kernel itself ignores the role.") {
+                    Picker("Role", selection: b(\.role)) { Text("internal").tag(Int32(0)); Text("input").tag(Int32(1)); Text("output").tag(Int32(2)) }.labelsHidden()
+                }
+                IntField("Threshold", b(\.threshold), help: "Membrane potential (integer units) at which the neuron fires; it then resets to −256. Default 1024. Lower = more excitable.")
+                IntField("Leak shift (shift_v)", b(\.shiftV), help: "Membrane leak: each tick v loses v >> shift_v. Larger = slower leak (longer membrane time constant, about 2^shift_v ms).")
+                IntField("Synaptic shift (shift_s)", b(\.shiftS), help: "Synaptic current decay: each tick I loses I >> shift_s. Larger = longer-lasting synaptic currents.")
+                IntField("Refractory (ticks)", b(\.refractory), help: "Absolute refractory period after a spike, in ticks of 1 ms: the neuron cannot fire and stays at reset.")
+                IntField("Base weight", b(\.baseWeight), help: "Weight given to this neuron's outgoing synapses when wiring by distance. Its sign makes the neuron excitatory (> 0) or inhibitory (< 0).")
+                IntField("Compartment (region)", b(\.compartment), help: "Region index of the body plan this neuron belongs to (−1: none). Sets its colour in Region mode and its row in the raster.")
+                if n.mode == 1 { DoubleField("Poisson rate (Hz)", b(\.poissonHz), help: "Mean firing rate of a Poisson driver, in spikes per second.") }
+                if n.mode == 2 {
+                    IntField("Burst period (ticks)", b(\.burstPeriod), help: "A burster fires once per period: every 4th tick of the first 'duty' ticks.")
+                    IntField("Burst duty (ticks)", b(\.burstDuty), help: "Length of each burst, in ticks (spikes every 4th tick within it).")
+                }
+                DoubleField("Wiring radius", b(\.connRadius), help: "Wire by distance: this neuron connects to neurons within this distance (space units).")
+                DoubleField("Wiring probability", b(\.connProb), help: "Wire by distance: probability of connecting to each neuron within the radius.")
             }
-            .formStyle(.columns)
-            HStack {
+            Flow {
                 Button("Pulse") { for i in app.selection { app.engine.inject(i, current: Int32(app.pulseCurrent)) } }
-                    .help("Inject \(Int(app.pulseCurrent)) units of current once")
-                Button("Centre") { app.renderer?.camera.target = SIMD3<Float>(n.pos) }
+                    .helpButton("Inject \(Int(app.pulseCurrent)) units of current once into the selected neurons (set the amount in Simulation → Pulse).")
+                Button("Centre view") { app.renderer?.camera.target = SIMD3<Float>(n.pos) }
+                Button("Plane here") { app.placeLevelFromSelection() }
+                    .helpButton("Put the Add tool's placement plane at this neuron's level, to add neighbours at the same height.")
             }
             SynapseList(index: index)
         }
@@ -345,6 +359,10 @@ struct SynapseList: View {
         let ins = app.network.synapses.indices.filter { Int(app.network.synapses[$0].post) == index }
         let outs = app.network.synapses.indices.filter { Int(app.network.synapses[$0].pre) == index }
         VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Synapses").font(.subheadline.weight(.semibold))
+                HelpButton(text: "Each synapse: the other neuron (click to select it), its weight (integer current added to the target when the spike arrives; negative = inhibitory) and its delay d (ticks of 1 ms, 0–31).")
+            }
             DisclosureGroup("Outgoing (\(outs.count))") { rows(outs, other: \.post) }
             DisclosureGroup("Incoming (\(ins.count))") { rows(ins, other: \.pre) }
             HStack {
@@ -359,9 +377,10 @@ struct SynapseList: View {
             let s = app.network.synapses[k]
             HStack {
                 Button("#\(s[keyPath: other])") { app.selection = [Int(s[keyPath: other])] }.buttonStyle(.link)
-                TextField("w", value: Binding(get: { Int(app.network.synapses[k].weight) },
-                                              set: { v in app.modifyNetwork { $0.synapses[k].weight = Int32(clamping: v) } }), format: .number)
-                    .frame(width: 60)
+                Text("weight").foregroundStyle(.secondary)
+                TextField("weight", value: Binding(get: { Int(app.network.synapses[k].weight) },
+                                                   set: { v in app.modifyNetwork { $0.synapses[k].weight = Int32(clamping: v) } }), format: .number)
+                    .labelsHidden().frame(minWidth: 44)
                 Stepper("d \(s.delay)", value: Binding(get: { Int(app.network.synapses[k].delay) },
                                                        set: { v in app.modifyNetwork { $0.synapses[k].delay = Int32(max(0, min(31, v))) } }), in: 0...31)
                 Button { app.modifyNetwork { $0.synapses.remove(at: k) } } label: { Image(systemName: "xmark") }.buttonStyle(.borderless)
@@ -371,34 +390,122 @@ struct SynapseList: View {
     }
 }
 
-// MARK: small fields
+// MARK: form components (every input has a label and a (?) that explains it)
+
+/// A (?) button: click it for what the field means, its units and its effect.
+struct HelpButton: View {
+    let text: String
+    @State private var shown = false
+    var body: some View {
+        Button { shown.toggle() } label: {
+            Image(systemName: "questionmark.circle").foregroundStyle(.secondary)
+        }
+        .buttonStyle(.borderless)
+        .help(text)
+        .accessibilityLabel("Help")
+        .popover(isPresented: $shown, arrowEdge: .trailing) {
+            Text(text).font(.callout).padding(12).frame(width: 300, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+extension View {
+    /// Appends a (?) help button to a control that already shows its label (toggles, pickers, buttons).
+    func helpButton(_ text: String) -> some View {
+        HStack(spacing: 4) { self; HelpButton(text: text) }
+    }
+}
+
+/// One labelled input: the label, its (?) help, then the control, which takes the remaining width.
+struct Row<Content: View>: View {
+    let label: String
+    let help: String
+    let content: Content
+    init(_ label: String, help: String, @ViewBuilder _ content: () -> Content) {
+        self.label = label; self.help = help; self.content = content()
+    }
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(label).lineLimit(2).fixedSize(horizontal: false, vertical: true).layoutPriority(1)
+            HelpButton(text: help)
+            Spacer(minLength: 4)
+            content.frame(minWidth: 44, maxWidth: 240, alignment: .trailing)
+        }
+    }
+}
 
 struct IntField: View {
     let label: String
+    let help: String
     @Binding var value: Int32
-    init(_ label: String, _ value: Binding<Int32>) { self.label = label; _value = value }
+    init(_ label: String, _ value: Binding<Int32>, help: String) { self.label = label; self.help = help; _value = value }
     var body: some View {
-        TextField(label, value: Binding(get: { Int(value) }, set: { value = Int32(clamping: $0) }), format: .number)
+        Row(label, help: help) {
+            TextField(label, value: Binding(get: { Int(value) }, set: { value = Int32(clamping: $0) }), format: .number)
+                .labelsHidden().multilineTextAlignment(.trailing)
+        }
     }
 }
 
 struct DoubleField: View {
     let label: String
+    let help: String
+    @Binding var value: Double
+    init(_ label: String, _ value: Binding<Double>, help: String) { self.label = label; self.help = help; _value = value }
+    var body: some View {
+        Row(label, help: help) {
+            TextField(label, value: $value, format: .number.precision(.fractionLength(0...4))).labelsHidden().multilineTextAlignment(.trailing)
+        }
+    }
+}
+
+/// A small number box with its own short label (for compact rows such as lo / hi).
+struct NumBox: View {
+    let label: String
     @Binding var value: Double
     init(_ label: String, _ value: Binding<Double>) { self.label = label; _value = value }
-    var body: some View { TextField(label, value: $value, format: .number.precision(.fractionLength(0...4))) }
+    var body: some View {
+        HStack(spacing: 3) {
+            Text(label).foregroundStyle(.secondary)
+            TextField(label, value: $value, format: .number.precision(.fractionLength(0...4))).labelsHidden().frame(minWidth: 38)
+        }
+    }
 }
 
 struct Vec3Field: View {
     let label: String
+    var help: String = ""
     @Binding var value: SIMD3<Double>
     var body: some View {
-        LabeledContent(label) {
-            HStack(spacing: 4) {
-                TextField("x", value: $value.x, format: .number.precision(.fractionLength(0...3)))
-                TextField("y", value: $value.y, format: .number.precision(.fractionLength(0...3)))
-                TextField("z", value: $value.z, format: .number.precision(.fractionLength(0...3)))
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) { Text(label); HelpButton(text: help.isEmpty ? "\(label): x, y, z in space units (the network's coordinates; distances set conduction delays)." : help) }
+            HStack(spacing: 6) {
+                NumBox("x", $value.x); NumBox("y", $value.y); NumBox("z", $value.z)
             }
+        }
+    }
+}
+
+/// Lays its children out in rows, wrapping when the panel is narrow (button bars).
+struct Flow: Layout {
+    var spacing: CGFloat = 6
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 10_000
+        var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0, maxX: CGFloat = 0
+        for v in subviews {
+            let s = v.sizeThatFits(.unspecified)
+            if x > 0 && x + s.width > width { x = 0; y += rowH + spacing; rowH = 0 }
+            x += s.width + spacing; rowH = max(rowH, s.height); maxX = max(maxX, x - spacing)
+        }
+        return CGSize(width: min(maxX, width), height: y + rowH)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowH: CGFloat = 0
+        for v in subviews {
+            let s = v.sizeThatFits(.unspecified)
+            if x > bounds.minX && x + s.width > bounds.maxX { x = bounds.minX; y += rowH + spacing; rowH = 0 }
+            v.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(s))
+            x += s.width + spacing; rowH = max(rowH, s.height)
         }
     }
 }

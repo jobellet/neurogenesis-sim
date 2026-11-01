@@ -10,6 +10,17 @@ final class InteractiveMTKView: MTKView {
     var onDoubleClick: ((CGPoint) -> Void)?
     var onKey: ((NSEvent) -> Bool)?
     var onCameraChange: (() -> Void)?
+    var onHover: ((CGPoint?) -> Void)?
+    private var tracking: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let t = tracking { removeTrackingArea(t) }
+        let t = NSTrackingArea(rect: bounds, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+        addTrackingArea(t); tracking = t
+    }
+    override func mouseMoved(with e: NSEvent) { onHover?(loc(e)) }
+    override func mouseExited(with e: NSEvent) { onHover?(nil) }
     private var downAt: CGPoint?
     private var dragged = false
     private var lastDrag: CGPoint = .zero
@@ -39,6 +50,7 @@ final class InteractiveMTKView: MTKView {
             r.camera.pitch = max(-1.55, min(1.55, r.camera.pitch + dy * 0.008))
         }
         onCameraChange?()
+        onHover?(p)
     }
 
     override func mouseUp(with e: NSEvent) {
@@ -138,6 +150,8 @@ struct MetalViewport: NSViewRepresentable {
         v.onClick = { [weak app] p, mods in app?.viewClicked(p, size: v.bounds.size, modifiers: mods) }
         v.onDoubleClick = { [weak app] p in app?.viewDoubleClicked(p, size: v.bounds.size) }
         v.onKey = { [weak app] e in app?.viewKey(e) ?? false }
+        v.onHover = { [weak app] p in app?.viewHovered(p, size: v.bounds.size) }
+        v.onCameraChange = { [weak app] in app?.cameraMoved() }
         return v
     }
 

@@ -29,7 +29,6 @@ struct PanelHost: View {
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .disabled(false)
     }
 }
 
@@ -72,6 +71,42 @@ struct Placeholder: View {
     }
 }
 
+/// Meaning of the genes and project keys shown in JSON trees (the (?) of each entry).
+let keyHelp: [String: String] = [
+    "count": "Number of neurons of a grown region (clipped to its count bounds).",
+    "migration": "Where a grown region's neurons settle: mean (local u, v, w in [0, 1]) and spread (s.d. of the Gaussian scatter).",
+    "mean": "Mean local position (u, v, w), each in [0, 1] inside the region's box.",
+    "spread": "Standard deviation of the positions around the mean, in local units (the box is 1 wide).",
+    "inhibitory": "Probability that a grown neuron is inhibitory: sigmoid(a0 + a · position).",
+    "a0": "Bias of the inhibitory probability: sigmoid(a0); −1.4 ≈ 20 % inhibitory, 0 = 50 %.",
+    "a": "Gradient of the inhibitory probability along u, v, w.",
+    "excitability": "Leak and synaptic decay shifts of a region's neurons (larger = slower).",
+    "shift_v": "Membrane leak shift: v loses v >> shift_v per tick (time constant ≈ 2^shift_v ms).",
+    "shift_s": "Synaptic current decay shift: I loses I >> shift_s per tick.",
+    "guidance": "Axon guidance of each projection \"src->dst\": where axons aim (B, c), how wide (sigma), how likely (p0) and how strong (w).",
+    "B": "3 × 3 matrix mapping the source position to the target position (topography). Identity = point to point.",
+    "c": "Offset added to the target position (u, v, w).",
+    "sigma": "Width of the target zone, in local units: larger = more divergent projections.",
+    "p0": "Peak connection probability at the target point (0–1).",
+    "w": "Synaptic weight of the projection (integer current; inhibitory sources are made negative).",
+    "inh_weight_factor": "Inhibitory synapses get −inh_weight_factor × w.",
+    "w_clip": "Largest allowed absolute weight (default 512).",
+    "receptors": "Gene used by fixed placements to repeat each label (example plans).",
+    "identity": "Molecular identity code of a region (guidance rules use it).",
+    "differentiation": "Lateral-inhibition differentiation of a grown region (thresholds, time constants, pacemakers).",
+    "tonic": "Standing current per cell type.",
+    "knockout": "Virtual knockouts: regions and projections removed before growth.",
+    "version": "Project schema version.",
+    "neuron_model": "Neuron model used to simulate (lif_int, two_compartment, hh).",
+    "plugins": "Python modules imported on load (they register rules, stages or models).",
+    "type": "Kind of geometry shape or Param.",
+    "center": "Centre of the shape (x, y, z, space units).",
+    "size": "Edge lengths of the box (x, y, z).",
+    "radius": "Radius (space units).",
+    "radii": "Semi-axes of the ellipsoid (x, y, z).",
+    "thickness": "Thickness across the sheet (space units).",
+]
+
 /// Edits any JSON value as a tree (numbers, strings, booleans; objects and arrays fold), with a raw-text mode.
 struct JSONEditor: View {
     @Binding var value: JSONValue
@@ -80,17 +115,20 @@ struct JSONEditor: View {
     @State private var error: String?
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Picker("", selection: $raw) { Text("Tree").tag(false); Text("JSON").tag(true) }.pickerStyle(.segmented).labelsHidden().frame(width: 140)
+            HStack {
+                Picker("View as", selection: $raw) { Text("Tree").tag(false); Text("JSON").tag(true) }.pickerStyle(.segmented).fixedSize()
+                HelpButton(text: "Tree: edit each value in place (each entry has its own (?)). JSON: edit the whole text, then Apply.")
+            }
             if raw {
                 TextEditor(text: $text).font(.system(size: 11, design: .monospaced)).frame(minHeight: 160, maxHeight: 360)
                     .onAppear { text = value.pretty() }
-                HStack {
+                Flow {
                     Button("Apply") {
                         do { value = try JSONValue.parse(text); error = nil } catch { self.error = error.localizedDescription }
                     }
                     Button("Revert") { text = value.pretty() }
-                    if let e = error { Text(e).font(.caption).foregroundStyle(.red).lineLimit(2) }
                 }
+                if let e = error { Text(e).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
             } else {
                 JSONNodeView(key: nil, value: $value, depth: 0)
             }
@@ -104,6 +142,12 @@ struct JSONNodeView: View {
     @Binding var value: JSONValue
     let depth: Int
 
+    var help: String {
+        guard let key else { return "" }
+        let k = key.hasPrefix("[") ? "item \(key)" : key
+        return keyHelp[key] ?? (key.contains("->") ? "Projection \(key) (source -> target region)." : "Entry \"\(k)\". Edit its value; the toolbox reads it by this name.")
+    }
+
     var body: some View {
         switch value {
         case .object(let d):
@@ -114,12 +158,13 @@ struct JSONNodeView: View {
             }
         case .array(let a):
             if a.count <= 4, a.allSatisfy({ $0.number != nil }) {
-                HStack {
-                    if let key { Text(key).foregroundStyle(.secondary) }
-                    ForEach(a.indices, id: \.self) { j in
-                        TextField("", value: Binding(get: { a.indices.contains(j) ? (value.arrayValue[j].number ?? 0) : 0 },
-                                                     set: { v in var arr = value.arrayValue; arr[j] = .number(v); value = .array(arr) }),
-                                  format: .number.precision(.fractionLength(0...4))).frame(minWidth: 44)
+                VStack(alignment: .leading, spacing: 2) {
+                    if let key { HStack(spacing: 4) { Text(key).foregroundStyle(.secondary); HelpButton(text: help) } }
+                    HStack(spacing: 6) {
+                        ForEach(a.indices, id: \.self) { j in
+                            NumBox("[\(j)]", Binding(get: { value.arrayValue.indices.contains(j) ? (value.arrayValue[j].number ?? 0) : 0 },
+                                                     set: { v in var arr = value.arrayValue; arr[j] = .number(v); value = .array(arr) }))
+                        }
                     }
                 }.font(.caption)
             } else {
@@ -131,13 +176,14 @@ struct JSONNodeView: View {
                 }
             }
         case .number(let x):
-            HStack { Text(key ?? "").foregroundStyle(.secondary); Spacer()
-                TextField("", value: Binding(get: { x }, set: { value = .number($0) }), format: .number.precision(.fractionLength(0...6))).frame(width: 90)
+            Row(key ?? "value", help: help) {
+                TextField(key ?? "value", value: Binding(get: { x }, set: { value = .number($0) }), format: .number.precision(.fractionLength(0...6)))
+                    .labelsHidden().multilineTextAlignment(.trailing)
             }.font(.caption)
         case .string(let s):
-            HStack { Text(key ?? "").foregroundStyle(.secondary); TextField("", text: Binding(get: { s }, set: { value = .string($0) })) }.font(.caption)
+            Row(key ?? "text", help: help) { TextField(key ?? "text", text: Binding(get: { s }, set: { value = .string($0) })).labelsHidden() }.font(.caption)
         case .bool(let b):
-            Toggle(key ?? "", isOn: Binding(get: { b }, set: { value = .bool($0) })).font(.caption)
+            Toggle(key ?? "", isOn: Binding(get: { b }, set: { value = .bool($0) })).font(.caption).helpButton(help)
         case .null:
             HStack { Text(key ?? "").foregroundStyle(.secondary); Text("null").foregroundStyle(.tertiary) }.font(.caption)
         }
@@ -147,7 +193,10 @@ struct JSONNodeView: View {
         let content = c()
         if let title {
             DisclosureGroup { VStack(alignment: .leading, spacing: 3) { content }.padding(.leading, 4) } label: {
-                Text("\(title)").font(.caption.weight(.medium)) + Text("  \(count)").font(.caption2).foregroundColor(.secondary)
+                HStack(spacing: 4) {
+                    Text("\(title)").font(.caption.weight(.medium)) + Text("  \(count)").font(.caption2).foregroundColor(.secondary)
+                    HelpButton(text: help)
+                }
             }
         } else {
             VStack(alignment: .leading, spacing: 3) { content }
@@ -162,34 +211,49 @@ struct ProjectPanel: View {
     var body: some View {
         Placeholder(task: "A1", title: "Project schema and I/O", text: "")
         Card(title: "File", subtitle: app.projectURL?.path ?? "Unsaved project. A Project holds geometry, fields, schedule, genome, plan, plugins, neuron model and metadata (docs/PROJECT_FORMAT.md).") {
-            HStack {
+            Flow {
                 Button("New") { app.newProject() }
                 Button("Open…") { app.openProject() }
                 Button("Save") { app.saveProject() }
                 Button("Save As…") { app.saveProject(as: true) }
-                Button("Validate") { app.validateProject() }
+                Button("Validate") { app.validateProject() }.helpButton("Checks the project against the toolbox's schema (neurogenesis.project.schema) and reports the first problem.")
             }
         }
         Card(title: "Settings") {
-            Picker("Neuron model", selection: Binding(get: { app.project["neuron_model"]?.stringValue ?? "lif_int" },
-                                                      set: { app.project["neuron_model"] = .string($0); app.simModel = $0 })) {
-                ForEach(app.models.compactMap { $0["name"] as? String }.isEmpty ? ["lif_int"] : app.models.compactMap { $0["name"] as? String }, id: \.self) { Text($0) }
+            Row("Neuron model", help: "The model the project is simulated with: lif_int (integer, fast, exact everywhere), two_compartment (soma + dendrite) or hh (Hodgkin–Huxley). See docs/NEURON_MODELS.md.") {
+                Picker("Neuron model", selection: Binding(get: { app.project["neuron_model"]?.stringValue ?? "lif_int" },
+                                                          set: { app.project["neuron_model"] = .string($0); app.simModel = $0 })) {
+                    ForEach(app.models.compactMap { $0["name"] as? String }.isEmpty ? ["lif_int"] : app.models.compactMap { $0["name"] as? String }, id: \.self) { Text($0) }
+                }.labelsHidden()
             }
-            TextField("Plugins (Python modules, comma separated)", text: Binding(
-                get: { (app.project["plugins"]?.arrayValue.compactMap { $0.stringValue } ?? []).joined(separator: ", ") },
-                set: { app.project["plugins"] = .array($0.split(separator: ",").map { .string($0.trimmingCharacters(in: .whitespaces)) }.filter { $0 != .string("") }) }))
+            Row("Plugins", help: "Python modules, separated by commas, imported when the project loads: they register extra rules, stages or neuron models.") {
+                TextField("module.name, other.module", text: Binding(
+                    get: { (app.project["plugins"]?.arrayValue.compactMap { $0.stringValue } ?? []).joined(separator: ", ") },
+                    set: { app.project["plugins"] = .array($0.split(separator: ",").map { .string($0.trimmingCharacters(in: .whitespaces)) }.filter { $0 != .string("") }) }))
+                    .labelsHidden()
+            }
         }
         ForEach(["metadata", "fields", "schedule", "geometry", "genome", "plan"], id: \.self) { key in
-            DisclosureGroup("\(key)") {
+            DisclosureGroup {
                 JSONEditor(value: Binding(get: { app.projectValue(key) }, set: { v in
                     app.project[key] = v
                     if key == "plan" { app.plan = PlanSpec(v) }
                     if key == "genome" { app.genome = v }
                     if key == "geometry" { app.adoptProject(app.project) }
                 }))
+            } label: {
+                HStack(spacing: 4) { Text(key); HelpButton(text: projectKeyHelp[key] ?? "") }
             }
         }
     }
+    let projectKeyHelp = [
+        "metadata": "Free information about the project (author, description, notes).",
+        "fields": "Hand-made or generated data on the geometry (gradients, layers, point sets, orientation maps). Edited in Fields.",
+        "schedule": "The ordered developmental stages. Edited in Schedule.",
+        "geometry": "Named shapes. Edited in Geometry.",
+        "genome": "The genes. Edited in Genome and Body plan.",
+        "plan": "The body plan (regions and projections). Edited in Body plan.",
+    ]
 }
 
 // MARK: Geometry
@@ -205,24 +269,28 @@ struct GeometryPanel: View {
     var body: some View {
         Placeholder(task: "B1", title: "Geometry primitives", text: "")
         Card(title: "Add a shape", subtitle: "Shapes from the toolbox registry (neurogenesis.geometry). Sample clouds are drawn in the 3D view.") {
-            HStack {
+            Flow {
                 ForEach(app.geometryTypes) { t in Button(t.type) { app.addGeometry(t) } }
-            }.controlSize(.small).fixedSize()
+            }.controlSize(.small)
             if app.geometryTypes.isEmpty { Text("Waiting for Python…").font(.caption).foregroundStyle(.secondary) }
         }
-        ForEach($app.geometries) { $g in
-            GeometryEditor(item: $g)
-        }
+        ForEach($app.geometries) { $g in GeometryEditor(item: $g) }
         if !app.geometries.isEmpty {
             Card(title: "Seed cells in a shape", subtitle: "Unconnected LIF neurons sampled uniformly in the shape (stage C1 seed_cells will add densities from fields). Then wire them in the Network panel.") {
-                ForEach(app.geometries.indices, id: \.self) { k in
-                    Button("Sample in \(app.geometries[k].name)") { app.sampleCells(in: k, n: Int(cells), inhFraction: inh, role: role, replace: replace, seed: Int(seed)) }
+                Row("Cells", help: "How many neurons to sample uniformly inside the shape.") { TextField("Cells", value: $cells, format: .number).labelsHidden() }
+                Row("Inhibitory fraction", help: "Fraction of the sampled neurons made inhibitory (negative base weight), drawn at random.") {
+                    HStack { Slider(value: $inh, in: 0...1).labelsHidden(); Text(String(format: "%.2f", inh)).monospacedDigit() }
                 }
-                LabeledContent("Cells") { TextField("", value: $cells, format: .number).frame(width: 80) }
-                LabeledContent("Inhibitory fraction") { Slider(value: $inh, in: 0...1); Text(String(format: "%.2f", inh)).monospacedDigit() }
-                Picker("Role", selection: $role) { Text("internal").tag(0); Text("input").tag(1); Text("output").tag(2) }
-                Toggle("Replace the network (otherwise append as a new region)", isOn: $replace)
-                LabeledContent("Seed") { TextField("", value: $seed, format: .number).frame(width: 80) }
+                Row("Role", help: "Role of the new neurons: inputs receive the external drive, outputs are read out.") {
+                    Picker("Role", selection: $role) { Text("internal").tag(0); Text("input").tag(1); Text("output").tag(2) }.labelsHidden()
+                }
+                Toggle("Replace the network", isOn: $replace).helpButton("On: the sampled cells become the whole network. Off: they are appended as a new region.")
+                Row("Seed", help: "Random seed of the sampling: the same seed gives the same positions.") { TextField("Seed", value: $seed, format: .number).labelsHidden() }
+                Flow {
+                    ForEach(app.geometries.indices, id: \.self) { k in
+                        Button("Sample in \(app.geometries[k].name)") { app.sampleCells(in: k, n: Int(cells), inhFraction: inh, role: role, replace: replace, seed: Int(seed)) }
+                    }
+                }
             }
         }
         Placeholder(task: "B2", title: "Meshes and voxel masks", text: "Import OBJ / STL meshes and .npz voxel masks as shapes.")
@@ -236,35 +304,35 @@ struct GeometryEditor: View {
         let type = item.spec["type"]?.stringValue ?? "?"
         let params = app.geometryTypes.first { $0.type.lowercased() == type.lowercased() }?.params ?? []
         Card(title: "\(item.name) · \(type)") {
+            Row("Name", help: "Name of the shape in the project (stages and fields refer to it by name).") { TextField("Name", text: $item.name).labelsHidden() }
             HStack {
-                TextField("Name", text: $item.name)
-                Toggle("Visible", isOn: $item.visible)
-                Button { app.geometries.removeAll { $0.id == item.id } } label: { Image(systemName: "trash") }.buttonStyle(.borderless)
+                Toggle("Visible", isOn: $item.visible).helpButton("Show the shape's sample cloud and bounding box in the 3D view.")
+                Spacer()
+                Button(role: .destructive) { app.geometries.removeAll { $0.id == item.id } } label: { Label("Remove", systemImage: "trash") }.buttonStyle(.borderless)
             }
             ForEach(params) { p in
                 switch p.kind {
                 case "vec3":
-                    Vec3Field(label: p.name, value: Binding(get: {
+                    Vec3Field(label: p.name, help: keyHelp[p.name] ?? "\(p.name): a 3D vector (x, y, z) in space units.",
+                              value: Binding(get: {
                         let a = item.spec[p.name]?.arrayValue.compactMap { $0.number } ?? [0, 0, 0]
                         return a.count == 3 ? SIMD3(a[0], a[1], a[2]) : .zero
                     }, set: { v in item.spec[p.name] = .array([.number(v.x), .number(v.y), .number(v.z)]); app.previewGeometry(index) }))
                 case "float":
-                    LabeledContent(p.name) {
-                        TextField("", value: Binding(get: { item.spec[p.name]?.number ?? 0 },
-                                                     set: { item.spec[p.name] = .number($0); app.previewGeometry(index) }), format: .number)
-                    }
+                    DoubleField(p.name, Binding(get: { item.spec[p.name]?.number ?? 0 }, set: { item.spec[p.name] = .number($0); app.previewGeometry(index) }),
+                                help: keyHelp[p.name] ?? "\(p.name), in space units.")
                 case "string":
-                    LabeledContent(p.name) {
-                        TextField("", text: Binding(get: { item.spec[p.name]?.stringValue ?? "" }, set: { item.spec[p.name] = .string($0) }))
-                            .onSubmit { app.previewGeometry(index) }
+                    Row(p.name, help: p.name.hasSuffix("_expr") ? "Formula of the surface coordinate in u and v (each in [0, 1]), e.g. 40*u or 10*sin(3*u). Press Return to update." : "\(p.name) (text).") {
+                        TextField(p.name, text: Binding(get: { item.spec[p.name]?.stringValue ?? "" }, set: { item.spec[p.name] = .string($0) }))
+                            .labelsHidden().onSubmit { app.previewGeometry(index) }
                     }
                 default:
-                    DisclosureGroup(p.name) {
+                    DisclosureGroup {
                         JSONEditor(value: Binding(get: { item.spec[p.name] ?? .null }, set: { item.spec[p.name] = $0; app.previewGeometry(index) }))
-                    }
+                    } label: { HStack(spacing: 4) { Text(p.name); HelpButton(text: "\(p.name): a nested shape (union and difference combine two shapes a and b).") } }
                 }
             }
-            if let e = item.error { Text(e).font(.caption).foregroundStyle(.red) }
+            if let e = item.error { Text(e).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
             else if !item.preview.isEmpty {
                 Text(String(format: "bounds (%.1f, %.1f, %.1f) – (%.1f, %.1f, %.1f)", item.lo.x, item.lo.y, item.lo.z, item.hi.x, item.hi.y, item.hi.z))
                     .font(.caption).foregroundStyle(.secondary)
@@ -283,7 +351,7 @@ struct FieldsPanel: View {
         Placeholder(task: "B4", title: "Point patterns and orientation maps", text: "Poisson-disc point sets, pinwheel maps from hand-placed singularities (±1/2).")
         Placeholder(task: "B5", title: "Field operations", text: "Arithmetic, thresholds, smoothing, distance transforms, gradients.")
         Card(title: "Project fields", subtitle: "Fields are stored in the Project. Until B3–B5 define their formats, templates below write provisional entries you can edit; the toolbox will validate them once merged.") {
-            HStack {
+            Flow {
                 Button("Gradient") { add("gradient", ["kind": .string("analytic"), "expr": .string("x / 100"), "type": .string("scalar")]) }
                 Button("Layers") { add("layers", ["kind": .string("layer_stack"), "axis": .string("y"), "boundaries": .array([0.1, 0.3, 0.5, 0.8].map { .number($0) }),
                                                   "labels": .array(["L1", "L2/3", "L4", "L5", "L6"].map { .string($0) })]) }
@@ -308,24 +376,26 @@ struct PlanPanel: View {
     @EnvironmentObject var app: AppState
     var body: some View {
         Card(title: "Plan", subtitle: "Regions (where neurons are born) and the projections that may grow between them; genes in the Genome panel. Boxes are drawn in 3D.") {
-            TextField("Name", text: $app.plan.name)
-            LabeledContent("Conduction velocity") { TextField("", value: $app.plan.conductionVelocity, format: .number) }
-            LabeledContent("Max delay (ticks)") { TextField("", value: $app.plan.maxDelay, format: .number) }
-            LabeledContent("Development seed") { TextField("", value: $app.devSeed, format: .number) }
-            HStack {
+            Row("Name", help: "Name of the body plan (shown as the network's morphology).") { TextField("Name", text: $app.plan.name).labelsHidden() }
+            DoubleField("Conduction velocity", $app.plan.conductionVelocity, help: "Axonal conduction velocity, in space units per tick: delay = distance / velocity (clipped to Max delay).")
+            Row("Max delay (ticks)", help: "Longest axonal delay, in ticks of 1 ms (at most 31: the kernel's spike register).") {
+                TextField("Max delay", value: $app.plan.maxDelay, format: .number).labelsHidden()
+            }
+            DoubleField("Development seed", $app.devSeed, help: "Seed of development: the same plan, genome and seed always grow the same network.")
+            Flow {
                 Button("Grow") { app.grow() }.keyboardShortcut("g", modifiers: [.command])
-                Button("Develop step by step") { app.growSteps() }
+                Button("Develop step by step") { app.growSteps() }.helpButton("Grows the plan and keeps a checkpoint after placement and after each projection, to step through in Development.")
                 Menu("More") {
                     Button("Open plan…") { app.openProject() }
                     Button("Save plan…") { app.savePlan() }
                     Button("Reset to example") { app.plan = PlanSpec.example(); app.genome = .object([:]) }
                     Button("Empty plan") { app.plan = PlanSpec(); app.genome = .object([:]) }
                     Toggle("Show region boxes", isOn: $app.showRegionBoxes)
-                }
+                }.fixedSize()
             }
         }
         Card(title: "Resources", subtitle: "Cells, expected synapses and peak memory of growing this plan, checked against what is free now. Growing refuses plans that do not fit.") {
-            HStack {
+            Flow {
                 Button("Check") { app.checkGrowResources() }
                 if let n = app.growEstimate["neurons"] as? Int, let e = app.growEstimate["synapses"] as? Int, let b = app.growEstimate["bytes"] as? Int {
                     Text("\(n) cells · ~\(e) synapses · \(humanBytes(UInt64(b)))")
@@ -340,7 +410,7 @@ struct PlanPanel: View {
                 app.plan.regions.append(RegionSpec(name: "region\(k + 1)", origin: SIMD3(Double(k) * 50, 0, 0)))
             }
         }
-        Card(title: "Projections", subtitle: "Grown in this order. Guidance genes: sigma (spread of targets), p0 (peak probability), w (weight).") {
+        Card(title: "Projections", subtitle: "Grown in this order. Each arrow is a projection from a source region to a target region.") {
             ForEach($app.plan.projections) { $p in ProjectionEditor(projection: $p) }
             Button("Add projection") {
                 let names = app.plan.regions.map(\.name)
@@ -352,8 +422,8 @@ struct PlanPanel: View {
                 ForEach(app.rules.keys.sorted(), id: \.self) { phase in
                     let active = Set((app.plan.rules[phase]?.arrayValue.compactMap { $0.stringValue }) ?? defaultRules[phase] ?? [])
                     VStack(alignment: .leading) {
-                        Text(phase).font(.caption.weight(.semibold))
-                        HStack { ForEach(app.rules[phase] ?? [], id: \.self) { r in
+                        HStack(spacing: 4) { Text(phase).font(.caption.weight(.semibold)); HelpButton(text: phaseHelp[phase] ?? "Rules of the \(phase) phase.") }
+                        Flow { ForEach(app.rules[phase] ?? [], id: \.self) { r in
                             Toggle(r, isOn: Binding(get: { active.contains(r) }, set: { on in
                                 var all = defaultRules
                                 for (k, v) in app.plan.rules.objectValue { all[k] = v.arrayValue.compactMap { $0.stringValue } }
@@ -370,6 +440,11 @@ struct PlanPanel: View {
     }
     let defaultRules: [String: [String]] = ["placement": ["mosaic"], "shift": ["identity_offset"], "target": ["topographic", "lamina"],
                                              "probability": ["identity_expression", "no_autapse", "source_sign"], "weight": ["receptor_sign"]]
+    let phaseHelp = ["placement": "Rules that move cells after placement (e.g. mosaic spacing).",
+                     "shift": "Rules that shift where axons aim (e.g. by molecular identity).",
+                     "target": "Rules that set target points (topography, laminae).",
+                     "probability": "Rules that change connection probabilities (no autapses, source sign, identity).",
+                     "weight": "Rules that change synaptic weights (receptor sign)."]
 }
 
 struct RegionEditor: View {
@@ -383,38 +458,43 @@ struct RegionEditor: View {
         let k = app.plan.regions.firstIndex { $0.id == region.id } ?? 0
         DisclosureGroup {
             VStack(alignment: .leading, spacing: 6) {
-                TextField("Name", text: $region.name)
-                Vec3Field(label: "Origin", value: $region.origin)
-                Vec3Field(label: "Size", value: $region.size)
-                Picker("Placement", selection: $region.fixed) { Text("grown (genes)").tag(false); Text("fixed labels").tag(true) }.pickerStyle(.segmented)
+                Row("Name", help: "Region name (unique). Projections and genes refer to it.") { TextField("Name", text: $region.name).labelsHidden() }
+                Vec3Field(label: "Origin", help: "Corner of the region's box in space units. Local positions (u, v, w) in [0, 1] map to origin + size × local.", value: $region.origin)
+                Vec3Field(label: "Size", help: "Edge lengths of the region's box (space units).", value: $region.size)
+                Row("Placement", help: "Grown: genes set the number of cells and where they migrate. Fixed: cells at the listed local positions (labels), e.g. a sensor grid.") {
+                    Picker("Placement", selection: $region.fixed) { Text("grown").tag(false); Text("fixed").tag(true) }.pickerStyle(.segmented).labelsHidden()
+                }
                 if region.fixed {
-                    HStack {
-                        Text("\(region.labels.count) labels")
-                        Spacer()
-                        TextField("nx", value: $nx, format: .number).frame(width: 36)
-                        TextField("ny", value: $ny, format: .number).frame(width: 36)
-                        TextField("nz", value: $nz, format: .number).frame(width: 36)
-                        Button("Grid") { region.labels = RegionSpec.grid(max(1, Int(nx)), max(1, Int(ny)), max(1, Int(nz))) }
+                    HStack(spacing: 6) {
+                        Text("\(region.labels.count) labels").font(.caption)
+                        HelpButton(text: "Fixed positions of the region's cells, in local units. Grid fills them regularly: nx × ny × nz cells.")
+                    }
+                    Flow {
+                        NumBox("nx", $nx); NumBox("ny", $ny); NumBox("nz", $nz)
+                        Button("Make grid") { region.labels = RegionSpec.grid(max(1, Int(nx)), max(1, Int(ny)), max(1, Int(nz))) }
                     }.font(.caption)
                 } else {
-                    LabeledContent("Count (gene)") {
-                        TextField("", value: gene(["count", region.name], 60), format: .number).frame(width: 70)
-                    }
-                    LabeledContent("Spread (gene)") {
-                        TextField("", value: gene(["migration", region.name, "spread"], 0.3), format: .number).frame(width: 70)
-                    }
-                    LabeledContent("Inhibitory bias a0 (gene)") {
-                        TextField("", value: gene(["inhibitory", region.name, "a0"], -1.4), format: .number).frame(width: 70)
-                    }
-                    HStack {
-                        Text("Count bounds").font(.caption)
-                        TextField("", value: $region.countLo, format: .number).frame(width: 50)
-                        TextField("", value: $region.countHi, format: .number).frame(width: 60)
+                    DoubleField("Count (gene)", gene(["count", region.name], 60), help: "Number of neurons grown in this region (genome count[region]); clipped to the count bounds.")
+                    DoubleField("Spread (gene)", gene(["migration", region.name, "spread"], 0.3), help: "Scatter of the cells around the region's centre, in local units (genome migration[region].spread).")
+                    DoubleField("Inhibitory bias a0 (gene)", gene(["inhibitory", region.name, "a0"], -1.4), help: "Probability of being inhibitory = sigmoid(a0): −1.4 ≈ 20 %, 0 = 50 %, +2 ≈ 88 %.")
+                    HStack(spacing: 6) {
+                        Text("Count bounds").font(.caption); HelpButton(text: "Smallest and largest allowed cell count, whatever the gene says.")
+                        Spacer()
+                        Text("min").foregroundStyle(.secondary).font(.caption)
+                        TextField("min", value: $region.countLo, format: .number).labelsHidden().frame(minWidth: 40)
+                        Text("max").foregroundStyle(.secondary).font(.caption)
+                        TextField("max", value: $region.countHi, format: .number).labelsHidden().frame(minWidth: 50)
                     }
                 }
-                Picker("Role", selection: $region.role) { Text("internal").tag(0); Text("input").tag(1); Text("output").tag(2) }
-                Picker("Sign", selection: $region.sign) { Text("genetic").tag("genetic"); Text("excitatory").tag("exc"); Text("inhibitory").tag("inh") }
-                Stepper("Refractory: \(region.refractory) ticks", value: $region.refractory, in: 0...50)
+                Row("Role", help: "Input regions receive the external drive; outputs are read out (modules expose them).") {
+                    Picker("Role", selection: $region.role) { Text("internal").tag(0); Text("input").tag(1); Text("output").tag(2) }.labelsHidden()
+                }
+                Row("Sign", help: "Genetic: each cell is excitatory or inhibitory by its inhibitory gene. Excitatory / inhibitory: imposed on every cell (Dale's principle).") {
+                    Picker("Sign", selection: $region.sign) { Text("genetic").tag("genetic"); Text("excitatory").tag("exc"); Text("inhibitory").tag("inh") }.labelsHidden()
+                }
+                Row("Refractory (ticks)", help: "Absolute refractory period of the region's neurons, in ticks of 1 ms.") {
+                    Stepper("\(region.refractory)", value: $region.refractory, in: 0...50)
+                }
                 Button("Remove region", role: .destructive) {
                     let name = region.name
                     app.plan.projections.removeAll { $0.src == name || $0.dst == name }
@@ -452,17 +532,20 @@ struct ProjectionEditor: View {
         let key = "\(projection.src)->\(projection.dst)"
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Picker("", selection: $projection.src) { ForEach(names, id: \.self) { Text($0) } }.labelsHidden()
-                Image(systemName: "arrow.right")
-                Picker("", selection: $projection.dst) { ForEach(names, id: \.self) { Text($0) } }.labelsHidden()
-                Button { app.plan.projections.removeAll { $0.id == projection.id } } label: { Image(systemName: "minus.circle") }.buttonStyle(.borderless)
+                Text("from").font(.caption).foregroundStyle(.secondary)
+                Picker("from", selection: $projection.src) { ForEach(names, id: \.self) { Text($0) } }.labelsHidden()
+                Text("to").font(.caption).foregroundStyle(.secondary)
+                Picker("to", selection: $projection.dst) { ForEach(names, id: \.self) { Text($0) } }.labelsHidden()
+                HelpButton(text: "Axons grow from every cell of the source region to cells of the target region.")
+                Button { app.plan.projections.removeAll { $0.id == projection.id } } label: { Image(systemName: "minus.circle") }.buttonStyle(.borderless).help("Remove this projection")
             }
-            HStack {
+            Flow {
                 ForEach([("sigma", 0.3), ("p0", 0.5), ("w", 100.0)], id: \.0) { g, def in
-                    Text(g).font(.caption).foregroundStyle(.secondary)
-                    TextField(g, value: Binding(get: { app.genome["guidance"]?[key]?[g]?.number ?? def },
-                                                set: { app.genome = setPath(app.genome, ["guidance", key, g][...], .number($0)) }), format: .number)
-                        .frame(width: 54)
+                    HStack(spacing: 2) {
+                        NumBox(g, Binding(get: { app.genome["guidance"]?[key]?[g]?.number ?? def },
+                                          set: { app.genome = setPath(app.genome, ["guidance", key, g][...], .number($0)) }))
+                        HelpButton(text: keyHelp[g] ?? g)
+                    }
                 }
             }.font(.caption)
         }
@@ -476,12 +559,10 @@ struct GenomePanel: View {
     @EnvironmentObject var app: AppState
     var body: some View {
         Card(title: "Genome", subtitle: "Nested genes (neurogenesis.genome). Projection keys are \"src->dst\". Missing genes of the plan are filled with neutral defaults.") {
-            HStack {
+            Flow {
                 Button("Fill defaults for the plan") { app.action("Completing genome") { try await app.completeGenome() } }
                 Button("Grow") { app.grow() }
                 Button("Clear") { app.genome = .object([:]) }
-            }
-            HStack {
                 Button("Load genome JSON…") {
                     let p = NSOpenPanel(); p.allowedContentTypes = [.json]
                     if p.runModal() == .OK, let u = p.url, let d = try? Data(contentsOf: u), let v = try? JSONValue.parse(String(decoding: d, as: UTF8.self)) {
@@ -507,8 +588,8 @@ struct SchedulePanel: View {
 
     var body: some View {
         Placeholder(task: "A4", title: "Stages and scheduler", text: "run_schedule(project, genome, seed) with one random stream per stage and a checkpoint after each stage.")
-        Card(title: "Stage catalogue", subtitle: app.stagesAvailable ? "Registered stages." : "Stages planned in the roadmap (C1–C13). You can already compose a schedule; it runs once A4 and the stages are merged.") {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), alignment: .leading)], alignment: .leading, spacing: 4) {
+        Card(title: "Stage catalogue", subtitle: app.stagesAvailable ? "Green: registered. Orange: planned (C1–C13), can be scheduled now and runs once merged." : "Stages planned in the roadmap (C1–C13). You can already compose a schedule; it runs once A4 and the stages are merged.") {
+            Flow {
                 ForEach(app.stages) { s in
                     Button { add(s) } label: {
                         HStack(spacing: 4) {
@@ -516,7 +597,7 @@ struct SchedulePanel: View {
                             Text(s.name).font(.caption)
                             Text(s.task).font(.caption2).foregroundStyle(.secondary)
                         }
-                    }.buttonStyle(.bordered).controlSize(.small).help(s.doc.isEmpty ? "\(s.task): \(s.name)" : s.doc)
+                    }.buttonStyle(.bordered).controlSize(.small).help(s.doc.isEmpty ? "Add \(s.name) (\(s.task)) to the schedule" : s.doc)
                 }
             }
         }
@@ -531,9 +612,10 @@ struct SchedulePanel: View {
                     s.swapAt(k, j); app.project["schedule"] = .array(s)
                 }, remove: { var s = schedule; s.remove(at: k); app.project["schedule"] = .array(s) })
             }
-            HStack {
+            Flow {
                 Button("Run schedule") { app.runSchedule() }.disabled(!app.stagesAvailable || schedule.isEmpty)
                 Button("Genes and cost") { app.scheduleInfo() }.disabled(schedule.isEmpty)
+                    .helpButton("Lists the genes the schedule uses (A3 collect_genes) and its declared memory and operations (A4 schedule_cost).")
                 Button("Body plan step by step") { app.growSteps() }
             }
             if !app.scheduleReport.isEmpty { Text(app.scheduleReport).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
@@ -559,21 +641,27 @@ struct StageEditor: View {
     var body: some View {
         DisclosureGroup {
             VStack(alignment: .leading, spacing: 6) {
-                TextField("Name", text: Binding(get: { stage["name"]?.stringValue ?? "" }, set: { stage["name"] = .string($0) }))
-                Stepper("Repeat: \(Int(stage["repeat"]?.number ?? 1))", value: Binding(get: { Int(stage["repeat"]?.number ?? 1) },
-                                                                                        set: { stage["repeat"] = .number(Double(max(1, $0))) }), in: 1...1000)
+                Row("Name", help: "Name of this step of the schedule (unique; checkpoints are labelled with it).") {
+                    TextField("Name", text: Binding(get: { stage["name"]?.stringValue ?? "" }, set: { stage["name"] = .string($0) })).labelsHidden()
+                }
+                Row("Repeat", help: "How many times the stage runs in a row (each repetition draws from its own random stream).") {
+                    Stepper("\(Int(stage["repeat"]?.number ?? 1))", value: Binding(get: { Int(stage["repeat"]?.number ?? 1) },
+                                                                                  set: { stage["repeat"] = .number(Double(max(1, $0))) }), in: 1...1000)
+                }
                 ForEach((stage["params"]?.objectValue ?? [:]).keys.sorted(), id: \.self) { p in
                     ParamEditor(name: p, param: Binding(get: { stage["params"]?[p] ?? .null }, set: { v in
                         var ps = stage["params"]?.objectValue ?? [:]; ps[p] = v; stage["params"] = .object(ps)
                     }), remove: { var ps = stage["params"]?.objectValue ?? [:]; ps.removeValue(forKey: p); stage["params"] = .object(ps) })
                 }
-                HStack {
-                    TextField("new parameter", text: $newParam).frame(width: 140)
-                    Button("Add") {
-                        guard !newParam.isEmpty else { return }
-                        var ps = stage["params"]?.objectValue ?? [:]
-                        ps[newParam] = .object(["type": .string("Const"), "value": .number(0)])
-                        stage["params"] = .object(ps); newParam = ""
+                Row("New parameter", help: "Name of a parameter the stage reads; it starts as a Const you can switch to Gene, Field, Fit or Expr.") {
+                    HStack {
+                        TextField("parameter name", text: $newParam).labelsHidden()
+                        Button("Add") {
+                            guard !newParam.isEmpty else { return }
+                            var ps = stage["params"]?.objectValue ?? [:]
+                            ps[newParam] = .object(["type": .string("Const"), "value": .number(0)])
+                            stage["params"] = .object(ps); newParam = ""
+                        }
                     }
                 }.controlSize(.small)
             }
@@ -582,9 +670,9 @@ struct StageEditor: View {
                 Text("\(index + 1).").monospacedDigit().foregroundStyle(.secondary)
                 Text(stage["operator"]?.stringValue ?? stage["stage"]?.stringValue ?? "?").font(.callout.weight(.medium))
                 Spacer()
-                Button { move(-1) } label: { Image(systemName: "chevron.up") }.buttonStyle(.borderless)
-                Button { move(1) } label: { Image(systemName: "chevron.down") }.buttonStyle(.borderless)
-                Button(action: remove) { Image(systemName: "trash") }.buttonStyle(.borderless)
+                Button { move(-1) } label: { Image(systemName: "chevron.up") }.buttonStyle(.borderless).help("Move up")
+                Button { move(1) } label: { Image(systemName: "chevron.down") }.buttonStyle(.borderless).help("Move down")
+                Button(action: remove) { Image(systemName: "trash") }.buttonStyle(.borderless).help("Remove this stage")
             }
         }
     }
@@ -598,27 +686,29 @@ struct ParamEditor: View {
     let remove: () -> Void
     var body: some View {
         let src = param["type"]?.stringValue ?? "Const"
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(name).font(.caption.weight(.semibold))
-                Picker("", selection: Binding(get: { src }, set: { param["type"] = .string($0) })) {
-                    ForEach(["Const", "Gene", "Field", "Fit", "Expr"], id: \.self) { Text($0) }
-                }.pickerStyle(.segmented).labelsHidden()
-                Button(action: remove) { Image(systemName: "xmark") }.buttonStyle(.borderless)
+                HelpButton(text: "Where \(name) comes from. Const: a value by hand. Gene: read from the genome at a path (evolved within lo–hi). Field: sampled from a project field at each cell. Fit: fitted to data from init within lo–hi. Expr: a formula.")
+                Spacer()
+                Button(action: remove) { Image(systemName: "xmark") }.buttonStyle(.borderless).help("Remove this parameter")
             }
-            HStack {
+            Picker("Source", selection: Binding(get: { src }, set: { param["type"] = .string($0) })) {
+                ForEach(["Const", "Gene", "Field", "Fit", "Expr"], id: \.self) { Text($0) }
+            }.pickerStyle(.segmented).labelsHidden()
+            Flow {
                 switch src {
                 case "Gene":
                     path(); num("lo"); num("hi")
-                    Toggle("int", isOn: Binding(get: { param["integer"] == .bool(true) }, set: { param["integer"] = .bool($0) })).toggleStyle(.checkbox)
+                    Toggle("integer", isOn: Binding(get: { param["integer"] == .bool(true) }, set: { param["integer"] = .bool($0) })).toggleStyle(.checkbox)
                 case "Field":
-                    text("name", "field name"); text("transform", "e.g. 2*x")
+                    text("field", "name", "field name"); text("transform", "transform", "e.g. 2*x")
                 case "Fit":
-                    text("target", "e.g. density"); num("init"); num("lo"); num("hi")
+                    text("target", "target", "e.g. density"); num("init"); num("lo"); num("hi")
                 case "Expr":
-                    text("formula", "e.g. 0.5 * depth")
+                    text("formula", "formula", "e.g. 0.5 * depth")
                 default:
-                    if case .string = param["value"] ?? .null { text("value", "") } else { num("value") }
+                    if case .string = param["value"] ?? .null { text("value", "value", "") } else { num("value") }
                 }
             }.font(.caption)
         }
@@ -626,19 +716,25 @@ struct ParamEditor: View {
         .background(RoundedRectangle(cornerRadius: 5).fill(Color.primary.opacity(0.04)))
     }
     func num(_ k: String) -> some View {
-        TextField(k, value: Binding(get: { param[k]?.number ?? 0 }, set: { param[k] = .number($0) }), format: .number).frame(width: 60)
+        NumBox(k, Binding(get: { param[k]?.number ?? 0 }, set: { param[k] = .number($0) }))
     }
     /// A toolbox gene path, typed as keys separated by "/" (e.g. count/map, guidance/a->b/sigma, migration/map/mean/0).
     func path() -> some View {
-        TextField("gene path, e.g. count/map", text: Binding(get: {
-            if let a = param["path"]?.arrayValue { return a.map { $0.stringValue ?? ($0.number.map { String(Int($0)) } ?? "") }.joined(separator: "/") }
-            return (param["path"]?.stringValue ?? "").replacingOccurrences(of: ".", with: "/")
-        }, set: { v in
-            param["path"] = .array(v.split(separator: "/").map { Int($0).map { .number(Double($0)) } ?? .string(String($0)) })
-        }))
+        HStack(spacing: 3) {
+            Text("path").foregroundStyle(.secondary)
+            TextField("e.g. count/map", text: Binding(get: {
+                if let a = param["path"]?.arrayValue { return a.map { $0.stringValue ?? ($0.number.map { String(Int($0)) } ?? "") }.joined(separator: "/") }
+                return (param["path"]?.stringValue ?? "").replacingOccurrences(of: ".", with: "/")
+            }, set: { v in
+                param["path"] = .array(v.split(separator: "/").map { Int($0).map { .number(Double($0)) } ?? .string(String($0)) })
+            })).labelsHidden().frame(minWidth: 110)
+        }
     }
-    func text(_ k: String, _ prompt: String) -> some View {
-        TextField(prompt, text: Binding(get: { param[k]?.stringValue ?? "" }, set: { param[k] = .string($0) }))
+    func text(_ label: String, _ k: String, _ prompt: String) -> some View {
+        HStack(spacing: 3) {
+            Text(label).foregroundStyle(.secondary)
+            TextField(prompt, text: Binding(get: { param[k]?.stringValue ?? "" }, set: { param[k] = .string($0) })).labelsHidden().frame(minWidth: 90)
+        }
     }
 }
 
@@ -651,8 +747,8 @@ struct DevelopmentPanel: View {
 
     var body: some View {
         Card(title: "Develop", subtitle: "Checkpoints after each developmental step, for stepping through development in 3D.") {
-            LabeledContent("Development seed") { TextField("", value: $app.devSeed, format: .number).frame(width: 80) }
-            HStack {
+            DoubleField("Development seed", $app.devSeed, help: "Seed of development: the same plan, genome and seed always grow the same network.")
+            Flow {
                 Button("Body plan, step by step") { app.growSteps() }
                 Button("Run schedule") { app.runSchedule() }.disabled(!app.stagesAvailable)
             }
@@ -661,10 +757,11 @@ struct DevelopmentPanel: View {
         if !app.checkpoints.isEmpty {
             Card(title: "Checkpoints", subtitle: "Source: \(app.checkpointSource)") {
                 HStack {
-                    Button { toggle() } label: { Image(systemName: playing ? "pause.fill" : "play.fill") }
+                    Button { toggle() } label: { Image(systemName: playing ? "pause.fill" : "play.fill") }.help("Play through the checkpoints")
                     Slider(value: Binding(get: { Double(app.checkpointIndex) }, set: { app.showCheckpoint(Int($0.rounded())) }),
-                           in: 0...Double(max(app.checkpoints.count - 1, 1)), step: 1)
+                           in: 0...Double(max(app.checkpoints.count - 1, 1)), step: 1) { Text("Step") }
                     Text("\(app.checkpointIndex + 1)/\(app.checkpoints.count)").monospacedDigit()
+                    HelpButton(text: "Drag to step through development; each checkpoint is the network grown so far.")
                 }
                 ForEach(Array(app.checkpoints.enumerated()), id: \.offset) { k, c in
                     Button { app.showCheckpoint(k) } label: {
@@ -708,47 +805,68 @@ struct NetworkPanel: View {
 
     var body: some View {
         Card(title: "Build", subtitle: "Generate a preset, grow a body plan, sample cells in a shape, or start empty and draw neurons by hand.") {
-            Picker("Preset", selection: $morph) { Text("Cortical column").tag("column"); Text("Layered sheets").tag("layered"); Text("Microcircuit").tag("microcircuit") }
-            LabeledContent("Neurons") { TextField("", value: $n, format: .number).frame(width: 80) }
-            LabeledContent("Seed") { TextField("", value: $seed, format: .number).frame(width: 80) }
-            if morph == "column" {
-                LabeledContent("Weight scale") { Slider(value: $weightScale, in: 0.05...1.5); Text(String(format: "%.2f", weightScale)).monospacedDigit() }
-                LabeledContent("Refractory") { Stepper("\(Int(refractory))", value: $refractory, in: 0...20) }
+            Row("Preset", help: "Ready-made networks of the toolbox (MorphogeneticEngine): a cortical column (six layers), stacked sheets, or a small microcircuit.") {
+                Picker("Preset", selection: $morph) { Text("Cortical column").tag("column"); Text("Layered sheets").tag("layered"); Text("Microcircuit").tag("microcircuit") }.labelsHidden()
             }
-            HStack {
+            DoubleField("Neurons", $n, help: "Number of neurons of the preset. Large values are checked against free memory before generating.")
+            DoubleField("Seed", $seed, help: "Random seed: the same seed gives the same network.")
+            if morph == "column" {
+                Row("Weight scale", help: "Multiplies every weight of the column; 0.2 gives an unsaturated regime, 1 the original (strongly bursting) one.") {
+                    HStack { Slider(value: $weightScale, in: 0.05...1.5).labelsHidden(); Text(String(format: "%.2f", weightScale)).monospacedDigit() }
+                }
+                Row("Refractory (ticks)", help: "Absolute refractory period of the column's neurons, in ticks of 1 ms.") { Stepper("\(Int(refractory))", value: $refractory, in: 0...20) }
+            }
+            Flow {
                 Button("Generate") { app.generate(morph, neurons: Int(n), seed: Int(seed), extra: ["weight_scale": weightScale, "refractory": Int(refractory)]) }
                 Button("Grow body plan") { app.grow() }
-                Button("Empty") { app.clearNetwork() }
-            }
-            HStack {
+                Button("Empty") { app.clearNetwork() }.helpButton("Start from an empty network and add neurons by hand with the Add tool.")
                 Button("Open network…") { app.openNetwork() }
-                Button("Save network…") { app.saveNetwork() }
+                Button("Save network…") { app.saveNetwork() }.helpButton("Saves the network JSON (SNNNetwork format); it opens in the browser viewer (viz/) too.")
             }
         }
-        Card(title: "Draw by hand", subtitle: "Tools in the toolbar: ⌘1 select, ⌘2 add, ⌘3 connect, ⌘4 stimulate. Supervised entry points (C9) will read these edits from the Project.") {
-            Picker("Tool", selection: $app.tool) { ForEach(Tool.allCases) { Label($0.rawValue, systemImage: $0.icon).tag($0) } }.pickerStyle(.radioGroup)
+        Card(title: "Draw by hand", subtitle: "Tools: ⌘1 select, ⌘2 add, ⌘3 connect, ⌘4 stimulate. New cells are placed on the placement plane, so there is no depth ambiguity.") {
+            Row("Tool", help: "Select: click neurons. Add: click on the placement plane to add a neuron there. Connect: click a target to connect the selection to it. Stimulate: click a neuron to inject a current pulse.") {
+                Picker("Tool", selection: $app.tool) { ForEach(Tool.allCases) { Text($0.rawValue).tag($0) } }.labelsHidden()
+            }
+            Text("Placement plane").font(.caption.weight(.semibold))
+            Row("Plane perpendicular to", help: "New neurons are placed where you click on this plane. Choose the axis it is perpendicular to (z: a horizontal plane at a given z level when z is your height axis; the 3D view's up axis is y).") {
+                Picker("Axis", selection: $app.placeAxis) { Text("x").tag(0); Text("y").tag(1); Text("z").tag(2) }.pickerStyle(.segmented).labelsHidden()
+            }
+            Row("Level (\(["x", "y", "z"][app.placeAxis]) =)", help: "Coordinate of the placement plane along its axis, in space units. Also: [ and ] in the 3D view move it, and 'Plane here' in the inspector puts it at a selected neuron.") {
+                let (lo, hi) = app.sceneBounds()
+                let a = Double(lo[app.placeAxis]), b = Double(hi[app.placeAxis])
+                let pad = max((b - a) * 0.25, 10)
+                HStack {
+                    Slider(value: $app.placeLevel, in: min(a - pad, app.placeLevel)...max(b + pad, app.placeLevel)).labelsHidden()
+                    TextField("level", value: $app.placeLevel, format: .number.precision(.fractionLength(0...2))).labelsHidden().frame(minWidth: 52)
+                }
+            }
             Text("New neurons").font(.caption.weight(.semibold))
-            Picker("Driver", selection: $app.newNeuron.mode) { Text("LIF").tag(Int32(0)); Text("Poisson").tag(Int32(1)); Text("Burster").tag(Int32(2)) }
-            Picker("Sign", selection: Binding(get: { app.newNeuron.baseWeight < 0 }, set: { app.newNeuron.baseWeight = $0 ? -abs(app.newNeuron.baseWeight) : abs(app.newNeuron.baseWeight) })) {
-                Text("excitatory").tag(false); Text("inhibitory").tag(true)
-            }.pickerStyle(.segmented)
-            Picker("Role", selection: $app.newNeuron.role) { Text("internal").tag(Int32(0)); Text("input").tag(Int32(1)); Text("output").tag(Int32(2)) }
-            IntField("Threshold", $app.newNeuron.threshold)
-            IntField("Refractory", $app.newNeuron.refractory)
-            IntField("Compartment", $app.newNeuron.compartment)
+            Row("Sign", help: "Excitatory (red): its synapses add current. Inhibitory (blue): its synapses subtract current. The preview under the pointer and the new cell take this colour.") {
+                Picker("Sign", selection: Binding(get: { app.newNeuron.baseWeight < 0 }, set: { app.newNeuron.baseWeight = $0 ? -abs(app.newNeuron.baseWeight) : abs(app.newNeuron.baseWeight) })) {
+                    Text("excitatory").tag(false); Text("inhibitory").tag(true)
+                }.pickerStyle(.segmented).labelsHidden()
+            }
+            Row("Driver", help: "LIF: integrates its inputs. Poisson: fires at random (a driver). Burster: fires bursts on a fixed period.") {
+                Picker("Driver", selection: $app.newNeuron.mode) { Text("LIF").tag(Int32(0)); Text("Poisson").tag(Int32(1)); Text("Burster").tag(Int32(2)) }.labelsHidden()
+            }
+            Row("Role", help: "Input neurons receive the external drive; outputs are read out.") {
+                Picker("Role", selection: $app.newNeuron.role) { Text("internal").tag(Int32(0)); Text("input").tag(Int32(1)); Text("output").tag(Int32(2)) }.labelsHidden()
+            }
+            IntField("Threshold", $app.newNeuron.threshold, help: "Firing threshold of new neurons (integer units, default 1024).")
+            IntField("Refractory (ticks)", $app.newNeuron.refractory, help: "Absolute refractory period of new neurons, in ticks of 1 ms.")
+            IntField("Compartment (region)", $app.newNeuron.compartment, help: "Region index given to new neurons; −1 = none (they are then coloured by sign).")
             Text("New synapses").font(.caption.weight(.semibold))
-            LabeledContent("Weight") { TextField("", value: $app.newWeight, format: .number).frame(width: 70) }
-            LabeledContent("Delay (ticks)") { Stepper("\(Int(app.newDelay))", value: $app.newDelay, in: 0...31) }
+            DoubleField("Weight", $app.newWeight, help: "Weight of synapses made with the Connect tool (made negative automatically from inhibitory neurons). Rheobase of a lone neuron ≈ 8.5 units of steady current.")
+            Row("Delay (ticks)", help: "Axonal delay of new synapses, 0–31 ticks of 1 ms.") { Stepper("\(Int(app.newDelay))", value: $app.newDelay, in: 0...31) }
         }
         Card(title: "Selection (\(app.selection.count))") {
-            HStack {
+            Flow {
                 Button("All") { app.selectAll() }
                 Button("None") { app.selection = [] }
                 Menu("Region") { ForEach(Array(app.network.regionNames.enumerated()), id: \.offset) { k, name in Button(name) { app.selectRegion(Int32(k)) } } }
-                    .disabled(app.network.regionNames.isEmpty)
+                    .disabled(app.network.regionNames.isEmpty).fixedSize()
                 Button("Delete", role: .destructive) { app.deleteSelection() }.disabled(app.selection.isEmpty)
-            }
-            HStack {
                 Button("Connect all-to-all") {
                     let s = app.selection
                     app.modifyNetwork { net in
@@ -759,24 +877,26 @@ struct NetworkPanel: View {
             }
         }
         Card(title: "Wire by distance", subtitle: "Every neuron connects to neighbours within its wiring radius with its probability and base weight (MorphogeneticEngine.wire_network); delays from distance / velocity. Replaces the synapses.") {
-            LabeledContent("Seed") { TextField("", value: $wireSeed, format: .number).frame(width: 70) }
-            LabeledContent("Conduction velocity") { TextField("", value: $velocity, format: .number).frame(width: 70) }
-            HStack {
+            DoubleField("Seed", $wireSeed, help: "Random seed of the wiring.")
+            DoubleField("Conduction velocity", $velocity, help: "Space units per tick: delay = distance / velocity.")
+            Flow {
                 Button("Wire") { app.wireByDistance(seed: Int(wireSeed), velocity: velocity) }
-                Button("Set radius 28 / p 0.3 on selection") { app.updateSelected { $0.connRadius = 28; $0.connProb = 0.3 } }.disabled(app.selection.isEmpty)
+                Button("Radius 28, probability 0.3 on selection") { app.updateSelected { $0.connRadius = 28; $0.connProb = 0.3 } }.disabled(app.selection.isEmpty)
             }
         }
         Card(title: "Statistics") {
-            Button("Compute") { app.computeStats() }
+            Button("Compute") { app.computeStats() }.helpButton("Degree and topology statistics of the network (SNNNetwork.compute_statistics).")
             if let s = app.stats { JSONNodeView(key: nil, value: .constant(s), depth: 0).disabled(true) }
         }
         Card(title: "View") {
-            LabeledContent("Neuron size") { Slider(value: $app.pointSize, in: 1...14) }
-            Toggle("Perspective size", isOn: $app.perspectiveSize)
-            LabeledContent("Flash decay (ms)") { Slider(value: $app.flashTau, in: 3...120) }
-            LabeledContent("Max synapses drawn") { Slider(value: $app.synapseCap, in: 1000...400000) ; Text("\(Int(app.synapseCap / 1000))k").monospacedDigit() }
-            Toggle("Grid", isOn: $app.showGrid)
-            Toggle("Region boxes", isOn: $app.showRegionBoxes)
+            Row("Neuron size", help: "Size of the neuron discs on screen.") { Slider(value: $app.pointSize, in: 1...14).labelsHidden() }
+            Toggle("Perspective size", isOn: $app.perspectiveSize).helpButton("On: nearer neurons look bigger. Off: every neuron has the same size on screen.")
+            Row("Flash decay (ms)", help: "How long a neuron and its outgoing synapses stay lit after a spike, in simulated ms.") { Slider(value: $app.flashTau, in: 3...120).labelsHidden() }
+            Row("Max synapses drawn", help: "Above this number, synapses are subsampled for drawing (the simulation always uses all of them).") {
+                HStack { Slider(value: $app.synapseCap, in: 1000...400000).labelsHidden(); Text("\(Int(app.synapseCap / 1000))k").monospacedDigit() }
+            }
+            Toggle("Grid", isOn: $app.showGrid).helpButton("Ground grid and x (red), y (green), z (blue) axes.")
+            Toggle("Region boxes", isOn: $app.showRegionBoxes).helpButton("Boxes of the body plan's regions.")
         }
     }
 }
@@ -787,32 +907,42 @@ struct SimulationPanel: View {
     @EnvironmentObject var app: AppState
     @State private var offlineTicks = 500.0
     var body: some View {
-        Card(title: "Live (native lif_int)", subtitle: "The integer kernel runs natively, bit-identical to the Python, JAX and browser kernels (tests/test_desktop_kernel.py). Neurons flash and synapses light up when spikes travel.") {
-            HStack {
+        Card(title: "Live (native lif_int)", subtitle: "The integer kernel runs natively, bit-identical to the Python, JAX and browser kernels (tests/test_desktop_kernel.py). Neurons flash and synapse arrows light up when spikes travel.") {
+            Flow {
                 Button { app.running.toggle() } label: { Label(app.running ? "Pause" : "Run", systemImage: app.running ? "pause.fill" : "play.fill") }
                 Button("Step 1 ms") { app.engine.step(1) }
                 Button("Step 100 ms") { app.engine.step(100) }
-                Button("Reset") { app.resetSimulation() }
+                Button("Reset") { app.resetSimulation() }.helpButton("Back to t = 0: membrane potentials, currents and the random generator are reset; the network is kept.")
             }
-            LabeledContent("Speed") {
-                Slider(value: Binding(get: { app.speed == 0 ? 5 : log10(max(app.speed, 10)) }, set: { app.speed = $0 >= 4.95 ? 0 : pow(10, $0) }), in: 1...5)
-                Text(app.speed == 0 ? "max" : "\(Int(app.speed)) ms/s").monospacedDigit().frame(width: 80, alignment: .trailing)
+            Row("Speed", help: "Simulated milliseconds per real second (1000 = real time). At the right end: as fast as this Mac can.") {
+                HStack {
+                    Slider(value: Binding(get: { app.speed == 0 ? 5 : log10(max(app.speed, 10)) }, set: { app.speed = $0 >= 4.95 ? 0 : pow(10, $0) }), in: 1...5).labelsHidden()
+                    Text(app.speed == 0 ? "max" : "\(Int(app.speed)) ms/s").monospacedDigit()
+                }
             }
-            LabeledContent("Kernel seed") { TextField("", value: $app.kernelSeed, format: .number).frame(width: 80) }
+            DoubleField("Kernel seed", $app.kernelSeed, help: "Seed of the xorshift32 generator of Poisson drivers (12345 = the toolbox default). Applied at Reset.")
             LiveLine(live: app.live)
         }
         Card(title: "Stimulation", subtitle: "Currents in toolbox units, added to the synaptic current every tick (as jax_backend.tick ext_current). Rheobase ≈ 8.5.") {
-            Toggle("Drive input neurons (role 1)", isOn: $app.driveInputs)
-            LabeledContent("Input current") { Slider(value: $app.inputCurrent, in: 0...400); Text("\(Int(app.inputCurrent))").monospacedDigit().frame(width: 36) }
-            LabeledContent("Current on selection") { Slider(value: $app.selectionCurrent, in: -200...400); Text("\(Int(app.selectionCurrent))").monospacedDigit().frame(width: 36) }
-            LabeledContent("Pulse (stimulate tool, ⌥-click)") { Slider(value: $app.pulseCurrent, in: 10...4000); Text("\(Int(app.pulseCurrent))").monospacedDigit().frame(width: 40) }
+            Toggle("Drive input neurons (role 1)", isOn: $app.driveInputs).helpButton("Applies the input current below to every input neuron, every tick (⌘I).")
+            Row("Input current", help: "Current applied to input neurons each tick while driving is on.") {
+                HStack { Slider(value: $app.inputCurrent, in: 0...400).labelsHidden(); Text("\(Int(app.inputCurrent))").monospacedDigit() }
+            }
+            Row("Current on selection", help: "Constant current applied to the selected neurons every tick (negative inhibits).") {
+                HStack { Slider(value: $app.selectionCurrent, in: -200...400).labelsHidden(); Text("\(Int(app.selectionCurrent))").monospacedDigit() }
+            }
+            Row("Pulse", help: "Current injected once by the Stimulate tool or by ⌥-clicking a neuron.") {
+                HStack { Slider(value: $app.pulseCurrent, in: 10...4000).labelsHidden(); Text("\(Int(app.pulseCurrent))").monospacedDigit() }
+            }
         }
         Card(title: "Other neuron models", subtitle: "Runs any registered model (JAX, in Python) on the current network and stimulation, after checking its cost.") {
-            Picker("Model", selection: $app.simModel) { ForEach(app.models.compactMap { $0["name"] as? String }, id: \.self) { Text($0) } }
+            Row("Model", help: "two_compartment: soma and dendrite. hh: Hodgkin–Huxley. lif_int: the integer kernel (same as live).") {
+                Picker("Model", selection: $app.simModel) { ForEach(app.models.compactMap { $0["name"] as? String }, id: \.self) { Text($0) } }.labelsHidden()
+            }
             if let d = app.models.first(where: { $0["name"] as? String == app.simModel })?["description"] as? String {
                 Text(d).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            LabeledContent("Duration (ms)") { TextField("", value: $offlineTicks, format: .number).frame(width: 80) }
+            DoubleField("Duration (ms)", $offlineTicks, help: "Simulated time, in ticks of 1 ms.")
             Button("Simulate") { app.simulateOffline(model: app.simModel, ticks: Int(offlineTicks)) }
             if let r = app.offlineResult {
                 Text(String(format: "%@: %d spikes in %d ms, %.2f Hz mean", r.model, r.t.count, r.ticks, r.rateHz)).font(.caption)
@@ -847,24 +977,29 @@ struct PlasticityPanel: View {
     @State private var rule = "STDPRule"
     @State private var values: [String: JSONValue] = [:]
     @State private var ticks = 500.0
+    let paramHelp = ["A_plus": "Amplitude of potentiation (pre before post).", "A_minus": "Amplitude of depression (post before pre).",
+                     "tau_plus": "Time constant of the potentiation window (ms).", "tau_minus": "Time constant of the depression window (ms).",
+                     "w_min": "Lowest allowed weight.", "w_max": "Highest allowed weight.", "soft_bounds": "Changes shrink near the bounds.",
+                     "integer_traces": "Integer, bit-shift traces (for lif_int).", "eta": "Learning rate.", "norm_target": "Target total weight per neuron.",
+                     "norm_type": "How weights are normalised.", "tau_e": "Time constant of the eligibility trace (ms)."]
     var body: some View {
         Placeholder(task: "E1", title: "Plasticity rules", text: "STDP, Hebbian with normalisation, three-factor rules.")
         Card(title: "Learn from live activity", subtitle: "Records the live simulation, applies the rule to every synapse (neurogenesis.spiking.plasticity) and writes the new weights back into the network (undoable).") {
             if app.plasticityRules.isEmpty { Text("No rules registered yet.").font(.caption).foregroundStyle(.secondary) }
             else {
-                Picker("Rule", selection: $rule) { ForEach(app.plasticityRules, id: \.0) { Text($0.0).tag($0.0) } }
+                Row("Rule", help: "STDPRule: timing-dependent. HebbianRule: correlation with normalisation. ThreeFactorRule: eligibility × modulator.") {
+                    Picker("Rule", selection: $rule) { ForEach(app.plasticityRules, id: \.0) { Text($0.0).tag($0.0) } }.labelsHidden()
+                }
                 ForEach(app.plasticityRules.first { $0.0 == rule }?.1 ?? [], id: \.0) { name, def in
-                    HStack {
-                        Text(name).font(.caption)
-                        Spacer()
+                    Row(name, help: paramHelp[name] ?? "Parameter \(name) of \(rule).") {
                         switch values[name] ?? def {
-                        case .bool: Toggle("", isOn: Binding(get: { values[name]?.any as? Bool ?? (def.any as? Bool ?? false) }, set: { values[name] = .bool($0) })).labelsHidden()
-                        case .string: TextField("", text: Binding(get: { (values[name] ?? def).stringValue ?? "" }, set: { values[name] = .string($0) })).frame(width: 120)
-                        default: TextField("", value: Binding(get: { (values[name] ?? def).number ?? 0 }, set: { values[name] = .number($0) }), format: .number).frame(width: 80)
+                        case .bool: Toggle(name, isOn: Binding(get: { values[name]?.any as? Bool ?? (def.any as? Bool ?? false) }, set: { values[name] = .bool($0) })).labelsHidden()
+                        case .string: TextField(name, text: Binding(get: { (values[name] ?? def).stringValue ?? "" }, set: { values[name] = .string($0) })).labelsHidden()
+                        default: TextField(name, value: Binding(get: { (values[name] ?? def).number ?? 0 }, set: { values[name] = .number($0) }), format: .number).labelsHidden()
                         }
                     }
                 }
-                LabeledContent("Record (ms)") { TextField("", value: $ticks, format: .number).frame(width: 80) }
+                DoubleField("Record (ms)", $ticks, help: "Length of live activity recorded before the rule is applied.")
                 Button(app.recordingPlasticity ? "Recording…" : "Record and apply") {
                     var p: [String: Any] = [:]
                     for (k, v) in values { p[k] = v.any }
@@ -895,14 +1030,14 @@ struct EvolutionPanel: View {
 
     var body: some View {
         Card(title: "Evolve the genome", subtitle: "Island evolution (neurogenesis.evolution) of the chosen genes, every genome grown on fresh development seeds. Toy objective: a target mean firing rate with inputs driven; projects define their own.") {
-            HStack {
+            Flow {
                 Button("List genes") {
                     app.action("Listing genes") {
                         try await app.completeGenome()
                         genes = (try await app.bridge.dict("genes", ["genome": app.genome.any]))["genes"] as? [[String: Any]] ?? []
                     }
-                }
-                TextField("filter", text: $filter)
+                }.helpButton("Lists every number of the genome; tick the ones to evolve and give each a range (lo–hi).")
+                HStack(spacing: 3) { Text("filter").foregroundStyle(.secondary); TextField("e.g. guidance", text: $filter).labelsHidden().frame(minWidth: 100) }
             }
             if !genes.isEmpty {
                 ScrollView {
@@ -914,21 +1049,19 @@ struct EvolutionPanel: View {
                                     .toggleStyle(.checkbox).font(.caption)
                                 Spacer()
                                 if chosen.contains(kk) {
-                                    TextField("lo", value: Binding(get: { bounds[kk]?.0 ?? 0 }, set: { bounds[kk] = ($0, bounds[kk]?.1 ?? 1) }), format: .number).frame(width: 50)
-                                    TextField("hi", value: Binding(get: { bounds[kk]?.1 ?? 1 }, set: { bounds[kk] = (bounds[kk]?.0 ?? 0, $0) }), format: .number).frame(width: 50)
+                                    NumBox("lo", Binding(get: { bounds[kk]?.0 ?? 0 }, set: { bounds[kk] = ($0, bounds[kk]?.1 ?? 1) }))
+                                    NumBox("hi", Binding(get: { bounds[kk]?.1 ?? 1 }, set: { bounds[kk] = (bounds[kk]?.0 ?? 0, $0) }))
                                 } else { Text(String(format: "%g", v)).font(.caption).foregroundStyle(.secondary) }
-                            }
+                            }.font(.caption)
                         }
                     }
                 }.frame(maxHeight: 220)
             }
-            LabeledContent("Target rate (Hz)") { TextField("", value: $target, format: .number).frame(width: 60) }
-            LabeledContent("Input current") { TextField("", value: $current, format: .number).frame(width: 60) }
-            HStack {
-                Text("gens"); TextField("", value: $gens, format: .number).frame(width: 40)
-                Text("pop"); TextField("", value: $pop, format: .number).frame(width: 40)
-                Text("seeds"); TextField("", value: $seeds, format: .number).frame(width: 40)
-            }.font(.caption)
+            DoubleField("Target rate (Hz)", $target, help: "Mean firing rate the toy objective rewards (fitness = −(worst error + 0.25 × mean error) across seeds).")
+            DoubleField("Input current", $current, help: "Current applied to input neurons during each evaluation.")
+            DoubleField("Generations", $gens, help: "Number of generations of the island.")
+            DoubleField("Population", $pop, help: "Genomes per generation.")
+            DoubleField("Seeds per genome", $seeds, help: "Development seeds each genome is grown with (robustness: the worst seed counts most).")
             Button("Evolve \(chosen.count) genes") {
                 let sel = genes.filter { chosen.contains(key($0)) }.map { g -> [String: Any] in
                     let b = bounds[key(g)] ?? (0, 1)
@@ -947,7 +1080,7 @@ struct EvolutionPanel: View {
                 }.frame(height: 140)
             }
             if let g = app.evolvedGenome {
-                HStack {
+                Flow {
                     Button("Use evolved genome and grow") { app.genome = g; app.grow() }
                     Button("Discard") { app.evolvedGenome = nil }
                 }
@@ -973,9 +1106,12 @@ struct ModulesPanel: View {
             Button("Open module…") { app.loadModule() }
         }
         Card(title: "Save the current plan and genome as a module") {
-            TextField("Name", text: $name)
-            TextField("Description", text: $desc)
-            Text("Inputs / outputs").font(.caption.weight(.semibold))
+            Row("Name", help: "Module name (also its file name).") { TextField("Name", text: $name).labelsHidden() }
+            Row("Description", help: "What the module does, for whoever reuses it.") { TextField("Description", text: $desc).labelsHidden() }
+            HStack(spacing: 4) {
+                Text("Inputs / outputs").font(.caption.weight(.semibold))
+                HelpButton(text: "Regions other modules connect to (inputs) or read from (outputs) when composed.")
+            }
             ForEach(app.plan.regions.map(\.name), id: \.self) { r in
                 HStack {
                     Text(r).font(.caption); Spacer()
@@ -985,12 +1121,13 @@ struct ModulesPanel: View {
             }
             Button("Save module…") { app.saveModule(name: name, inputs: Array(inputs), outputs: Array(outputs), description: desc) }
         }
-        Card(title: "Compose modules", subtitle: "Each module keeps its genes (names prefixed); links are projections between them, as \"a.out->b.in\" per line.") {
+        Card(title: "Compose modules", subtitle: "Each module keeps its genes (names prefixed); links are projections between them.") {
             Button("Choose modules…") {
                 let p = NSOpenPanel(); p.allowsMultipleSelection = true; p.allowedContentTypes = [.json]
                 if p.runModal() == .OK { composeURLs = p.urls }
             }
             ForEach(composeURLs, id: \.self) { Text($0.lastPathComponent).font(.caption) }
+            HStack(spacing: 4) { Text("Links").font(.caption.weight(.semibold)); HelpButton(text: "One projection per line, as source -> target with prefixed region names, e.g. retina.ganglion -> thalamus.relay") }
             TextEditor(text: $links).font(.system(size: 11, design: .monospaced)).frame(height: 60)
             Button("Compose and grow") {
                 let l = links.split(separator: "\n").compactMap { line -> [String]? in
@@ -1014,16 +1151,17 @@ struct CostPanel: View {
     @State private var seconds = 1.0
     var body: some View {
         Card(title: "Simulation cost", subtitle: "Memory and time per neuron model before running (neurogenesis.cost); calibration runs a short benchmark once per model on this Mac.") {
-            HStack {
+            Flow {
                 Button("Current network") { neurons = Double(app.network.neurons.count); spn = Double(app.network.synapses.count) / Double(max(app.network.neurons.count, 1)) }
-                Button("Cortical column 10⁶") { neurons = 1e6; spn = 5000 }
+                Button("10⁶ neurons × 5000") { neurons = 1e6; spn = 5000 }
             }
-            LabeledContent("Neurons") { TextField("", value: $neurons, format: .number).frame(width: 110) }
-            LabeledContent("Synapses per neuron") { TextField("", value: $spn, format: .number).frame(width: 110) }
-            LabeledContent("Simulated seconds") { TextField("", value: $seconds, format: .number).frame(width: 110) }
-            HStack {
+            DoubleField("Neurons", $neurons, help: "Number of neurons to estimate for.")
+            DoubleField("Synapses per neuron", $spn, help: "Mean number of synapses per neuron.")
+            DoubleField("Simulated seconds", $seconds, help: "Simulated time (1 s = 1000 ticks).")
+            Flow {
                 Button("Estimate") { app.estimate(neurons: Int(neurons), synapses: Int(neurons * spn), ticks: Int(seconds * 1000), calibrate: false) }
                 Button("Calibrate + estimate") { app.estimate(neurons: Int(neurons), synapses: Int(neurons * spn), ticks: Int(seconds * 1000), calibrate: true) }
+                    .helpButton("Measures this Mac's speed per model once (a few seconds), so that time estimates are available.")
             }
             ForEach(Array(app.estimates.enumerated()), id: \.offset) { _, e in
                 VStack(alignment: .leading, spacing: 2) {
@@ -1054,19 +1192,19 @@ struct AnalysisPanel: View {
     @State private var model = "lif_int"
     var body: some View {
         Card(title: "Frequency–current curve", subtitle: "Firing rate of one isolated neuron per constant current (neurogenesis.analysis.fi_curve).") {
-            HStack {
+            Flow {
                 Button("From selection") {
                     if let i = app.selection.first { let n = app.network.neurons[i]; shiftV = Double(n.shiftV); shiftS = Double(n.shiftS); threshold = Double(n.threshold); refractory = Double(n.refractory) }
-                }.disabled(app.selection.isEmpty)
-                Picker("", selection: $model) { ForEach(app.models.compactMap { $0["name"] as? String }, id: \.self) { Text($0) } }.labelsHidden()
+                }.disabled(app.selection.isEmpty).helpButton("Copies the parameters of the selected neuron.")
             }
-            HStack {
-                Text("shift_v"); TextField("", value: $shiftV, format: .number).frame(width: 36)
-                Text("shift_s"); TextField("", value: $shiftS, format: .number).frame(width: 36)
-                Text("θ"); TextField("", value: $threshold, format: .number).frame(width: 50)
-                Text("ref"); TextField("", value: $refractory, format: .number).frame(width: 36)
-                Text("max I"); TextField("", value: $hi, format: .number).frame(width: 44)
-            }.font(.caption)
+            Row("Model", help: "Neuron model the curve is computed with.") {
+                Picker("Model", selection: $model) { ForEach(app.models.compactMap { $0["name"] as? String }, id: \.self) { Text($0) } }.labelsHidden()
+            }
+            DoubleField("Leak shift (shift_v)", $shiftV, help: "Membrane leak: v loses v >> shift_v per tick.")
+            DoubleField("Synaptic shift (shift_s)", $shiftS, help: "Synaptic decay: I loses I >> shift_s per tick.")
+            DoubleField("Threshold", $threshold, help: "Firing threshold (default 1024).")
+            DoubleField("Refractory (ticks)", $refractory, help: "Absolute refractory period.")
+            DoubleField("Largest current", $hi, help: "The curve spans currents from 0 to this value (toolbox units).")
             Button("Compute") { app.runFI(shiftV: Int(shiftV), shiftS: Int(shiftS), threshold: Int(threshold), refractory: Int(refractory), hi: Int(hi), model: model) }
             if let (x, y) = app.fiCurve, x.count == y.count {
                 Chart { ForEach(x.indices, id: \.self) { k in LineMark(x: .value("current", x[k]), y: .value("Hz", y[k])) } }
@@ -1074,7 +1212,7 @@ struct AnalysisPanel: View {
             }
         }
         Card(title: "Mosaic regularity", subtitle: "Nearest-neighbour regularity index of the selection (or all cells), in x–y.") {
-            Button("Compute") { app.regularity() }
+            Button("Compute") { app.regularity() }.helpButton("Mean / s.d. of each cell's distance to its nearest neighbour: about 1.9 for random positions, larger for regular mosaics.")
         }
         Card(title: "Firing rates (live, last second)") {
             RegionRates(live: app.live, names: app.network.regionNames)
@@ -1101,8 +1239,8 @@ struct RoadmapPanel: View {
             Button("Refresh") { app.machine = MachineResources.current() }
         }
         Card(title: "Toolbox", subtitle: app.pythonInfo) {
-            Button("Refresh (re-scan merged tasks)") { app.bridge.restart(); }
-            Text("Restarting the Python bridge re-imports the toolbox, so newly merged tasks appear without restarting the app.").font(.caption).foregroundStyle(.secondary)
+            Button("Refresh (re-scan merged tasks)") { app.bridge.restart() }
+                .helpButton("Restarts the Python bridge, which re-imports the toolbox: newly merged tasks appear without restarting the app.")
         }
         Card(title: "Tasks (\(app.capabilities.filter(\.available).count) of \(app.capabilities.count) present)") {
             ForEach(app.capabilities) { c in
@@ -1114,8 +1252,8 @@ struct RoadmapPanel: View {
             }
         }
         Card(title: "Python", subtitle: "The interpreter (with numpy, jax, matplotlib) and the neurogenesis-sim checkout the app drives.") {
-            TextField("Python", text: $python)
-            TextField("Toolbox checkout", text: $repo)
+            Row("Python", help: "Full path of a Python that has numpy, jax and matplotlib (e.g. /opt/anaconda3/bin/python).") { TextField("Python", text: $python).labelsHidden() }
+            Row("Toolbox checkout", help: "Folder of the neurogenesis-sim repository whose code the app uses (where merged work lands).") { TextField("Toolbox checkout", text: $repo).labelsHidden() }
             Button("Apply and restart Python") { app.restartBridge(python: python, repo: repo) }
         }
         Card(title: "Console") {

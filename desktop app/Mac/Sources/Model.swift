@@ -259,7 +259,7 @@ enum Tool: String, CaseIterable, Identifiable {
     var help: String {
         switch self {
         case .select: return "Click a neuron to select it (shift-click: add to selection). Drag to orbit."
-        case .add: return "Click to add a neuron on the plane through the view centre, facing you."
+        case .add: return "Click on the cyan placement plane to add a neuron there (set the plane in Network → Draw by hand)."
         case .connect: return "Click a target: synapses from every selected neuron to it (weight and delay from the Network panel)."
         case .stimulate: return "Click a neuron to inject a current pulse (option-click works with every tool)."
         }
