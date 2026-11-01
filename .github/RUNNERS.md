@@ -13,6 +13,9 @@ Unset means GitHub-hosted.
 | `MAC_RUNNER` | `"macos-latest"` | nglif-macos, mac-app |
 | `WINDOWS_RUNNER` | `"windows-latest"` | nglif-windows |
 
+`release.yml` has its own variables, because a release must be built on the exact OS and architecture it targets:
+`RELEASE_LINUX_RUNNER`, `RELEASE_WINDOWS_RUNNER`, `MAC_X64_RUNNER` (Intel) and `MAC_ARM64_RUNNER` (Apple Silicon).
+
 Jobs run only when their files changed (`detect-changes`), or on manual runs (`workflow_dispatch`). On pull requests:
 - macOS and Windows jobs run on a self-hosted runner, or on hosted runners only with the label `full-ci`;
 - draft PRs run the Python tests only;

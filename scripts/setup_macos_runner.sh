@@ -40,7 +40,7 @@ case "${1:-}" in
       ./config.sh remove --token "$token" || true
       cd "$HOME" && rm -rf "$DIR"
     fi
-    gh variable delete MAC_RUNNER -R "$REPO" 2>/dev/null || true
+    for v in MAC_RUNNER MAC_ARM64_RUNNER MAC_X64_RUNNER; do gh variable delete "$v" -R "$REPO" 2>/dev/null || true; done
     gh variable delete LINUX_RUNNER -R "$REPO" 2>/dev/null || true
     echo "removed; CI uses GitHub-hosted runners again"
     exit 0 ;;
@@ -83,6 +83,12 @@ cd "$DIR"
 ./svc.sh status | tail -3
 
 gh variable set MAC_RUNNER -R "$REPO" --body "$MAC_RUNNER"
+# Release builds of the macOS app for this Mac's own architecture (release.yml) may also use it.
+if [[ "$ARCH" == osx-arm64 ]]; then
+  gh variable set MAC_ARM64_RUNNER -R "$REPO" --body "$MAC_RUNNER"
+else
+  gh variable set MAC_X64_RUNNER -R "$REPO" --body "$MAC_RUNNER"
+fi
 if [[ "${1:-}" == "--linux-jobs" ]]; then
   gh variable set LINUX_RUNNER -R "$REPO" --body "$MAC_RUNNER"
 fi
