@@ -14,11 +14,13 @@ on:
     branches: [main]
     paths:
       - 'desktop/avalonia/**'
+      - 'neurogenesis/bridge/**'
       - '.github/workflows/avalonia-app.yml'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled]
     paths:
       - 'desktop/avalonia/**'
+      - 'neurogenesis/bridge/**'
       - '.github/workflows/avalonia-app.yml'
   workflow_dispatch:
 
@@ -67,6 +69,7 @@ jobs:
 
       - name: Run xUnit tests
         env:
+          NG_PYTHON: python
           NG_NGB_FIXTURES: ${{ runner.temp }}/ngbfixtures
         run: dotnet test desktop/avalonia/Neurogenesis.Desktop.sln --configuration Release --no-build --verbosity normal --logger "trx"
 
@@ -115,5 +118,6 @@ jobs:
 
       - name: Run xUnit tests
         env:
+          NG_PYTHON: python
           NG_NGB_FIXTURES: ${{ runner.temp }}/ngbfixtures
         run: dotnet test desktop/avalonia/Neurogenesis.Desktop.sln --configuration Release --no-build --verbosity normal --logger "trx"
