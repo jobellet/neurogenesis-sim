@@ -75,3 +75,25 @@ jobs:
           NG_PYTHON: python
           NG_NGB_FIXTURES: ${{ runner.temp }}/ngbfixtures
         run: dotnet test desktop/avalonia/Neurogenesis.Desktop.sln --configuration Release --no-build --verbosity normal --logger "trx"
+
+      - name: Build Windows package (Installer + Portable Zip)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File desktop/avalonia/packaging/build-windows.ps1 -OutputDir dist
+          Get-ChildItem dist
+
+      - name: Build Linux package (AppImage + tar.gz)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          chmod +x desktop/avalonia/packaging/build-appimage.sh
+          ./desktop/avalonia/packaging/build-appimage.sh dist
+          ls -lh dist
+
+      - name: Upload packages as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-${{ runner.os }}
+          path: dist/*
+          if-no-files-found: error

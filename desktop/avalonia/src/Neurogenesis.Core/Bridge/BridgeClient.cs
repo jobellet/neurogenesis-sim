@@ -41,10 +41,10 @@ public sealed class BridgeClient : IAsyncDisposable
 
     public bool IsReady => _readyTcs.Task.IsCompletedSuccessfully;
 
-    public BridgeClient(string pythonPath, string repoRoot)
+    public BridgeClient(string? pythonPath = null, string? repoRoot = null)
     {
-        PythonPath = pythonPath;
-        RepoRoot = repoRoot;
+        PythonPath = !string.IsNullOrWhiteSpace(pythonPath) ? pythonPath : PythonLocator.FindPython();
+        RepoRoot = repoRoot ?? AppContext.BaseDirectory;
     }
 
     public async Task StartAsync(CancellationToken ct = default)
