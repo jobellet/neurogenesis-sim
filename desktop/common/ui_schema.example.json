@@ -1,0 +1,118 @@
+{
+  "format": "neurogenesis-ui-schema",
+  "version": "1.0",
+  "generated_by": {"toolbox": "0.1.0", "python": "3.12.15", "date": "2026-11-01T18:00:00Z"},
+  "project_schema_version": "1.0.0",
+  "param_sources": [
+    {"type": "Const", "title": "By hand", "doc": "A value set by hand.",
+     "inputs": [{"name": "value", "type": "value", "doc": "The value (its type is the parameter's)."}]},
+    {"type": "Gene", "title": "Gene", "doc": "Read from the genome at a gene path; evolution searches it between lo and hi.",
+     "inputs": [{"name": "path", "type": "gene_path", "doc": "Where the gene is in the genome, e.g. count / map."},
+                {"name": "lo", "type": "float", "doc": "Smallest value evolution may give the gene."},
+                {"name": "hi", "type": "float", "doc": "Largest value evolution may give the gene."},
+                {"name": "integer", "type": "bool", "doc": "Round the gene to an integer."}]},
+    {"type": "Field", "title": "Field", "doc": "Sampled from a project field at each cell's position.",
+     "inputs": [{"name": "name", "type": "field", "doc": "Which project field."},
+                {"name": "transform", "type": "string", "doc": "Optional formula applied to the sampled value x, e.g. 2*x + 1."}]},
+    {"type": "Fit", "title": "Fitted", "doc": "Fitted to data (task E2), starting from init, within lo and hi.",
+     "inputs": [{"name": "target", "type": "string", "doc": "The measurement it is fitted to, e.g. density."},
+                {"name": "init", "type": "float", "doc": "Starting value."},
+                {"name": "lo", "type": "float", "doc": "Lower bound."},
+                {"name": "hi", "type": "float", "doc": "Upper bound."}]},
+    {"type": "Expr", "title": "Formula", "doc": "A formula of other parameters and fields.",
+     "inputs": [{"name": "formula", "type": "string", "doc": "E.g. 0.5 * density + 0.1."}]}
+  ],
+  "stages": [
+    {"operator": "seed_cells", "title": "Seed cells", "task": "C1", "available": true,
+     "description": "Places the initial progenitors: by hand, sampled in a geometry with a density, or one cell.",
+     "repeatable": false, "conditional": true,
+     "cost": {"declared": true, "samples": [{"N": 1000, "E": 0, "bytes": 136000, "ops": 20000},
+                                            {"N": 100000, "E": 0, "bytes": 13600000, "ops": 2000000}]},
+     "params": [
+       {"name": "geometry", "title": "Geometry", "type": "geometry", "doc": "Shape the cells are sampled in.",
+        "default": {"type": "Const", "value": ""}, "sources": ["Const"]},
+       {"name": "count", "title": "Number of cells", "type": "int", "doc": "How many progenitors to place.",
+        "min": 1, "max": 1000000, "step": 1, "default": {"type": "Const", "value": 100}, "sources": ["Const", "Gene", "Fit"]},
+       {"name": "density", "title": "Density", "type": "float", "units": "cells per cubic space unit", "per_cell": true,
+        "doc": "Relative sampling density; a field makes it vary in space.", "min": 0,
+        "default": {"type": "Const", "value": 1.0}, "sources": ["Const", "Field", "Expr"]}
+     ]},
+    {"operator": "proliferate", "title": "Proliferate", "task": "C2", "available": false,
+     "description": "Symmetric or asymmetric divisions; each cell divides with a probability per step.",
+     "repeatable": true, "conditional": true, "cost": null,
+     "params": [
+       {"name": "probability", "title": "Division probability", "type": "float", "units": "per step", "per_cell": true,
+        "doc": "Probability that a cell divides at each repetition of the stage.", "min": 0, "max": 1, "step": 0.01,
+        "default": {"type": "Const", "value": 0.1}, "sources": ["Const", "Gene", "Field", "Fit", "Expr"]},
+       {"name": "asymmetric", "title": "Asymmetric", "type": "bool",
+        "doc": "One daughter stays a progenitor, the other differentiates.",
+        "default": {"type": "Const", "value": false}, "sources": ["Const"]},
+       {"name": "max_cells", "title": "Maximum cells", "type": "int", "advanced": true,
+        "doc": "Safety bound: the stage stops dividing above this number of cells.", "min": 1,
+        "default": {"type": "Const", "value": 100000}, "sources": ["Const"]}
+     ]},
+    {"operator": "migrate", "title": "Migrate", "task": "C4", "available": false,
+     "description": "Moves cells along a vector field, up a scalar field, or to a target layer.",
+     "repeatable": true, "conditional": true, "cost": null,
+     "params": [
+       {"name": "mode", "title": "Mode", "type": "choice", "doc": "How cells choose their direction.",
+        "choices": [{"value": "vector_field", "title": "Along a vector field"},
+                    {"value": "chemotaxis", "title": "Up a scalar field"},
+                    {"value": "radial", "title": "Radial"}],
+        "default": {"type": "Const", "value": "radial"}, "sources": ["Const"]},
+       {"name": "guide", "title": "Guiding field", "type": "field", "doc": "The field that guides migration.",
+        "default": {"type": "Const", "value": ""}, "sources": ["Const"]},
+       {"name": "speed", "title": "Speed", "type": "float", "units": "space units per step", "per_cell": true,
+        "doc": "Distance moved per step.", "min": 0, "max": 100,
+        "default": {"type": "Const", "value": 1.0}, "sources": ["Const", "Gene", "Field", "Expr"]},
+       {"name": "origin", "title": "Radial origin", "type": "vec3", "units": "space units",
+        "doc": "Centre for radial migration.", "default": {"type": "Const", "value": [0, 0, 0]}, "sources": ["Const"]}
+     ]},
+    {"operator": "differentiate", "title": "Differentiate", "task": "C7", "available": false,
+     "description": "Sets cell types from expression thresholds, fields, lineage or birth order.",
+     "repeatable": false, "conditional": true, "cost": null,
+     "params": [
+       {"name": "table", "title": "Rule table", "type": "json", "doc": "Rows {condition, type, sign, neuron parameters}.",
+        "default": {"type": "Const", "value": []}, "sources": ["Const"]}
+     ]}
+  ],
+  "models": [
+    {"name": "lif_int", "title": "Integer LIF", "native": true, "substeps": 1, "state_bytes": 20, "flops": 12,
+     "description": "Integer leaky integrate-and-fire: bit-shift leak and synaptic decay; identical spikes in Python, JAX, the browser and nglif.",
+     "cost": {"bytes_per_neuron": 64, "bytes_per_synapse": 25, "seconds_per_neuron_substep": 2.1e-9,
+              "seconds_per_synapse_tick": 1.4e-9, "seconds_per_tick_overhead": 6e-6, "device": "cpu:cpu:jax0.4.38"}},
+    {"name": "two_compartment", "title": "Two compartments", "native": false, "substeps": 4, "state_bytes": 32, "flops": 22,
+     "description": "Soma and dendrite.",
+     "cost": {"bytes_per_neuron": 76, "bytes_per_synapse": 25, "seconds_per_neuron_substep": null,
+              "seconds_per_synapse_tick": null, "seconds_per_tick_overhead": null, "device": null}},
+    {"name": "hh", "title": "Hodgkin–Huxley", "native": false, "substeps": 40, "state_bytes": 36, "flops": 90,
+     "description": "Hodgkin–Huxley conductances.",
+     "cost": {"bytes_per_neuron": 80, "bytes_per_synapse": 25, "seconds_per_neuron_substep": null,
+              "seconds_per_synapse_tick": null, "seconds_per_tick_overhead": null, "device": null}}
+  ],
+  "rule_phases": [
+    {"name": "placement", "title": "Placement", "doc": "Moves cells after they are placed."},
+    {"name": "shift", "title": "Target shift", "doc": "Shifts where axons aim."},
+    {"name": "target", "title": "Target", "doc": "Sets the target point of each axon."},
+    {"name": "probability", "title": "Connection probability", "doc": "Changes the probability of each connection."},
+    {"name": "weight", "title": "Weight", "doc": "Changes synaptic weights."}
+  ],
+  "rules": [
+    {"phase": "placement", "name": "mosaic", "doc": "Homotypic repulsion: regular mosaics.", "genes": [["mosaic"]], "default": true},
+    {"phase": "shift", "name": "identity_offset", "doc": "Molecular identity shifts the target.", "genes": [["guidance", "*", "identity_offset"]], "default": true},
+    {"phase": "target", "name": "topographic", "doc": "Point-to-point topography.", "genes": [["guidance", "*", "topographic"]], "default": true},
+    {"phase": "target", "name": "lamina", "doc": "Targets laminae by source channel.", "genes": [["guidance", "*", "lamina"]], "default": true},
+    {"phase": "probability", "name": "identity_expression", "doc": "Receptor expression gates connections.", "genes": [["guidance", "*", "receptors"]], "default": true},
+    {"phase": "probability", "name": "no_autapse", "doc": "No synapse from a neuron onto itself.", "genes": [["guidance", "*", "no_autapse"]], "default": true},
+    {"phase": "probability", "name": "source_sign", "doc": "Only excitatory or only inhibitory sources.", "genes": [["guidance", "*", "source"]], "default": true},
+    {"phase": "weight", "name": "receptor_sign", "doc": "Sign-inverting receptors.", "genes": [["guidance", "*", "receptor_sign"]], "default": true}
+  ],
+  "schedule_genes": [
+    {"path": ["proliferation", "rate"], "lo": 0.0, "hi": 0.5, "integer": false,
+     "used_by": [{"stage": "2_proliferate", "param": "probability"}]},
+    {"path": ["count", "map"], "lo": 10, "hi": 2000, "integer": true,
+     "used_by": [{"stage": "1_seed_cells", "param": "count"}]},
+    {"path": ["guidance", "sensor->map", "B", 0, 0], "lo": -2.0, "hi": 2.0, "integer": false,
+     "used_by": [{"stage": "5_grow_axons", "param": "B"}]}
+  ]
+}

@@ -86,6 +86,7 @@ Files written by the server live in its temporary directory until it exits.
 | `module_load` | `path`, `seed` | `{name, plan, genome, inputs, outputs, description, neuron_model, validation, network}` |
 | `module_save` | `name`, `plan`, `genome`, `inputs`, `outputs`, `description`, `neuron_model`, `path` | `{path}` |
 | `module_compose` | `paths`, `prefixes?`, `links: [[src, dst, genes?]]`, `offsets?`, `name`, `seed` | `{name, plan, genome, prefixes, network}` |
+| `ui_schema` (planned, H3) | `project?` | the UI schema document (`UI_SCHEMA.md`); until it exists, clients use `ui_schema.example.json` |
 
 **JSON conventions.**
 - **Genomes** use `neurogenesis.genome.io`: a projection key is `"src->dst"`, and arrays are lists.
@@ -102,17 +103,36 @@ NGB1 is little endian, with no padding and no alignment requirement. Writer and 
 | 0 | magic `"NGB1"` (4 bytes) |
 | 4 | int32 N, the number of neurons |
 | 8 | int32 E, the number of synapses |
-| 12 | int32 flags, 0 (reserved) |
+| 12 | int32 flags: bit 0 set when an extension table follows (below); every other bit is reserved and must be 0 |
 | 16 | positions: N × 3 float64 (x, y, z, row-major) |
 | | directions: N × 3 float64 |
 | | 10 int32 columns of N values each, in this order: mode, shift_v, shift_s, base_weight, burst_period, burst_duty, refractory, role, compartment, threshold |
 | | 3 float64 columns of N values each: poisson_hz, conn_radius, conn_prob |
 | | 4 int32 columns of E values each: pre, post, weight, delay |
 
-- **Size.** The file is exactly `16 + 112 N + 16 E` bytes. Readers reject any other size.
+- **Size.** Without extensions (flags 0), the file is exactly `16 + 112 N + 16 E` bytes. Readers reject any other
+  size, and reject files with reserved flag bits set.
+- **Indices.** Neuron indices (pre, post) are int32 everywhere, in files and in kernels: never 16-bit.
+- **Delays.** A delay is stored as int32. Kernels of NGB1 version 1 deliver delays 0–31; larger ones never arrive,
+  as in the Python reference. Longer delays will need more history words per neuron in the kernels, not a new format.
 - **Field meanings.** They are those of `neurogenesis.spiking.network.NeuronData` and `SynapseData`. mode: 0 LIF,
   1 Poisson, 2 burster. role: 0 internal, 1 input, 2 output. compartment: −1 means none.
 - **Exactness.** Float64 keeps positions and Poisson rates exactly as in Python, so a round trip through NGB1 is
   exact. A kernel that reads NGB1 must compute the Poisson threshold as
   `min(4294967295, trunc(poisson_hz / 1000 × 2³²))`, as `neurogenesis.spiking.reference` does.
-- **Future changes.** A new layout gets a new magic (`NGB2`), and readers keep accepting NGB1.
+- **Extension columns** (flags bit 0). After the synapse columns comes an int32 C, then C optional columns. Each
+  column has a 32-byte header and then its data:
+
+  | Header field | Content |
+  |---|---|
+  | name | 16 bytes of ASCII, NUL padded, e.g. `receptor`, `pre_node`, `post_node` |
+  | axis | int32: 0 per neuron, 1 per synapse |
+  | dtype | int32: 1 int8, 2 uint8, 3 int16, 4 int32, 5 int64, 6 float32, 7 float64 |
+  | components | int32, at least 1 (e.g. 3 for a vector) |
+  | reserved | int32, 0 |
+
+  The data is (N or E) × components values of that dtype, little endian. Readers skip columns they do not know; the
+  size of every column follows from its header. Optional columns never change the meaning of the mandatory ones:
+  a network read without them is still the same network for every kernel.
+- **Future changes.** New optional per-neuron or per-synapse data goes in extension columns, with no new version. A
+  change to the mandatory layout gets a new magic (`NGB2`), and readers keep accepting NGB1.

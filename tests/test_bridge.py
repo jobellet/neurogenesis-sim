@@ -98,6 +98,27 @@ def test_ngb_round_trip_keeps_every_field(tmp_path):
         read_network(tmp_path / "bad.ngb")
 
 
+@covers()
+def test_ngb_extension_columns_are_optional_and_skipped(tmp_path):
+    from neurogenesis.bridge import read_extensions
+    net = MorphogeneticEngine.generate_cortical_column(40, seed=2)
+    receptor = np.arange(net.num_synapses, dtype=np.uint8) % 3
+    nodes = np.arange(2 * net.num_synapses, dtype=np.int32).reshape(-1, 2)
+    write_network(net, tmp_path / "x.ngb", extensions={"receptor": ("synapse", receptor), "nodes": ("synapse", nodes),
+                                                       "layer": ("neuron", np.ones(40, np.float32))})
+    back = read_network(tmp_path / "x.ngb")
+    assert [vars(s) for s in back.synapses] == [vars(s) for s in net.synapses]
+    ext = read_extensions(tmp_path / "x.ngb")
+    assert (ext["receptor"][1] == receptor).all() and (ext["nodes"][1] == nodes).all() and ext["layer"][0] == "neuron"
+    raw = bytearray((tmp_path / "x.ngb").read_bytes())
+    raw[12] |= 2                                            # a reserved flag bit: refused, not misread
+    (tmp_path / "y.ngb").write_bytes(bytes(raw))
+    with pytest.raises(ValueError):
+        read_network(tmp_path / "y.ngb")
+    write_network(net, tmp_path / "plain.ngb")
+    assert read_extensions(tmp_path / "plain.ngb") == {}
+
+
 @covers("generate", "load_network", "save_network", "wire", "stats")
 def test_network_sources(ngb, tmp_path):
     for kind in ("column", "layered", "microcircuit"):

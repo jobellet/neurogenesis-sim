@@ -7,6 +7,7 @@ development in 3D, and simulate live. They share everything that is not platform
 desktop/
   common/    shared by every app. Owned jointly: a change needs a PR that keeps all three apps working.
     PROTOCOL.md     the bridge protocol (JSON lines) and the NGB1 network format
+    UI_SCHEMA.md    what the toolbox offers to the apps' editors (+ ui_schema.schema.json, ui_schema.example.json)
   mac/       Swift, SwiftUI and Metal
   windows/   (built by another agent)
   linux/     (built by another agent)
@@ -16,7 +17,9 @@ desktop/
 |---|---|---|
 | Bridge server | `neurogenesis/bridge/` (`python -m neurogenesis.bridge`), spec in `common/PROTOCOL.md`, tests in `tests/test_bridge.py` | done |
 | Native live kernel (C11, `nglif`) and golden fixtures | `common/native/`, `common/fixtures/` | next PR |
-| UI schema (forms generated from the bridge's schemas) and visual spec | `common/UI_SCHEMA.md`, `common/visual_spec.json` | planned |
+| UI schema: the format (owned by the apps) | `common/UI_SCHEMA.md`, `ui_schema.schema.json`, `ui_schema.example.json`; `tests/test_ui_schema.py` | done |
+| UI schema exporter (`python -m neurogenesis ui-schema`) | `neurogenesis/` | roadmap H3 (another agent) |
+| Panels generated from the UI schema, and the visual spec | `common/visual_spec.json`, the apps | after H3 |
 | Embedded Python runtime | `common/runtime/` | planned |
 
 **Rules for shared files.**
