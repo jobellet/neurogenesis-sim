@@ -9,7 +9,8 @@ import numpy as np
 
 from neurogenesis.params import Param, param_from_dict, param_to_dict, resolve
 from neurogenesis.tissue import Tissue
-from neurogenesis.geometry import geometry_from_dict
+from neurogenesis.geometry import Geometry, geometry_from_dict, _GEOMETRY_REGISTRY
+from neurogenesis.fields import Field, field_from_dict, _FIELD_REGISTRY
 
 STAGE_REGISTRY: Dict[str, type] = {}
 
@@ -103,19 +104,28 @@ def schedule_cost(project: Dict[str, Any], N: int, E: int) -> Tuple[int, int]:
 
 
 def _instantiate_fields(raw_fields: Dict[str, Any]) -> Dict[str, Any]:
-    """Instantiates fields from raw project field dictionaries."""
+    """Instantiates fields and geometries from raw project definitions.
+    
+    Unknown types raise ValueError immediately. Never falls back silently.
+    """
     instantiated = {}
     for name, f_def in raw_fields.items():
-        if isinstance(f_def, dict) and "type" in f_def:
-            type_name = f_def["type"]
-            # Check geometry registry first (e.g. Box, Sphere, Sheet2D)
-            try:
-                instantiated[name] = geometry_from_dict(f_def)
-                continue
-            except Exception:
-                pass
-            # If not geometry, store definition for field registry
+        if isinstance(f_def, (Geometry, Field)):
             instantiated[name] = f_def
+        elif isinstance(f_def, dict):
+            type_name = f_def.get("type")
+            if not type_name:
+                raise ValueError(f"Field or geometry {name!r} dictionary missing required 'type' field")
+            if type_name in _GEOMETRY_REGISTRY:
+                instantiated[name] = geometry_from_dict(f_def)
+            elif type_name in _FIELD_REGISTRY or type_name.lower() in _FIELD_REGISTRY:
+                instantiated[name] = field_from_dict(f_def)
+            else:
+                raise ValueError(
+                    f"Unknown field or geometry type: {type_name!r} for {name!r}. "
+                    f"Must be a registered geometry ({sorted(_GEOMETRY_REGISTRY.keys())}) "
+                    f"or field ({sorted(_FIELD_REGISTRY.keys())})."
+                )
         else:
             instantiated[name] = f_def
     return instantiated
@@ -133,8 +143,10 @@ def run_schedule(
         importlib.import_module(plugin)
         
     schedule_configs = project.get("schedule", [])
+    raw_geoms = project.get("geometry", {})
     raw_fields = project.get("fields", {})
-    fields = _instantiate_fields(raw_fields)
+    combined_raw = {**raw_geoms, **raw_fields}
+    fields = _instantiate_fields(combined_raw)
     
     tissue = Tissue.empty()
     checkpoints_list = []

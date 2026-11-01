@@ -5,6 +5,8 @@ from neurogenesis.stages.base import register_stage
 from neurogenesis.tissue import Tissue
 from neurogenesis.params import resolve, Param
 from neurogenesis.spatial import CellList
+from neurogenesis.fields import Field
+from neurogenesis.geometry import Geometry
 
 @register_stage("express")
 class Express:
@@ -154,8 +156,11 @@ class Differentiate:
 
         # Provide fields as arrays inside env
         for k, v in fields.items():
-            if hasattr(v, 'sample'):
-                env[f"field_{k}"] = v.sample(tissue.positions)
+            if isinstance(v, Field):
+                env[f"field_{k}"] = v.values(tissue.positions)
+            elif isinstance(v, Geometry):
+                env[f"geom_{k}"] = v.contains(tissue.positions)
+                env[f"field_{k}"] = v.contains(tissue.positions).astype(np.float32)
             elif callable(v):
                 env[f"field_{k}"] = v(tissue.positions)
             else:
