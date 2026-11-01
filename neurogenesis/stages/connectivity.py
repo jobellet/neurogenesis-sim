@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 import numpy as np
 from typing import Dict, Any, List, Optional, Tuple, Union
 
@@ -138,7 +139,7 @@ class GrowAxons:
         weight_rules = resolve(params.get("rules_weight", []), genome, fields)
         
         cv = resolve(params.get("conduction_velocity", 1.0), genome, fields)
-        max_delay = resolve(params.get("max_delay", 15), genome, fields)
+        max_delay = resolve(params.get("max_delay", 31), genome, fields)
         global_w_clip = int(resolve(params.get("w_clip", 512), genome, fields))
         global_inh = float(resolve(params.get("inh_weight_factor", 1.0), genome, fields))
         exact = bool(resolve(params.get("exact", True), genome, fields))
@@ -151,6 +152,8 @@ class GrowAxons:
         new_post_list = []
         new_weight_list = []
         new_delay_list = []
+        total_clipped_delays = 0
+        effective_max_delay = min(int(max_delay), 31)
         
         alive_idx = np.nonzero(tissue.alive)[0]
         region_ids = tissue.region[alive_idx]
@@ -288,13 +291,23 @@ class GrowAxons:
             abs_src = tissue.positions[src_indices[edges_pre]]
             abs_dst = tissue.positions[dst_indices[edges_post]]
             dists = np.linalg.norm(abs_src - abs_dst, axis=1)
-            delays = np.clip(np.round(dists / cv), 1, max_delay).astype(np.int32)
+            raw_delays = np.round(dists / cv).astype(np.int32)
+            n_clipped = int(np.sum(raw_delays > 31))
+            total_clipped_delays += n_clipped
+            delays = np.clip(raw_delays, 1, effective_max_delay).astype(np.int32)
             
             new_pre_list.append(src_indices[edges_pre])
             new_post_list.append(dst_indices[edges_post])
             new_weight_list.append(final_ws)
             new_delay_list.append(delays)
             
+        if total_clipped_delays > 0:
+            warnings.warn(
+                f"grow_axons: {total_clipped_delays} synapses clipped to maximum delay 31 ticks (kernel limit)",
+                UserWarning,
+                stacklevel=2
+            )
+
         if new_pre_list:
             final_pre = np.concatenate([tissue.connectivity.pre] + new_pre_list)
             final_post = np.concatenate([tissue.connectivity.post] + new_post_list)
@@ -347,6 +360,12 @@ class ConnectByHand:
         if len(pre) == 0 or len(post) == 0:
             return tissue
             
+        N = len(tissue.alive)
+        if np.any(pre < 0) or np.any(pre >= N):
+            raise ValueError(f"connect_by_hand: pre index out of range [0, {N - 1}]")
+        if np.any(post < 0) or np.any(post >= N):
+            raise ValueError(f"connect_by_hand: post index out of range [0, {N - 1}]")
+
         weight = resolve(params.get("weight", 1.0), genome, fields)
         if isinstance(weight, (int, float)):
             weight = np.full(len(pre), int(weight), dtype=np.int32)
@@ -359,6 +378,9 @@ class ConnectByHand:
         else:
             delay = np.asarray(delay, dtype=np.int32)
             
+        if np.any(delay < 1) or np.any(delay > 31):
+            raise ValueError(f"connect_by_hand: delay out of kernel limit [1, 31]: range [{np.min(delay)}, {np.max(delay)}]")
+
         new_pre = np.concatenate([tissue.connectivity.pre, pre])
         new_post = np.concatenate([tissue.connectivity.post, post])
         new_weight = np.concatenate([tissue.connectivity.weight, weight])

@@ -35,7 +35,8 @@ def test_cost_declarations():
     assert stage2.cost(10, 5)[0] > 0
 
 def test_determinism_grow_axons():
-    pos = np.random.rand(10, 3)
+    rng = np.random.default_rng(42)
+    pos = rng.uniform(0.0, 0.2, (10, 3))
     t1 = Tissue.empty()
     t1.add_cells(10, positions=pos, region=np.array([0,0,0,0,0,1,1,1,1,1]))
     
