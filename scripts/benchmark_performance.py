@@ -1,9 +1,19 @@
 #!/usr/bin/env python3
-"""Run fixed CPU benchmarks and optionally compare them with a prior CI result."""
+"""Run fixed CPU benchmarks and compare them with an earlier result from the same machine.
+
+Timings depend on the machine, so a baseline is only compared when its machine fingerprint matches (OS, CPU, cores,
+Python, JAX). The comparison is a report by default: shared CI runners vary too much for a hard gate. Pass --enforce
+to exit with status 1 on a regression (for local use against a baseline you recorded on the same machine):
+
+    python scripts/benchmark_performance.py --output perf.json                       # record
+    python scripts/benchmark_performance.py --baseline perf.json --enforce           # later, same machine
+"""
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import platform
 import statistics
 import time
 from pathlib import Path
@@ -44,27 +54,40 @@ def run_benchmarks():
     }
 
 
+def machine():
+    """What a timing depends on, besides the code."""
+    import jax
+    return {"system": platform.system(), "machine": platform.machine(), "processor": platform.processor(),
+            "cpus": os.cpu_count(), "python": platform.python_version(), "jax": jax.__version__}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=Path("performance.json"))
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--limit", type=float, default=1.3)
+    parser.add_argument("--enforce", action="store_true", help="exit with status 1 on a regression")
     args = parser.parse_args()
 
-    result = {"schema": 1, "benchmarks": run_benchmarks()}
+    result = {"schema": 2, "machine": machine(), "benchmarks": run_benchmarks()}
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     for name, seconds in result["benchmarks"].items():
         print(f"{name}: {seconds:.6f}s")
 
     if args.baseline and args.baseline.exists():
-        bad = regressions(json.loads(args.baseline.read_text()), result, args.limit)
+        baseline = json.loads(args.baseline.read_text())
+        if baseline.get("machine") != result["machine"]:
+            print(f"Baseline recorded on another machine ({baseline.get('machine')}); timings not compared.")
+            return
+        bad = regressions(baseline, result, args.limit)
         for name, (before, after) in bad.items():
-            print(f"REGRESSION {name}: {after:.6f}s vs {before:.6f}s baseline ({after / before:.2f}x)")
-        if bad:
+            print(f"::warning::performance regression {name}: {after:.6f}s vs {before:.6f}s ({after / before:.2f}x)")
+        if bad and args.enforce:
             raise SystemExit(1)
-        print(f"All benchmarks are within {args.limit:.2f}x of the main branch baseline.")
+        if not bad:
+            print(f"All benchmarks are within {args.limit:.2f}x of the baseline.")
     elif args.baseline:
-        print("No main-branch performance baseline is available yet; this run seeds the baseline artifact.")
+        print("No baseline yet; this run records one.")
 
 
 if __name__ == "__main__":
