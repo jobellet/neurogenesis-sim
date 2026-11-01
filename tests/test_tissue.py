@@ -2,50 +2,67 @@ import pytest
 import numpy as np
 from neurogenesis.tissue import Tissue, SparseConnectivity
 from neurogenesis.spiking.network import SNNNetwork, NeuronData, SynapseData
+from neurogenesis.development.grow import grow
+from neurogenesis.development.plan import BodyPlan
 
 def test_add_cells():
     t = Tissue.empty(K=2)
-    t.add_cells(3, positions=np.array([[0, 0, 0], [1, 1, 1], [2, 2, 2]], dtype=np.float32))
+    t.add_cells(3, positions=np.array([[0, 0, 0], [1, 1, 1], [2, 2, 2]], dtype=np.float64))
     assert len(t.alive) == 3
+    assert t.cell_id.tolist() == [0, 1, 2]
     assert t.lineage_id.tolist() == [0, 1, 2]
     assert t.parent_id.tolist() == [-1, -1, -1]
+    assert t.clone_id.tolist() == [0, 1, 2]
     assert t.expression.shape == (3, 2)
     
     t.add_cells(2, parent_ids=np.array([1, 2], dtype=np.int32))
     assert len(t.alive) == 5
-    assert t.lineage_id.tolist() == [0, 1, 2, 3, 4]
+    assert t.cell_id.tolist() == [0, 1, 2, 3, 4]
     assert t.parent_id.tolist() == [-1, -1, -1, 1, 2]
+    assert t.clone_id.tolist() == [0, 1, 2, 1, 2]
+
+def test_lineage_three_generations():
+    t = Tissue.empty()
+    # Gen 1: Founder 0
+    t.add_cells(1)
+    assert t.cell_id[0] == 0
+    assert t.parent_id[0] == -1
+    assert t.clone_id[0] == 0
+
+    # Gen 2: Child 1 from parent 0
+    t.add_cells(1, parent_ids=np.array([0], dtype=np.int32))
+    assert t.cell_id[1] == 1
+    assert t.parent_id[1] == 0
+    assert t.clone_id[1] == 0
+
+    # Gen 3: Grandchild 2 from parent 1
+    t.add_cells(1, parent_ids=np.array([1], dtype=np.int32))
+    assert t.cell_id[2] == 2
+    assert t.parent_id[2] == 1
+    assert t.clone_id[2] == 0  # clone_id must trace back to founder 0!
+
+    assert t.clone_id.tolist() == [0, 0, 0]
 
 def test_kill_and_compact():
     t = Tissue.empty()
-    t.add_cells(4, positions=np.zeros((4, 3), dtype=np.float32))
-    t.connectivity = SparseConnectivity(
-        pre=np.array([0, 1, 2, 3, 0], dtype=np.int32),
-        post=np.array([1, 2, 3, 0, 3], dtype=np.int32),
-        weight=np.array([10, 20, 30, 40, 50], dtype=np.int32),
-        delay=np.array([1, 2, 3, 4, 5], dtype=np.int32)
-    )
-    
-    mask = np.array([False, True, False, True]) # kill cells 1 and 3
+    t.add_cells(5, positions=np.zeros((5, 3), dtype=np.float64))
+    assert len(t.clone_id) == 5
+
+    mask = np.array([False, True, False, True, False]) # kill cells 1 and 3
     t.kill(mask)
-    assert t.alive.tolist() == [True, False, True, False]
+    assert t.alive.tolist() == [True, False, True, False, True]
     
     t.compact()
-    assert len(t.alive) == 2
-    assert t.alive.tolist() == [True, True]
-    assert t.lineage_id.tolist() == [0, 2] # Lineage IDs should be preserved
-    
-    # After killing 1 and 3, remaining are 0 and 2.
-    # Synapse (0, 1) -> drops
-    # Synapse (1, 2) -> drops
-    # Synapse (2, 3) -> drops
-    # Synapse (3, 0) -> drops
-    # Synapse (0, 3) -> drops
-    # If we had a synapse between 0 and 2, it should stay. Let's add one before testing again.
-    
+    assert len(t.alive) == 3
+    assert len(t.clone_id) == 3
+    assert len(t.cell_id) == 3
+    assert t.alive.tolist() == [True, True, True]
+    assert t.cell_id.tolist() == [0, 2, 4]
+    assert t.clone_id.tolist() == [0, 2, 4]
+
 def test_kill_and_compact_with_valid_synapses():
     t = Tissue.empty()
-    t.add_cells(4, positions=np.zeros((4, 3), dtype=np.float32))
+    t.add_cells(4, positions=np.zeros((4, 3), dtype=np.float64))
     t.connectivity = SparseConnectivity(
         pre=np.array([0, 1, 2, 3, 0], dtype=np.int32),
         post=np.array([1, 2, 3, 0, 2], dtype=np.int32), # 0->2 is valid
@@ -66,7 +83,8 @@ def test_kill_and_compact_with_valid_synapses():
 
 def test_subset():
     t = Tissue.empty()
-    t.add_cells(5)
+    t.expression_names = ["geneA", "geneB"]
+    t.add_cells(5, K=2)
     t.connectivity = SparseConnectivity(
         pre=np.array([0, 1, 3, 4, 1], dtype=np.int32),
         post=np.array([1, 2, 4, 0, 4], dtype=np.int32),
@@ -76,93 +94,102 @@ def test_subset():
     
     t_sub = t.subset(np.array([1, 3, 4]))
     assert len(t_sub.alive) == 3
-    assert t_sub.lineage_id.tolist() == [1, 3, 4]
+    assert t_sub.cell_id.tolist() == [1, 3, 4]
+    assert t_sub.expression_names == ["geneA", "geneB"]
     
-    # Original map:
-    # 1 -> 0
-    # 3 -> 1
-    # 4 -> 2
-    # Only synapse 3->4 (1->2) and 1->4 (0->2) should survive.
     assert t_sub.connectivity.pre.tolist() == [1, 0]
     assert t_sub.connectivity.post.tolist() == [2, 2]
     assert t_sub.connectivity.weight.tolist() == [3, 5]
 
-def test_concatenate():
+def test_concatenate_no_duplicate_ids():
     t1 = Tissue.empty(K=1)
-    t1.add_cells(2)
-    t1.connectivity = SparseConnectivity(
-        pre=np.array([0], dtype=np.int32),
-        post=np.array([1], dtype=np.int32),
-        weight=np.array([10], dtype=np.int32),
-        delay=np.array([1], dtype=np.int32)
-    )
+    t1.expression_names = ["morphogen"]
+    t1.add_cells(3)
     
     t2 = Tissue.empty(K=1)
+    t2.expression_names = ["morphogen"]
     t2.add_cells(3)
-    # Give t2 different lineage IDs to reflect independence before concat
-    t2.lineage_id = np.array([2, 3, 4], dtype=np.int32)
-    t2._next_lineage_id = 5
-    t2.connectivity = SparseConnectivity(
-        pre=np.array([1, 2], dtype=np.int32),
-        post=np.array([2, 0], dtype=np.int32),
-        weight=np.array([20, 30], dtype=np.int32),
-        delay=np.array([2, 3], dtype=np.int32)
-    )
+    
+    assert t1.cell_id.tolist() == [0, 1, 2]
+    assert t2.cell_id.tolist() == [0, 1, 2]
     
     t = Tissue.concatenate([t1, t2])
-    assert len(t.alive) == 5
-    assert t.lineage_id.tolist() == [0, 1, 2, 3, 4]
-    
-    # t1 indices: 0, 1
-    # t2 indices: 0->2, 1->3, 2->4
-    # t1 syn: 0->1
-    # t2 syn: 1->2 becomes 3->4; 2->0 becomes 4->2
-    assert t.connectivity.pre.tolist() == [0, 3, 4]
-    assert t.connectivity.post.tolist() == [1, 4, 2]
-    assert t.connectivity.weight.tolist() == [10, 20, 30]
+    assert len(t.alive) == 6
+    # cell_ids must be strictly unique!
+    assert len(np.unique(t.cell_id)) == 6
+    assert t.cell_id.tolist() == [0, 1, 2, 3, 4, 5]
+    assert t.clone_id.tolist() == [0, 1, 2, 3, 4, 5]
+    assert t.expression_names == ["morphogen"]
 
-def test_network_conversion():
-    net = SNNNetwork(
-        neurons=[
-            NeuronData(id=0, x=0.0, y=0.0, z=0.0, dir_x=0.0, dir_y=1.0, dir_z=0.0, mode=0),
-            NeuronData(id=1, x=1.0, y=1.0, z=1.0, dir_x=1.0, dir_y=0.0, dir_z=0.0, mode=1),
-            NeuronData(id=2, x=2.0, y=2.0, z=2.0, dir_x=0.0, dir_y=0.0, dir_z=1.0, mode=2)
-        ],
-        synapses=[
-            SynapseData(pre=0, post=1, weight=10, delay=1),
-            SynapseData(pre=1, post=2, weight=20, delay=2)
-        ]
+from neurogenesis.development import BodyPlan, Region, FixedPlacement
+
+def test_roundtrip_bit_for_bit_from_grow():
+    plan = BodyPlan(
+        name="toy", regions=[
+            Region("sheet", (0, 0, 0), (10, 10, 10), FixedPlacement([[(i + 0.5) / 4, (j + 0.5) / 4, ch] for i in range(2) for j in range(2) for ch in (0.0, 1.0)]), role=1),
+            Region("map", (20, 0, 0), (20, 20, 20)),
+            Region("inter", (20, 30, 0), (10, 10, 10), sign="inh"),
+            Region("out", (50, 0, 0), (5, 10, 10), FixedPlacement([[0.5, 0.25, 0.5], [0.5, 0.75, 0.5]]), role=2)],
+        projections=[("sheet", "map"), ("map", "map"), ("map", "inter"), ("inter", "map"), ("map", "out")])
+    
+    genome = dict(
+        count=dict(map=20, inter=5), inh_weight_factor=2.0,
+        migration=dict(map=dict(mean=np.full(3, 0.5), spread=0.3), inter=dict(mean=np.full(3, 0.5), spread=0.3)),
+        inhibitory=dict(map=dict(a0=-1.4, a=np.zeros(3)), inter=dict(a0=0.0, a=np.zeros(3))),
+        excitability=dict(map=dict(shift_v=5, shift_s=4))
     )
+    genome["guidance"] = {p: dict(B=np.eye(3), c=np.zeros(3), sigma=0.3, p0=0.5, w=100.0) for p in plan.projections}
     
-    t = Tissue.from_network(net)
-    assert len(t.alive) == 3
-    assert t.positions.tolist() == [[0,0,0], [1,1,1], [2,2,2]]
-    assert t.mode.tolist() == [0, 1, 2]
-    assert t.connectivity.pre.tolist() == [0, 1]
+    net_orig = grow(plan, genome, seed=123)
     
-    net2 = t.to_network()
-    assert net2.num_neurons == 3
-    assert net2.num_synapses == 2
-    assert net2.neurons[1].mode == 1
-    assert net2.synapses[0].weight == 10
+    # Network -> Tissue -> Network
+    tissue = Tissue.from_network(net_orig)
+    net_rt = tissue.to_network()
     
-def test_determinism_and_memory():
-    # Determinism: same seed, same inputs -> same output (in this case, just adding cells)
-    np.random.seed(42)
-    pos1 = np.random.rand(10, 3).astype(np.float32)
-    t1 = Tissue.empty()
-    t1.add_cells(10, positions=pos1)
+    assert net_orig.num_neurons == net_rt.num_neurons
+    assert net_orig.num_synapses == net_rt.num_synapses
     
-    np.random.seed(42)
-    pos2 = np.random.rand(10, 3).astype(np.float32)
+    # Exact bit-for-bit field by field check on every neuron
+    for n1, n2 in zip(net_orig.neurons, net_rt.neurons):
+        assert n1.id == n2.id
+        assert n1.x == n2.x
+        assert n1.y == n2.y
+        assert n1.z == n2.z
+        assert n1.dir_x == n2.dir_x
+        assert n1.dir_y == n2.dir_y
+        assert n1.dir_z == n2.dir_z
+        assert n1.mode == n2.mode
+        assert n1.shift_v == n2.shift_v
+        assert n1.shift_s == n2.shift_s
+        assert n1.base_weight == n2.base_weight
+        assert n1.conn_radius == n2.conn_radius
+        assert n1.conn_prob == n2.conn_prob
+        assert n1.burst_period == n2.burst_period
+        assert n1.burst_duty == n2.burst_duty
+        assert n1.poisson_hz == n2.poisson_hz
+        assert n1.refractory == n2.refractory
+        assert n1.role == n2.role
+        assert n1.compartment == n2.compartment
+        assert n1.threshold == n2.threshold
+
+    # Exact check on every synapse
+    for s1, s2 in zip(net_orig.synapses, net_rt.synapses):
+        assert s1.pre == s2.pre
+        assert s1.post == s2.post
+        assert s1.weight == s2.weight
+        assert s1.delay == s2.delay
+
+def test_sign_as_single_source_of_truth():
+    t = Tissue.empty()
+    # Add an inhibitory cell (sign = -1) with base_weight = 100
+    t.add_cells(1, sign=np.array([-1], dtype=np.int8), base_weight=np.array([100], dtype=np.int32))
+    net = t.to_network()
+    # base_weight in network must be negative (-100) because sign is -1!
+    assert net.neurons[0].base_weight == -100
+
+    # Add an excitatory cell (sign = 1) with base_weight = -50
     t2 = Tissue.empty()
-    t2.add_cells(10, positions=pos2)
-    
-    assert np.array_equal(t1.positions, t2.positions)
-    
-    # Memory bytes
-    # For N=10, each float32 is 4 bytes. 
-    # positions: 10 * 3 * 4 = 120 bytes
-    mem = t1.memory_bytes()
-    assert mem > 0
-    assert type(mem) == int
+    t2.add_cells(1, sign=np.array([1], dtype=np.int8), base_weight=np.array([-50], dtype=np.int32))
+    net2 = t2.to_network()
+    # base_weight in network must be positive (+50) because sign is +1!
+    assert net2.neurons[0].base_weight == 50

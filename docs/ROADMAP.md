@@ -248,28 +248,33 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 - A declarative assay description (stimuli, readout, metric, gate), stored in modules and rerun by `neurogenesis validate module.json`.
 - Knockout assays included.
 
-### Phase F: GUI (viz/, TypeScript + three.js; it edits and previews Project files, heavy runs stay in Python)
+### Phase F: Browser Viewer & Web Demo (viz/, TypeScript + three.js)
 
-**F1. Project panel.** Load / save Project JSON (schema from A1); undo / redo; validation messages.
+`viz/` remains the lightweight browser viewer, the reference browser kernel implementation (`kernel.ts`), and the interactive web demo. Full-featured editors move to the native desktop apps (Phase H), while non-UI infrastructure (command protocols, schemas, and streaming) is exposed as shared core contracts.
 
-**F2. Geometry editor.** Create and transform primitives (B1), import meshes (B2), 2D and 3D views, slicing planes.
+**F6. Network view enhancements [done].** Viewer colour modes (region, role, sign, mode, compartment) and population spike raster filtering.
 
-**F3. Field painter.**
-- Paint scalar or label fields on a grid; draw layer boundaries on a sheet or along depth (B3).
-- Place points and pinwheels with charges (B4); preview orientation maps.
+**F7. Bridge streaming.** Local streaming (`neurogenesis/bridge/`) of development checkpoints and live simulation activity over standard protocols.
 
-**F4. Schedule editor.**
-- An ordered list of stages, added from the stage registry exported by Python (`python -m neurogenesis stages --json`).
-- For every parameter, a switch const / gene / field / fit / expr, with the matching inputs.
-- Repeat and loop controls.
+### Phase H: Native Desktop Applications (macOS, Windows, Linux)
 
-**F5. Development preview.**
-- Runs a downsampled development in the browser for immediate feedback, or loads Python checkpoints (A4) and steps through them.
-- Cells coloured by type, lineage, expression or region; synapse counts per projection.
+Three native desktop applications with zero developer setup required for end users (embedded Python runtimes, native installers, portable C simulation kernel).
 
-**F6. Network view.** The existing viewer, with region and type colouring from the tissue, and a raster of selected populations.
+- **Ownership & Isolation:**
+  - `desktop/mac/` is owned strictly by the macOS agent.
+  - `desktop/windows/` is owned by the Windows agent.
+  - `desktop/linux/` is owned by the Linux agent.
+  - `desktop/common/` and `neurogenesis/bridge/` are shared contracts (protocol, NGB1 binary network format, UI schema, visual spec, C kernel `nglif`, golden fixtures, runtime scripts).
+  - No app may duplicate shared logic. Everything about stages, Params, models, and genes is driven by the bridge and the UI schema. Visual look is specified by `visual_spec.json`. Simulation uses `nglif`.
 
-**F7. Bridge.** Optional local server (`python -m neurogenesis serve`) that runs development and simulation for the GUI and streams checkpoints. No cloud dependency.
+- **Tasks:**
+  - **H1. Bridge in the package [contract].** (`neurogenesis/bridge/`, protocol spec `desktop/common/PROTOCOL.md`, automated tests) — *by the Mac agent*.
+  - **H2. Portable C kernel `nglif` + NGB1 I/O [contract].** (`desktop/common/native/nglif/`, golden fixtures `fixtures/`, 3-OS CI matrix) — *by the Mac agent*.
+  - **H3. UI schema export from Python [contract].** Versioned JSON export from Python (`python -m neurogenesis ui-schema`): stage registry (Params, kinds, bounds, docs), models with cost estimates, guidance/placement rules, genes of a schedule (`collect_genes`), Project schema. Jules task once H1/PR #5 is merged.
+  - **H4. Embedded Python runtime scripts.** Automated packaging scripts for embedded Python runtimes on macOS, Windows, and Linux (x86-64 and arm64).
+  - **H5. Windows application.** (`desktop/windows/`, e.g. C# / WinUI 3 or .NET + GPU renderer), consuming `nglif` through C ABI and the Python bridge via JSON-RPC/stdio protocol, dynamic panels generated from UI schema, colors from `visual_spec.json`; MSIX/installer artifact.
+  - **H6. Linux application.** (`desktop/linux/`, e.g. GTK4 or Qt), consuming `nglif` and the bridge identically; AppImage and/or Flatpak artifact.
+  - **H7. Release workflow.** GitHub Actions workflow triggered on version tags: builds and bundles all three native installer artifacts; smoke-tests bridge connection and kernel fixtures across all three operating systems.
 
 ### Phase G: modules, docs and examples
 
@@ -293,7 +298,9 @@ A2 ─┴──────┴─ A4 ─┬─ A5 (backward compatibility)
 B1 ─┬─ B2         ├─ D3                      E1 (parallel with C)
     └─ B3 ─┬─ B4  └─ E2 ─ E3 ; E4
            └─ B5
-F1 (needs A1) ─ F2 (B1) ─ F3 (B3, B4) ─ F4 (A4) ─ F5 (A4 checkpoints) ─ F7 ; F6 any time
+H1 (bridge, Mac agent) ─┬─ H2 (nglif C kernel, Mac agent)
+                        ├─ H3 (UI schema export) ───┬─ H5 (Windows app)
+                        └─ H4 (embedded runtimes) ──┴─ H6 (Linux app) ── H7 (release)
 G1 any time after A1 ; G2 after the stages it uses ; G3 last
 ```
 
@@ -301,4 +308,4 @@ G1 any time after A1 ; G2 after the stages it uses ; G3 last
 1. **M1:** A1–A5 and D1 merged; the legacy growth runs as a schedule with identical fingerprints.
 2. **M2:** B1–B3, C1–C4, C7, C8 (with D2), C13; example G2.3 runs.
 3. **M3:** B4, B5, C5, C6, C9–C12, E1, E2; examples G2.1, G2.2 and G2.4.
-4. **M4:** GUI F1–F5 and F7 on the same Project files; E3, E4, G1, G3.
+4. **M4:** H1–H4 merged; the three native desktop apps (macOS, Windows, Linux) load a Project, dynamically render schedule and parameter editors from the UI schema, run development through the bridge, and simulate live with `nglif`.
