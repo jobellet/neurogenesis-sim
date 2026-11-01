@@ -23,7 +23,7 @@ SYNAPSE_I32 = ("pre", "post", "weight", "delay")
 
 
 def nbytes(n_neurons: int, n_synapses: int) -> int:
-    """Size of an NGB1 file: 16 + 104 N + 16 E bytes."""
+    """Size of an NGB1 file: 16 + 112 N + 16 E bytes."""
     return 16 + n_neurons * (48 + 4 * len(NEURON_I32) + 8 * len(NEURON_F64)) + n_synapses * 4 * len(SYNAPSE_I32)
 
 

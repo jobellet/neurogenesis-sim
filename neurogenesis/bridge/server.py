@@ -94,7 +94,7 @@ class ResourceError(RuntimeError):
 FRACTION = 0.6            # an action may use at most this fraction of the memory available now, and half the RAM
 NEURON_BYTES = 1200       # per neuron while growing: NeuronData object, positions, lists, the NGB1 copy
 SYNAPSE_BYTES = 320       # per synapse: SynapseData object, list entry, NGB1 columns
-NGB_NEURON, NGB_SYNAPSE = 104, 16
+NGB_NEURON, NGB_SYNAPSE = 112, 16
 
 
 def physical_memory():

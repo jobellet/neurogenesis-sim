@@ -109,7 +109,7 @@ NGB1 is little endian, with no padding and no alignment requirement. Writer and 
 | | 3 float64 columns of N values each: poisson_hz, conn_radius, conn_prob |
 | | 4 int32 columns of E values each: pre, post, weight, delay |
 
-- **Size.** The file is exactly `16 + 104 N + 16 E` bytes. Readers reject any other size.
+- **Size.** The file is exactly `16 + 112 N + 16 E` bytes. Readers reject any other size.
 - **Field meanings.** They are those of `neurogenesis.spiking.network.NeuronData` and `SynapseData`. mode: 0 LIF,
   1 Poisson, 2 burster. role: 0 internal, 1 input, 2 output. compartment: −1 means none.
 - **Exactness.** Float64 keeps positions and Poisson rates exactly as in Python, so a round trip through NGB1 is
