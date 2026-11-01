@@ -1,8 +1,8 @@
 name: Release
 
-# Desktop apps with an embedded Python runtime: built on version tags (v1.2.3; attached to the GitHub release), on pull
-# requests that touch an app or the runtime (artifacts only), or by hand (Actions -> Release -> Run).
-# Each app adds its own job.
+# Desktop apps with an embedded Python runtime (desktop/common/runtime): built on version tags (v1.2.3; attached to the
+# GitHub release by the publish job), on pull requests that touch an app or the runtime (artifacts only), or by hand
+# (Actions -> Release -> Run). Each app adds its own build job.
 on:
   push:
     tags: ["v*"]
@@ -11,9 +11,35 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  runtimes:
+    # The shared runtime script on the other apps' systems. Native builds are smoke-tested (bridge handshake and JAX,
+    # empty environment); linux-arm64 is cross-built on x86_64 and only checked to build (no arm64 runner here).
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: ubuntu-latest, target: linux-x86_64, smoke: true}
+          - {runner: windows-latest, target: windows-x86_64, smoke: true}
+          - {runner: ubuntu-latest, target: linux-arm64, smoke: false}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the runtime (${{ matrix.target }}, locked packages)
+        run: python desktop/common/runtime/build_runtime.py --target ${{ matrix.target }} --out build/runtime
+      - name: Smoke test (empty environment)
+        if: matrix.smoke
+        run: python desktop/common/runtime/smoke_test.py build/runtime
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-manifest-${{ matrix.target }}
+          path: build/runtime/runtime.json
+
   mac:
     strategy:
       fail-fast: false
@@ -42,7 +68,7 @@ jobs:
           security import cert.p12 -k build.keychain -P "$CERT_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k ci build.keychain
           rm cert.p12
-      - name: Python runtime (${{ matrix.target }})
+      - name: Python runtime (${{ matrix.target }}, locked packages)
         run: python desktop/common/runtime/build_runtime.py --target ${{ matrix.target }} --out desktop/mac/build/runtime-${{ matrix.target }}
       - name: App and disk image
         env:
@@ -52,12 +78,13 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: desktop/mac/release.sh
-      - name: Smoke test from the disk image (bridge handshake with an empty environment; no outside libraries)
+      - name: Smoke test from the disk image (no outside libraries; bridge and JAX with an empty environment)
         run: |
           hdiutil attach -nobrowse -mountpoint /tmp/ngdmg desktop/mac/build/Neurogenesis-*.dmg
           desktop/mac/tools/check_bundle.sh /tmp/ngdmg/Neurogenesis.app
-          echo '{"id": 1, "method": "ping"}' | env -i HOME="$HOME" JAX_PLATFORMS=cpu \
-            /tmp/ngdmg/Neurogenesis.app/Contents/Resources/python/bin/python3 -m neurogenesis.bridge | grep '"ready"' | grep -q '"protocol": "1.0"'
+          mkdir -p /tmp/ngrt && ln -s /tmp/ngdmg/Neurogenesis.app/Contents/Resources/python /tmp/ngrt/python
+          cp /tmp/ngdmg/Neurogenesis.app/Contents/Resources/runtime.json /tmp/ngrt/
+          python desktop/common/runtime/smoke_test.py /tmp/ngrt
           hdiutil detach /tmp/ngdmg
       - uses: actions/upload-artifact@v4
         with:
@@ -65,10 +92,24 @@ jobs:
           path: |
             desktop/mac/build/Neurogenesis-*.dmg
             desktop/mac/build/Neurogenesis-*.dmg.sha256
+
+  publish:
+    # The only job that can write to the repository: attaches the disk images to the release of a version tag.
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [runtimes, mac]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Neurogenesis-*
+          merge-multiple: true
+          path: dist
       - name: Attach to the release
-        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "Desktop apps: see desktop/*/README.md"
-          gh release upload "$GITHUB_REF_NAME" desktop/mac/build/Neurogenesis-*.dmg desktop/mac/build/Neurogenesis-*.dmg.sha256 --clobber
+          gh release upload "$GITHUB_REF_NAME" dist/* --clobber

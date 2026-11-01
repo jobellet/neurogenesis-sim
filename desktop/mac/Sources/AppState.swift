@@ -123,7 +123,11 @@ final class AppState: ObservableObject {
         engine = SimEngine(Network())
         let cfg = AppConfig.load()
         bridge = Bridge(python: cfg.python, repo: cfg.repo)
-        bridge.onStatus = { [weak self] s in self?.bridgeStatus = s; if s == "Python ready" { self?.refreshToolbox() } }
+        bridge.onStatus = { [weak self] s in
+            self?.bridgeStatus = s
+            if s == "Python ready" { self?.refreshToolbox() }
+            if s.hasPrefix("cannot start") { self?.showAlert("The toolbox cannot start", s) }
+        }
         bridge.onLog = { [weak self] s in
             for line in s.split(separator: "\n") where !line.trimmingCharacters(in: .whitespaces).isEmpty {
                 self?.appendLog(String(line), error: line.contains("Error") || line.contains("Traceback"))
@@ -1025,6 +1029,7 @@ final class AppState: ObservableObject {
     }
 
     func restartBridge(python: String, repo: String) {
+        guard !AppConfig.load().isRelease else { bridge.restart(); return }       // release builds: embedded runtime only
         var cfg = AppConfig.load()
         cfg.python = python; cfg.repo = repo
         cfg.save()
@@ -1033,11 +1038,13 @@ final class AppState: ObservableObject {
 }
 
 /// Which Python runs the bridge and which toolbox checkout it imports (empty: the toolbox installed in that Python).
-/// Release builds embed a runtime (desktop/common/runtime) in Contents/Resources/python: NGPython "@bundled" selects
-/// it. Written by build.sh into Info.plist; the user can override both in Roadmap status → Python.
+/// Release builds (Info.plist NGPython "@bundled") always use the runtime embedded in Contents/Resources/python
+/// (desktop/common/runtime): no stored setting overrides it and nothing falls back to another Python. Development
+/// builds use the Python and checkout written by build.sh, which Roadmap status → Python can override.
 struct AppConfig {
     var python: String
     var repo: String
+    var isRelease = false
 
     /// The embedded runtime's interpreter, if this app has one.
     static var bundledPython: String? {
@@ -1048,10 +1055,20 @@ struct AppConfig {
 
     static func load() -> AppConfig {
         let info = Bundle.main.infoDictionary ?? [:]
+        if info["NGPython"] as? String == "@bundled" {
+            return AppConfig(python: bundledPython ?? "", repo: "", isRelease: true)
+        }
         let d = UserDefaults.standard
-        var python = d.string(forKey: "python") ?? info["NGPython"] as? String ?? "@bundled"
-        if python == "@bundled" { python = bundledPython ?? "/usr/bin/python3" }
-        return AppConfig(python: python, repo: d.string(forKey: "repo") ?? info["NGRepo"] as? String ?? "")
+        return AppConfig(python: d.string(forKey: "python") ?? info["NGPython"] as? String ?? "/usr/bin/python3",
+                         repo: d.string(forKey: "repo") ?? info["NGRepo"] as? String ?? "")
+    }
+
+    /// Version of the embedded runtime (runtime.json), for display.
+    static var runtimeDescription: String {
+        guard let r = Bundle.main.path(forResource: "runtime", ofType: "json"), let d = FileManager.default.contents(atPath: r),
+              let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return "embedded runtime" }
+        let pk = j["packages"] as? [String: Any] ?? [:]
+        return "Python \(j["python"] ?? "?") · jax \(pk["jax"] ?? "?") · numpy \(pk["numpy"] ?? "?") · \(j["target"] ?? "")"
     }
 
     func save() {

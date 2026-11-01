@@ -19,14 +19,25 @@ Apps start the bridge with `<out>/python/bin/python3 -m neurogenesis.bridge`, in
 
 | Step | Detail |
 |---|---|
-| CPython | python-build-standalone, `install_only_stripped`. The release (`RELEASE` in the script) and the minor version (3.12) are pinned. The archive is checked against the release's `SHA256SUMS` and cached in `~/.cache/neurogenesis/runtime`. |
-| Packages | The toolbox wheel, built from this checkout, plus `jaxlib`. The wheel brings numpy, jax and matplotlib. For the build machine's own target, the runtime's own pip installs them. For another target, the host pip installs binary wheels for that platform. |
-| Size | Test suites and caches are removed. On macOS, large extension modules are stripped of local symbols and re-signed ad hoc (jaxlib loses about 110 MB). A macOS x86_64 runtime is about 510 MB, and 240 MB in the disk image. |
-| Checks | Native builds precompile the bytecode and smoke-test the bridge. `desktop/mac/tools/check_bundle.sh` verifies that nothing links outside macOS or the bundle. |
+| CPython | python-build-standalone, `install_only_stripped`, release 20261013, Python 3.12. `pins.json` commits each target's archive name and SHA-256. A build trusts only those committed hashes, never a checksum file downloaded at build time. Archives are cached in `~/.cache/neurogenesis/runtime`. |
+| Packages | `locks/<target>.txt` lists exact versions with the SHA-256 of each wheel, and is installed with `pip --require-hashes --no-deps`. The toolbox wheel, built from this checkout, is installed after it with `--no-deps`. Every target locks the same 16 packages (jax and jaxlib 0.4.38, numpy 2.5.4, matplotlib, scipy and their dependencies), so the three apps run the same versions. |
+| Size | Test suites and caches are removed. On macOS, universal2 binaries are thinned to the target's architecture (`lipo -thin`), large extension modules are stripped of local symbols (jaxlib loses about 110 MB), and changed files are re-signed ad hoc. A macOS x86_64 runtime is about 510 MB, and 240 MB in the disk image. |
+| Checks | Native builds precompile the bytecode and smoke-test the bridge. `smoke_test.py <runtime>` runs the bridge with an almost empty environment, checking the handshake, that the toolbox loads from inside the runtime, a network, and JAX. `desktop/mac/tools/check_bundle.sh` checks that nothing in the Mac app links outside macOS or the bundle. |
 
-**Changing the pinned versions.** Bump `RELEASE` or `PYTHON` on purpose, in a PR. Rebuild every target that has an
-app, and check that jaxlib publishes wheels for that Python on every target. jax 0.4.38 is the last version with
-macOS x86_64 wheels, so Intel Macs stay on it.
+**Changing the pinned versions.** Edit `RELEASE`, `PYTHON` or `requirements.in` on purpose, in a PR, then run
+`python build_runtime.py --lock` (pip 23.1 or later). It rewrites `pins.json` and every lock from the release's
+checksums and pip's resolution. Review the diff, then rebuild and smoke-test every target. jax 0.4.38 is the last
+version with macOS x86_64 wheels, so every target stays on it while the Intel app exists.
 
-**Tests.** `tests/test_runtime_script.py` checks the script without network access. The Release workflow
-(`.github/workflows/release.yml`) builds real runtimes and smoke-tests them.
+**What CI tests** (`.github/workflows/release.yml`; on tags, by hand, and on PRs that touch the apps or the runtime):
+
+| Target | Built | Smoke-tested |
+|---|---|---|
+| macos-x86_64, macos-arm64 | yes, natively, into the app and the disk image | yes, from the mounted disk image, plus `check_bundle.sh` |
+| linux-x86_64, windows-x86_64 | yes, natively | yes, with `smoke_test.py` |
+| linux-arm64 | cross-built on x86_64 | no: there is no arm64 Linux runner for this repository |
+
+**Tests.** `tests/test_runtime_script.py` checks, without network access:
+- that every target has a committed CPython hash and a hashed lock, and that all locks list the same packages;
+- archive selection and pruning;
+- on macOS, the thinning of a real universal binary.

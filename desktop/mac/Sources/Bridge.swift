@@ -48,6 +48,13 @@ final class Bridge {
     private func launch() {
         guard process == nil else { return }
         ready = false
+        guard FileManager.default.isExecutableFile(atPath: python) else {
+            let msg = AppConfig.load().isRelease
+                ? "cannot start: this app's embedded Python is missing or damaged. Reinstall Neurogenesis from its disk image."
+                : "cannot start: no Python at \(python.isEmpty ? "(none set)" : python). Set one in Roadmap status → Python."
+            DispatchQueue.main.async { self.onStatus?(msg) }
+            return
+        }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: python)
         p.arguments = ["-u", "-m", "neurogenesis.bridge"]

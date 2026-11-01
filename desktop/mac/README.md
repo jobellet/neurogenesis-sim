@@ -35,8 +35,11 @@ macOS 14 or later and the Command Line Tools are enough, without Xcode.
   app.
 - You can change both later in **Roadmap status → Python**.
 
-**Release builds** (`release.sh`) embed the runtime of `../common/runtime`, and never point at a checkout:
-`release.sh` refuses a build whose `Info.plist` names one.
+**Release builds** (`release.sh`) embed the runtime of `../common/runtime` (locked packages, pinned CPython):
+- They never point at a checkout: `release.sh` refuses a build whose `Info.plist` names one.
+- They always run their embedded Python. Stored settings do not change it, and nothing falls back to another
+  Python: if the runtime is missing, the app says to reinstall it.
+- *Roadmap status → Python* shows the runtime read-only.
 
 ### Signing and notarisation
 Without credentials, `release.sh` signs ad hoc. The app then runs on any Mac, after the right-click → Open step

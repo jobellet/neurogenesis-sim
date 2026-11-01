@@ -3,18 +3,24 @@
     python desktop/common/runtime/build_runtime.py --target macos-x86_64 --out build/runtime
 
 Shared by the three apps (macOS, Windows, Linux). The steps:
-1. Download a relocatable CPython (python-build-standalone, "install_only_stripped") for the target. The release is
-   pinned, and the archive is checked against the release's SHA256SUMS and cached in ~/.cache/neurogenesis/runtime.
-2. Build the toolbox wheel from this checkout and install it, with numpy, jax, jaxlib and matplotlib, into that
-   Python. For the build machine's own target, the runtime's pip installs them. For another target, the host pip
-   installs binary wheels for that platform (--platform / --target).
-3. Remove test suites and caches; on macOS, strip local symbols from large extension modules (jaxlib: -110 MB) and
-   re-sign them ad hoc (Apple Silicon runs only signed code). On native builds, precompile the bytecode (the app's
+1. Download a relocatable CPython (python-build-standalone, "install_only_stripped") for the target. The archive name
+   and SHA-256 per target are committed in pins.json (never taken from the download site at build time); archives
+   are cached in ~/.cache/neurogenesis/runtime.
+2. Install the packages of locks/<target>.txt (exact versions and wheel SHA-256s, pip --require-hashes --no-deps),
+   then the toolbox wheel built from this checkout (--no-deps). For the build machine's own target, the runtime's pip
+   installs them. For another target, the host pip installs that platform's wheels (--platform / --target).
+3. Remove test suites and caches; on macOS, keep only the target's slice of universal2 binaries, strip local symbols
+   from large extension modules (jaxlib: -110 MB), and re-sign what changed ad hoc (Apple Silicon runs only signed
+   code). On native builds, precompile the bytecode (the app's
    first start is then fast) and smoke-test `python -m neurogenesis.bridge`. Write runtime.json (what is inside).
 The result is <out>/python/, which runs from any folder. Apps start the bridge with <out>/python/bin/python3
 (Windows: <out>/python/python.exe) -m neurogenesis.bridge.
 
 Only the standard library is used, so any Python 3.9+ can run this script.
+
+    python desktop/common/runtime/build_runtime.py --lock      (maintainers: re-pin CPython and re-lock every target)
+--lock resolves requirements.in for every target (pip 23.1+ with --report), writes locks/<target>.txt and pins.json
+from the pinned RELEASE's SHA256SUMS. Review the diff, then rebuild and test the runtimes.
 """
 from __future__ import annotations
 
@@ -31,10 +37,13 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-RELEASE = "20261013"            # python-build-standalone release (pinned: change deliberately, then rebuild and test)
+RELEASE = "20261013"            # python-build-standalone release (pinned: change deliberately, then --lock, rebuild, test)
 PYTHON = "3.12"                 # minor version: jaxlib must publish wheels for it on every target
 BASE_URL = "https://github.com/astral-sh/python-build-standalone/releases/download"
-PACKAGES = ["jaxlib"]           # the toolbox wheel brings numpy, jax and matplotlib; jax needs jaxlib to run
+HERE = Path(__file__).resolve().parent
+PINS = HERE / "pins.json"       # {"release", "python", "archives": {target: {"name", "sha256"}}}
+LOCKS = HERE / "locks"          # <target>.txt: pinned requirements with hashes
+REQUIREMENTS = HERE / "requirements.in"
 
 TARGETS = {
     # name: (python-build-standalone triple, pip platform tags, interpreter path inside python/, site-packages)
@@ -68,15 +77,50 @@ def fetch(url: str, dest: Path) -> Path:
     return dest
 
 
-def locate_archive(triple: str, release: str, python: str) -> tuple[str, str]:
-    """Name and SHA-256 of the install_only_stripped archive for this triple and Python minor version."""
+def archive_from_sums(triple: str, release: str, python: str) -> tuple[str, str]:
+    """Name and SHA-256 of the install_only_stripped archive for this triple, from the release's SHA256SUMS (used only
+    by --lock, to pin)."""
     sums = fetch(f"{BASE_URL}/{release}/SHA256SUMS", CACHE / release / "SHA256SUMS").read_text().splitlines()
     for line in sums:
-        digest, _, name = line.strip().partition("  ")
-        name = name.strip() or line.split()[-1]
-        if (name.startswith(f"cpython-{python}.") and name.endswith(f"+{release}-{triple}-install_only_stripped.tar.gz")):
-            return name, digest.split()[0]
+        parts = line.split()
+        if len(parts) == 2:
+            digest, name = parts
+            if name.startswith(f"cpython-{python}.") and name.endswith(f"+{release}-{triple}-install_only_stripped.tar.gz"):
+                return name, digest
     raise SystemExit(f"no CPython {python} for {triple} in release {release}")
+
+
+def pinned_archive(target: str) -> tuple[str, str, str]:
+    """(release, archive name, SHA-256) committed for a target in pins.json."""
+    pins = json.loads(PINS.read_text())
+    if target not in pins["archives"]:
+        raise SystemExit(f"{target} is not pinned in {PINS.name}: run --lock")
+    a = pins["archives"][target]
+    return pins["release"], a["name"], a["sha256"]
+
+
+def lock() -> None:
+    """Pins the CPython archives of RELEASE and locks requirements.in for every target, with hashes."""
+    pins = dict(release=RELEASE, python=PYTHON, archives={})
+    LOCKS.mkdir(exist_ok=True)
+    for target, (triple, tags, _, _) in sorted(TARGETS.items()):
+        name, digest = archive_from_sums(triple, RELEASE, PYTHON)
+        pins["archives"][target] = dict(name=name, sha256=digest)
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "report.json"
+            plat = [x for t in tags for x in ("--platform", t)]
+            run([sys.executable, "-m", "pip", "install", "--dry-run", "--ignore-installed", "--quiet", "--report", report,
+                 "--target", Path(tmp) / "t", "--only-binary=:all:", *plat, "--python-version", PYTHON,
+                 "--implementation", "cp", "--abi", "cp" + PYTHON.replace(".", ""), "--disable-pip-version-check",
+                 "-r", REQUIREMENTS])
+            items = json.loads(report.read_text())["install"]
+        lines = [f"# {target}: generated by build_runtime.py --lock from requirements.in; do not edit"]
+        for it in sorted(items, key=lambda i: i["metadata"]["name"].lower()):
+            h = it["download_info"]["archive_info"]["hashes"]["sha256"]
+            lines.append(f"{it['metadata']['name']}=={it['metadata']['version']} --hash=sha256:{h}")
+        (LOCKS / f"{target}.txt").write_text("\n".join(lines) + "\n")
+        print(f"{target}: {name}, {len(items)} packages")
+    PINS.write_text(json.dumps(pins, indent=1) + "\n")
 
 
 def sha256(path: Path) -> str:
@@ -116,11 +160,35 @@ def prune(root: Path) -> None:
             shutil.rmtree(d, ignore_errors=True)
 
 
-def strip_macos(root: Path, min_bytes: int = 1 << 20) -> None:
-    """strip -x (local symbols only; exported ones stay) and an ad-hoc signature on large Mach-O libraries."""
-    for f in list(root.rglob("*.so")) + list(root.rglob("*.dylib")):
-        if f.is_file() and not f.is_symlink() and f.stat().st_size >= min_bytes:
+def macho_files(root: Path):
+    """Mach-O files: libraries, extension modules and the interpreter's executables."""
+    for f in root.rglob("*"):
+        if f.is_file() and not f.is_symlink() and (f.suffix in (".so", ".dylib") or (f.parent.name == "bin" and os.access(f, os.X_OK))):
+            with open(f, "rb") as h:
+                magic = h.read(4)
+            if magic in (b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf"):
+                yield f
+
+
+def thin_and_strip_macos(root: Path, arch: str, min_bytes: int = 1 << 20) -> None:
+    """Keeps only the target's slice of universal2 binaries (lipo -thin: some wheels ship both architectures), strips
+    local symbols from large ones (strip -x; exported symbols stay), and re-signs every changed file ad hoc (Apple
+    Silicon runs only signed code)."""
+    for f in macho_files(root):
+        changed = False
+        archs = subprocess.run(["lipo", "-archs", str(f)], capture_output=True, text=True).stdout.split()
+        if len(archs) > 1:
+            if arch not in archs:
+                raise SystemExit(f"{f}: no {arch} code (has {' '.join(archs)})")
+            tmp = f.with_name(f.name + ".thin")
+            subprocess.run(["lipo", "-thin", arch, str(f), "-output", str(tmp)], check=True, capture_output=True)
+            os.chmod(tmp, f.stat().st_mode)
+            tmp.replace(f)
+            changed = True
+        if f.suffix in (".so", ".dylib") and f.stat().st_size >= min_bytes:
             subprocess.run(["strip", "-x", str(f)], check=True, capture_output=True)
+            changed = True
+        if changed:
             subprocess.run(["codesign", "--force", "--sign", "-", str(f)], check=True, capture_output=True)
 
 
@@ -131,21 +199,26 @@ def size(root: Path) -> int:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--target", default=host_target(), choices=sorted(TARGETS))
-    ap.add_argument("--out", required=True, type=Path)
-    ap.add_argument("--release", default=RELEASE)
-    ap.add_argument("--python", default=PYTHON)
+    ap.add_argument("--out", type=Path)
     ap.add_argument("--toolbox", type=Path, default=Path(__file__).resolve().parents[3], help="neurogenesis-sim checkout")
+    ap.add_argument("--lock", action="store_true", help="re-pin CPython and re-lock the packages of every target")
     args = ap.parse_args()
+    if args.lock:
+        return lock()
+    if args.out is None:
+        ap.error("--out is required")
     triple, tags, exe, sp = TARGETS[args.target]
     native = args.target == host_target()
+    release, name, digest = pinned_archive(args.target)
+    python = json.loads(PINS.read_text())["python"]
+    lockfile = LOCKS / f"{args.target}.txt"
 
-    name, digest = locate_archive(triple, args.release, args.python)
-    archive = fetch(f"{BASE_URL}/{args.release}/{name.replace('+', '%2B')}", CACHE / args.release / name)
+    archive = fetch(f"{BASE_URL}/{release}/{name.replace('+', '%2B')}", CACHE / release / name)
     if sha256(archive) != digest:
         archive.unlink()
-        raise SystemExit(f"{name}: SHA-256 mismatch (download removed; try again)")
+        raise SystemExit(f"{name}: SHA-256 differs from {PINS.name} (download removed)")
     py = extract(archive, args.out.resolve())
-    site = py / sp.format(v=args.python)
+    site = py / sp.format(v=python)
 
     leftovers = [args.toolbox / "build", *args.toolbox.glob("*.egg-info")]
     existed = {p for p in leftovers if p.exists()}
@@ -155,18 +228,23 @@ def main() -> None:
             if p not in existed:
                 shutil.rmtree(p, ignore_errors=True)
         wheel = next(Path(tmp).glob("neurogenesis_sim-*.whl"))
+        locked = ["--require-hashes", "--no-deps", "--only-binary=:all:", "-r", lockfile]
         if native:
-            run([py / exe, "-m", "pip", "install", "--no-warn-script-location", "--disable-pip-version-check", wheel, *PACKAGES])
+            pip = [py / exe, "-m", "pip", "install", "--no-warn-script-location", "--disable-pip-version-check"]
+            run([*pip, *locked])
+            run([*pip, "--no-deps", wheel])
         else:
             plat = [x for t in tags for x in ("--platform", t)]
-            run([sys.executable, "-m", "pip", "install", "--target", site, "--upgrade", "--only-binary=:all:", *plat,
-                 "--python-version", args.python, "--implementation", "cp", "--disable-pip-version-check", wheel, *PACKAGES])
+            pip = [sys.executable, "-m", "pip", "install", "--target", site, "--upgrade", *plat, "--python-version", python,
+                   "--implementation", "cp", "--abi", "cp" + python.replace(".", ""), "--disable-pip-version-check"]
+            run([*pip, *locked])
+            run([*pip, "--no-deps", wheel])
     prune(py)
     if args.target.startswith("macos") and platform.system() == "Darwin":
-        strip_macos(py)
+        thin_and_strip_macos(py, "arm64" if args.target.endswith("arm64") else "x86_64")
 
     manifest = dict(target=args.target, triple=triple, python=name.split("+")[0].removeprefix("cpython-"),
-                    release=args.release, archive=name, sha256=digest, native_build=native, interpreter=exe)
+                    release=release, archive=name, sha256=digest, lock=lockfile.name, native_build=native, interpreter=exe)
     if native:
         run([py / exe, "-m", "compileall", "-q", "-j", "0", py / ("Lib" if exe.endswith(".exe") else "lib")], stdout=subprocess.DEVNULL)
         env = {**os.environ, "JAX_PLATFORMS": "cpu", "PYTHONNOUSERSITE": "1"}
