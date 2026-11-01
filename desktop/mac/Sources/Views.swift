@@ -1,0 +1,566 @@
+import AppKit
+import SwiftUI
+
+struct ContentView: View {
+    @EnvironmentObject var app: AppState
+    @State private var columns = NavigationSplitViewVisibility.all
+
+    var body: some View {
+        NavigationSplitView(columnVisibility: $columns) {
+            List(selection: Binding(get: { app.section }, set: { if let s = $0 { app.section = s } })) {
+                ForEach(Section.allCases) { s in
+                    Label { HStack { Text(s.rawValue); Spacer(); TaskBadge(tasks: s.tasks) } } icon: { Image(systemName: s.icon) }
+                        .tag(s)
+                }
+            }
+            .navigationSplitViewColumnWidth(min: 150, ideal: 190, max: 320)
+        } content: {
+            PanelHost()
+                .navigationSplitViewColumnWidth(min: 260, ideal: 360, max: 900)
+        } detail: {
+            VSplitView {
+                ZStack(alignment: .topLeading) {
+                    MetalViewport(app: app)
+                    HUD()
+                }
+                .frame(minHeight: 260)
+                if app.showRaster {
+                    RasterView(app: app).frame(minHeight: 90, idealHeight: 170, maxHeight: 420)
+                }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) { StatusBar() }
+        }
+        .inspector(isPresented: $app.showInspector) {
+            InspectorView().inspectorColumnWidth(min: 220, ideal: 290, max: 700)
+        }
+        .toolbar { MainToolbar() }
+        .alert(item: $app.alert) { a in Alert(title: Text(a.title), message: Text(a.message), dismissButton: .default(Text("OK"))) }
+        .navigationTitle(app.projectURL?.lastPathComponent ?? "Neurogenesis")
+        .navigationSubtitle("\(app.network.morphology) · \(app.network.neurons.count) neurons · \(app.network.synapses.count) synapses")
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            for p in providers {
+                _ = p.loadObject(ofClass: URL.self) { url, _ in
+                    if let url { DispatchQueue.main.async { app.openFile(url) } }
+                }
+            }
+            return true
+        }
+    }
+}
+
+/// Green when the roadmap tasks of a panel are merged, grey while they are being built.
+struct TaskBadge: View {
+    @EnvironmentObject var app: AppState
+    let tasks: [String]
+    var body: some View {
+        let missing = tasks.filter { app.isAvailable($0) == false }
+        if !tasks.isEmpty && !missing.isEmpty {
+            Text(missing.joined(separator: " "))
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .padding(.horizontal, 4).padding(.vertical, 1)
+                .background(Capsule().fill(Color.secondary.opacity(0.18)))
+                .foregroundStyle(.secondary)
+                .help("Being implemented: \(missing.joined(separator: ", ")). These controls light up when the code is merged.")
+        }
+    }
+}
+
+struct MainToolbar: ToolbarContent {
+    @EnvironmentObject var app: AppState
+    var body: some ToolbarContent {
+        ToolbarItemGroup(placement: .navigation) {
+            Button { app.running.toggle() } label: { Image(systemName: app.running ? "pause.fill" : "play.fill") }
+                .help(app.running ? "Pause (space)" : "Run the simulation (space)")
+            Button { app.engine.step(1) } label: { Image(systemName: "forward.frame") }.help("One tick (1 ms)")
+            Button { app.resetSimulation() } label: { Image(systemName: "arrow.counterclockwise") }.help("Reset the simulation state")
+            Menu {
+                ForEach([("0.1×  (100 ms/s)", 100.0), ("0.25×", 250), ("Real time  (1000 ms/s)", 1000), ("4×", 4000), ("20×", 20000), ("Maximum", 0)], id: \.1) { l, v in
+                    Button(l) { app.speed = v }
+                }
+            } label: { Text(app.speed == 0 ? "max" : "\(app.speed >= 1000 ? String(format: "%g×", app.speed / 1000) : String(format: "%g×", app.speed / 1000))").monospacedDigit() }
+                .help("Simulation speed")
+        }
+        ToolbarItemGroup(placement: .principal) {
+            Picker("Tool", selection: $app.tool) {
+                ForEach(Tool.allCases) { t in Image(systemName: t.icon).help("\(t.rawValue): \(t.help)").tag(t) }
+            }
+            .pickerStyle(.segmented)
+        }
+        ToolbarItemGroup(placement: .primaryAction) {
+            Picker("Colour", selection: $app.colorMode) { ForEach(ColorMode.allCases) { Text($0.rawValue).tag($0) } }
+                .help("Colour neurons by")
+            Picker("Synapses", selection: $app.synapseDisplay) { ForEach(SynapseDisplay.allCases) { Text($0.rawValue).tag($0) } }
+                .help("Synapses drawn")
+            Button { app.frameAll() } label: { Image(systemName: "viewfinder") }.help("Frame everything (F)")
+            Toggle(isOn: $app.showRaster) { Image(systemName: "chart.bar.xaxis") }.help("Raster")
+            Toggle(isOn: $app.showInspector) { Image(systemName: "sidebar.right") }.help("Inspector")
+        }
+    }
+}
+
+struct HUD: View {
+    @EnvironmentObject var app: AppState
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HUDCounters(live: app.live)
+            Text(app.tool.help).font(.system(size: 10)).foregroundStyle(.secondary)
+            if app.tool == .add {
+                Text(String(format: "Placement plane %@ = %.1f  ·  [ and ] move it  ·  new cell: %@", ["x", "y", "z"][app.placeAxis], app.placeLevel,
+                            app.newNeuron.baseWeight < 0 ? "inhibitory (blue)" : "excitatory (red)"))
+                    .font(.system(size: 10, weight: .medium)).foregroundStyle(.cyan)
+            }
+            if app.colorMode == .region, !app.network.regionNames.isEmpty {
+                HStack(spacing: 8) {
+                    ForEach(Array(app.network.regionNames.enumerated()), id: \.offset) { k, n in
+                        HStack(spacing: 3) { Circle().fill(paletteColor(k).swiftUI).frame(width: 7, height: 7); Text(n) }
+                            .onTapGesture { app.selectRegion(Int32(k)) }
+                    }
+                }.font(.system(size: 10))
+            }
+        }
+        .padding(8)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .padding(10)
+        .allowsHitTesting(app.colorMode == .region)
+    }
+}
+
+struct StatusBar: View {
+    @EnvironmentObject var app: AppState
+    var body: some View {
+        HStack(spacing: 8) {
+            if app.busy != nil { ProgressView().controlSize(.small) }
+            Text(app.status).lineLimit(1).truncationMode(.middle)
+            Spacer()
+            Text(app.bridgeStatus).foregroundStyle(.secondary)
+            Circle().fill(app.bridgeStatus == "Python ready" ? Color.green : Color.orange).frame(width: 7, height: 7)
+        }
+        .font(.system(size: 11))
+        .padding(.horizontal, 10).padding(.vertical, 4)
+        .background(.bar)
+    }
+}
+
+// MARK: raster
+
+struct RasterView: NSViewRepresentable {
+    @ObservedObject var app: AppState
+    func makeNSView(context: Context) -> RasterNSView { let v = RasterNSView(); v.engine = app.engine; return v }
+    func updateNSView(_ v: RasterNSView, context: Context) { v.configure(app.network, mode: app.colorMode) }
+}
+
+/// Spike raster of the last ticks (neurons sorted by region) above the population spike count, redrawn at 30 Hz from a
+/// bitmap (one pixel per tick and row), so that thousands of neurons cost the same as ten.
+final class RasterNSView: NSView {
+    weak var engine: SimEngine?
+    private var rowOf: [Int] = []
+    private var color: [UInt32] = []
+    private var rows = 1
+    private var bounds_: [Int] = []
+    private var timer: Timer?
+    private var key = ""
+    var windowTicks = 1000
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        timer = Timer.scheduledTimer(withTimeInterval: 1 / 30, repeats: true) { [weak self] _ in self?.needsDisplay = true }
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override var isFlipped: Bool { true }
+
+    func configure(_ net: Network, mode: ColorMode) {
+        let k = "\(net.neurons.count)-\(net.synapses.count)-\(net.morphology)-\(mode)"
+        guard k != key else { return }
+        key = k
+        let order = net.neurons.indices.sorted { (net.neurons[$0].compartment, $0) < (net.neurons[$1].compartment, $1) }
+        rowOf = .init(repeating: 0, count: net.neurons.count)
+        for (r, i) in order.enumerated() { rowOf[i] = r }
+        rows = max(net.neurons.count, 1)
+        let inh = net.inhibitoryMask()
+        color = net.neurons.indices.map { i in
+            let sign = inh[i] ? SIMD4<Float>(0.35, 0.55, 1, 1) : SIMD4<Float>(0.98, 0.42, 0.3, 1)
+            let c = mode == .sign || net.neurons[i].compartment < 0 ? sign : paletteColor(Int(net.neurons[i].compartment))
+            let r = UInt32(c.x * 255), g = UInt32(c.y * 255), b = UInt32(c.z * 255)
+            return 0xFF00_0000 | (b << 16) | (g << 8) | r
+        }
+        bounds_ = []
+        var last: Int32 = .min
+        for (r, i) in order.enumerated() where net.neurons[i].compartment != last { bounds_.append(r); last = net.neurons[i].compartment }
+    }
+
+    override func draw(_ dirty: NSRect) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        ctx.setFillColor(NSColor(calibratedRed: 0.05, green: 0.06, blue: 0.08, alpha: 1).cgColor)
+        ctx.fill(bounds)
+        guard let e = engine, e.n == rowOf.count, e.n > 0 else {
+            ("No network" as NSString).draw(at: CGPoint(x: 10, y: 10), withAttributes: [.foregroundColor: NSColor.secondaryLabelColor])
+            return
+        }
+        let W = windowTicks
+        let rateH: CGFloat = 34
+        let rasterRect = CGRect(x: 0, y: 0, width: bounds.width, height: max(bounds.height - rateH, 10))
+        let H = max(1, min(rows, Int(rasterRect.height * 2)))
+        let (first, lists, counts) = e.recent(W)
+        var px = [UInt32](repeating: 0, count: W * H)
+        let off = W - lists.count
+        for (k, l) in lists.enumerated() {
+            let x = off + k
+            for i in l where Int(i) < rowOf.count {
+                let y = rowOf[Int(i)] * H / rows
+                px[y * W + x] = color[Int(i)]
+            }
+        }
+        let cs = CGColorSpaceCreateDeviceRGB()
+        if let prov = CGDataProvider(data: Data(bytes: px, count: px.count * 4) as CFData),
+           let img = CGImage(width: W, height: H, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: W * 4, space: cs,
+                             bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue), provider: prov,
+                             decode: nil, shouldInterpolate: false, intent: .defaultIntent) {
+            ctx.saveGState()
+            ctx.interpolationQuality = .none
+            ctx.translateBy(x: 0, y: rasterRect.height); ctx.scaleBy(x: 1, y: -1)
+            ctx.draw(img, in: CGRect(x: 0, y: 0, width: rasterRect.width, height: rasterRect.height))
+            ctx.restoreGState()
+        }
+        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.12).cgColor)
+        for b in bounds_.dropFirst() {
+            let y = CGFloat(b) / CGFloat(rows) * rasterRect.height
+            ctx.move(to: CGPoint(x: 0, y: y)); ctx.addLine(to: CGPoint(x: bounds.width, y: y))
+        }
+        ctx.strokePath()
+        // population spike count per tick (5-tick mean)
+        let top = rasterRect.maxY
+        ctx.setFillColor(NSColor.black.withAlphaComponent(0.35).cgColor)
+        ctx.fill(CGRect(x: 0, y: top, width: bounds.width, height: rateH))
+        if !counts.isEmpty {
+            var sm = [Double](repeating: 0, count: counts.count), acc = 0.0
+            for k in counts.indices { acc += Double(counts[k]); if k >= 5 { acc -= Double(counts[k - 5]) }; sm[k] = acc / 5 }
+            let mx = max(sm.max() ?? 1, 1)
+            ctx.setStrokeColor(NSColor.systemTeal.cgColor); ctx.setLineWidth(1.2)
+            for (k, v) in sm.enumerated() {
+                let x = CGFloat(off + k) / CGFloat(W) * bounds.width
+                let y = top + rateH - 3 - CGFloat(v / mx) * (rateH - 8)
+                k == 0 ? ctx.move(to: CGPoint(x: x, y: y)) : ctx.addLine(to: CGPoint(x: x, y: y))
+            }
+            ctx.strokePath()
+            let label = String(format: "%d–%d ms · peak %.0f spikes/ms", first, first + lists.count, mx) as NSString
+            label.draw(at: CGPoint(x: 6, y: top + 2), withAttributes: [.foregroundColor: NSColor.secondaryLabelColor, .font: NSFont.systemFont(ofSize: 9)])
+        }
+    }
+}
+
+// MARK: inspector
+
+struct InspectorView: View {
+    @EnvironmentObject var app: AppState
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                if app.selection.isEmpty {
+                    Text("Nothing selected").font(.headline)
+                    Text("Click a neuron in the 3D view (shift-click for several, double-click to centre on it). Use the tools in the toolbar to add neurons, connect them or stimulate them; ⌫ deletes the selection, ⌘Z undoes.")
+                        .font(.callout).foregroundStyle(.secondary)
+                    Divider()
+                    NetworkSummary()
+                } else if let i = app.selection.first, i < app.network.neurons.count {
+                    NeuronEditor(index: i, count: app.selection.count)
+                }
+            }
+            .padding(12)
+        }
+    }
+}
+
+struct NetworkSummary: View {
+    @EnvironmentObject var app: AppState
+    var body: some View {
+        let n = app.network
+        let inh = n.neurons.filter { $0.baseWeight < 0 }.count
+        VStack(alignment: .leading, spacing: 4) {
+            Text(n.morphology).font(.headline)
+            Text("\(n.neurons.count) neurons (\(inh) with negative base weight)")
+            Text("\(n.synapses.count) synapses, \(String(format: "%.1f", Double(n.synapses.count) / Double(max(n.neurons.count, 1)))) per neuron")
+            Text("Drivers: \(n.neurons.filter { $0.mode == 1 }.count) Poisson, \(n.neurons.filter { $0.mode == 2 }.count) bursters")
+            Text("Inputs: \(n.neurons.filter { $0.role == 1 }.count) · outputs: \(n.neurons.filter { $0.role == 2 }.count)")
+            if !n.regionNames.isEmpty {
+                Divider()
+                ForEach(Array(n.regionNames.enumerated()), id: \.offset) { k, name in
+                    Button { app.selectRegion(Int32(k)) } label: {
+                        HStack { Circle().fill(paletteColor(k).swiftUI).frame(width: 8, height: 8); Text(name); Spacer()
+                            Text("\(n.neurons.filter { $0.compartment == Int32(k) }.count)").foregroundStyle(.secondary) }
+                    }.buttonStyle(.plain)
+                }
+            }
+        }.font(.callout)
+    }
+}
+
+struct NeuronEditor: View {
+    @EnvironmentObject var app: AppState
+    let index: Int
+    let count: Int
+
+    private func b<T>(_ kp: WritableKeyPath<Neuron, T>) -> Binding<T> {
+        Binding(get: { app.network.neurons[min(index, app.network.neurons.count - 1)][keyPath: kp] },
+                set: { v in app.updateSelected { $0[keyPath: kp] = v } })
+    }
+
+    var body: some View {
+        let n = app.network.neurons[index]
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(count > 1 ? "\(count) neurons" : "Neuron #\(index)").font(.headline)
+                Spacer()
+                Button(role: .destructive) { app.deleteSelection() } label: { Image(systemName: "trash") }.help("Delete (⌫)")
+            }
+            if count > 1 { Text("Edits apply to every selected neuron; values shown are #\(index)'s.").font(.caption).foregroundStyle(.secondary) }
+            Text("Region: \(app.network.regionName(n.compartment))").font(.caption).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                if count == 1 {
+                    Vec3Field(label: "Position", help: "Where the neuron is, in space units. Distances between neurons set the axonal delays when wiring by distance.",
+                              value: Binding(get: { app.network.neurons[index].pos }, set: { v in app.updateSelected { $0.pos = v } }))
+                }
+                Row("Driver", help: "LIF: integrates its inputs. Poisson: fires at random at its rate (a driver). Burster: fires bursts on a fixed period (an intrinsic pacemaker).") {
+                    Picker("Driver", selection: b(\.mode)) { Text("LIF").tag(Int32(0)); Text("Poisson").tag(Int32(1)); Text("Burster").tag(Int32(2)) }.labelsHidden()
+                }
+                Row("Role", help: "Input neurons receive the external drive (Simulation panel); outputs are read out. The kernel itself ignores the role.") {
+                    Picker("Role", selection: b(\.role)) { Text("internal").tag(Int32(0)); Text("input").tag(Int32(1)); Text("output").tag(Int32(2)) }.labelsHidden()
+                }
+                IntField("Threshold", b(\.threshold), help: "Membrane potential (integer units) at which the neuron fires; it then resets to −256. Default 1024. Lower = more excitable.")
+                IntField("Leak shift (shift_v)", b(\.shiftV), help: "Membrane leak: each tick v loses v >> shift_v. Larger = slower leak (longer membrane time constant, about 2^shift_v ms).")
+                IntField("Synaptic shift (shift_s)", b(\.shiftS), help: "Synaptic current decay: each tick I loses I >> shift_s. Larger = longer-lasting synaptic currents.")
+                IntField("Refractory (ticks)", b(\.refractory), help: "Absolute refractory period after a spike, in ticks of 1 ms: the neuron cannot fire and stays at reset.")
+                IntField("Base weight", b(\.baseWeight), help: "Weight given to this neuron's outgoing synapses when wiring by distance. Its sign makes the neuron excitatory (> 0) or inhibitory (< 0).")
+                IntField("Compartment (region)", b(\.compartment), help: "Region index of the body plan this neuron belongs to (−1: none). Sets its colour in Region mode and its row in the raster.")
+                if n.mode == 1 { DoubleField("Poisson rate (Hz)", b(\.poissonHz), help: "Mean firing rate of a Poisson driver, in spikes per second.") }
+                if n.mode == 2 {
+                    IntField("Burst period (ticks)", b(\.burstPeriod), help: "A burster fires once per period: every 4th tick of the first 'duty' ticks.")
+                    IntField("Burst duty (ticks)", b(\.burstDuty), help: "Length of each burst, in ticks (spikes every 4th tick within it).")
+                }
+                DoubleField("Wiring radius", b(\.connRadius), help: "Wire by distance: this neuron connects to neurons within this distance (space units).")
+                DoubleField("Wiring probability", b(\.connProb), help: "Wire by distance: probability of connecting to each neuron within the radius.")
+            }
+            Flow {
+                Button("Pulse") { for i in app.selection { app.engine.inject(i, current: Int32(app.pulseCurrent)) } }
+                    .helpButton("Inject \(Int(app.pulseCurrent)) units of current once into the selected neurons (set the amount in Simulation → Pulse).")
+                Button("Centre view") { app.renderer?.camera.target = SIMD3<Float>(n.pos) }
+                Button("Plane here") { app.placeLevelFromSelection() }
+                    .helpButton("Put the Add tool's placement plane at this neuron's level, to add neighbours at the same height.")
+            }
+            SynapseList(index: index)
+        }
+    }
+}
+
+struct SynapseList: View {
+    @EnvironmentObject var app: AppState
+    let index: Int
+    var body: some View {
+        let ins = app.network.synapses.indices.filter { Int(app.network.synapses[$0].post) == index }
+        let outs = app.network.synapses.indices.filter { Int(app.network.synapses[$0].pre) == index }
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Synapses").font(.subheadline.weight(.semibold))
+                HelpButton(text: "Each synapse: the other neuron (click to select it), its weight (integer current added to the target when the spike arrives; negative = inhibitory) and its delay d (ticks of 1 ms, 0–31).")
+            }
+            DisclosureGroup("Outgoing (\(outs.count))") { rows(outs, other: \.post) }
+            DisclosureGroup("Incoming (\(ins.count))") { rows(ins, other: \.pre) }
+            HStack {
+                Button("Remove outgoing") { app.removeSynapses(of: Set(app.selection), incoming: false, outgoing: true) }
+                Button("Remove incoming") { app.removeSynapses(of: Set(app.selection), incoming: true, outgoing: false) }
+            }.controlSize(.small)
+        }
+    }
+
+    @ViewBuilder func rows(_ idx: [Int], other: KeyPath<Synapse, Int32>) -> some View {
+        ForEach(idx.prefix(200), id: \.self) { k in
+            let s = app.network.synapses[k]
+            HStack {
+                Button("#\(s[keyPath: other])") { app.selection = [Int(s[keyPath: other])] }.buttonStyle(.link)
+                Text("weight").foregroundStyle(.secondary)
+                TextField("weight", value: Binding(get: { Int(app.network.synapses[k].weight) },
+                                                   set: { v in app.modifyNetwork { $0.synapses[k].weight = Int32(clamping: v) } }), format: .number)
+                    .labelsHidden().frame(minWidth: 44)
+                Stepper("d \(s.delay)", value: Binding(get: { Int(app.network.synapses[k].delay) },
+                                                       set: { v in app.modifyNetwork { $0.synapses[k].delay = Int32(max(0, min(31, v))) } }), in: 0...31)
+                Button { app.modifyNetwork { $0.synapses.remove(at: k) } } label: { Image(systemName: "xmark") }.buttonStyle(.borderless)
+            }.font(.caption)
+        }
+        if idx.count > 200 { Text("… and \(idx.count - 200) more").font(.caption).foregroundStyle(.secondary) }
+    }
+}
+
+// MARK: form components (every input has a label and a (?) that explains it)
+
+/// A (?) button: click it for what the field means, its units and its effect.
+struct HelpButton: View {
+    let text: String
+    @State private var shown = false
+    var body: some View {
+        Button { shown.toggle() } label: {
+            Image(systemName: "questionmark.circle").foregroundStyle(.secondary)
+        }
+        .buttonStyle(.borderless)
+        .help(text)
+        .accessibilityLabel("Help")
+        .popover(isPresented: $shown, arrowEdge: .trailing) {
+            Text(text).font(.callout).padding(12).frame(width: 300, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+extension View {
+    /// Appends a (?) help button to a control that already shows its label (toggles, pickers, buttons).
+    func helpButton(_ text: String) -> some View {
+        HStack(spacing: 4) { self; HelpButton(text: text) }
+    }
+}
+
+/// One labelled input: the label, its (?) help, then the control, which takes the remaining width.
+struct Row<Content: View>: View {
+    let label: String
+    let help: String
+    let content: Content
+    init(_ label: String, help: String, @ViewBuilder _ content: () -> Content) {
+        self.label = label; self.help = help; self.content = content()
+    }
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(label).lineLimit(2).fixedSize(horizontal: false, vertical: true).layoutPriority(1)
+            HelpButton(text: help)
+            Spacer(minLength: 4)
+            content.frame(minWidth: 44, maxWidth: 240, alignment: .trailing)
+        }
+    }
+}
+
+struct IntField: View {
+    let label: String
+    let help: String
+    @Binding var value: Int32
+    init(_ label: String, _ value: Binding<Int32>, help: String) { self.label = label; self.help = help; _value = value }
+    var body: some View {
+        Row(label, help: help) {
+            TextField(label, value: Binding(get: { Int(value) }, set: { value = Int32(clamping: $0) }), format: .number)
+                .labelsHidden().multilineTextAlignment(.trailing)
+        }
+    }
+}
+
+struct DoubleField: View {
+    let label: String
+    let help: String
+    @Binding var value: Double
+    init(_ label: String, _ value: Binding<Double>, help: String) { self.label = label; self.help = help; _value = value }
+    var body: some View {
+        Row(label, help: help) {
+            TextField(label, value: $value, format: .number.precision(.fractionLength(0...4))).labelsHidden().multilineTextAlignment(.trailing)
+        }
+    }
+}
+
+/// A small number box with its own short label (for compact rows such as lo / hi).
+struct NumBox: View {
+    let label: String
+    @Binding var value: Double
+    init(_ label: String, _ value: Binding<Double>) { self.label = label; _value = value }
+    var body: some View {
+        HStack(spacing: 3) {
+            Text(label).foregroundStyle(.secondary)
+            TextField(label, value: $value, format: .number.precision(.fractionLength(0...4))).labelsHidden().frame(minWidth: 38)
+        }
+    }
+}
+
+struct Vec3Field: View {
+    let label: String
+    var help: String = ""
+    @Binding var value: SIMD3<Double>
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) { Text(label); HelpButton(text: help.isEmpty ? "\(label): x, y, z in space units (the network's coordinates; distances set conduction delays)." : help) }
+            HStack(spacing: 6) {
+                NumBox("x", $value.x); NumBox("y", $value.y); NumBox("z", $value.z)
+            }
+        }
+    }
+}
+
+/// Lays its children out in rows, wrapping when the panel is narrow (button bars).
+struct Flow: Layout {
+    var spacing: CGFloat = 6
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 10_000
+        var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0, maxX: CGFloat = 0
+        for v in subviews {
+            let s = v.sizeThatFits(.unspecified)
+            if x > 0 && x + s.width > width { x = 0; y += rowH + spacing; rowH = 0 }
+            x += s.width + spacing; rowH = max(rowH, s.height); maxX = max(maxX, x - spacing)
+        }
+        return CGSize(width: min(maxX, width), height: y + rowH)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowH: CGFloat = 0
+        for v in subviews {
+            let s = v.sizeThatFits(.unspecified)
+            if x > bounds.minX && x + s.width > bounds.maxX { x = bounds.minX; y += rowH + spacing; rowH = 0 }
+            v.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(s))
+            x += s.width + spacing; rowH = max(rowH, s.height)
+        }
+    }
+}
+
+// MARK: live counters (their own observable object: 10 Hz updates redraw only these views)
+
+final class LiveStats: ObservableObject {
+    @Published private(set) var tick = 0
+    @Published private(set) var rateHz = 0.0
+    @Published private(set) var tps = 0.0
+    @Published private(set) var fps = 0.0
+    @Published var regionRates: [Double] = []
+
+    func update(tick t: Int, rateHz r: Double, tps s: Double, fps f: Double) {
+        if t != tick { tick = t }
+        if abs(r - rateHz) > 0.05 { rateHz = r }
+        if abs(s - tps) > 1 { tps = s }
+        if abs(f - fps) > 1 { fps = f }
+    }
+}
+
+struct HUDCounters: View {
+    @ObservedObject var live: LiveStats
+    var body: some View {
+        HStack(spacing: 10) {
+            Label("\(live.tick) ms", systemImage: "clock").monospacedDigit()
+            Text(String(format: "%.1f Hz", live.rateHz)).monospacedDigit()
+            Text(String(format: "%.0f ticks/s", live.tps)).monospacedDigit().foregroundStyle(.secondary)
+            Text(String(format: "%.0f fps", live.fps)).monospacedDigit().foregroundStyle(.secondary)
+        }
+        .font(.system(size: 11, weight: .medium))
+    }
+}
+
+struct LiveLine: View {
+    @ObservedObject var live: LiveStats
+    var body: some View {
+        Text(String(format: "t = %d ms · %.1f Hz mean · %.0f ticks/s", live.tick, live.rateHz, live.tps))
+            .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+    }
+}
+
+struct RegionRates: View {
+    @ObservedObject var live: LiveStats
+    let names: [String]
+    var body: some View {
+        if names.isEmpty {
+            Text(String(format: "%.1f Hz mean", live.rateHz)).font(.caption)
+        } else {
+            ForEach(Array(names.enumerated()), id: \.offset) { k, name in
+                HStack {
+                    Circle().fill(paletteColor(k).swiftUI).frame(width: 8, height: 8); Text(name); Spacer()
+                    Text(k < live.regionRates.count ? String(format: "%.1f Hz", live.regionRates[k]) : "–").monospacedDigit()
+                }.font(.caption)
+            }
+        }
+    }
+}
