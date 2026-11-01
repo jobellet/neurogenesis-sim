@@ -4,3 +4,4 @@ __pycache__/
 viz/node_modules/
 viz/dist/
 scripts/js/build/
+!AGENTS.md

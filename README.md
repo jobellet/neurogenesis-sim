@@ -1,73 +1,93 @@
 # neurogenesis-sim
 
-Spiking neural networks grown from genes. A **body plan** says which regions exist and which projections may grow
-between them. A **genome** sets everything that develops: neuron numbers, migration, cell fates, molecular identities
-and axon guidance. **Development** turns the two into an integer leaky integrate-and-fire network. **Evolution** searches
-genomes that work in every individual they grow, whatever the developmental randomness. **Modules** package a plan, a
-genome and their validation, so that a working circuit (for example a retina) can be reused by others as-is.
+**Grow spiking neural networks the way nervous systems are built, by hand, by genes, or both, and simulate them
+cheaply.**
 
-The toolbox makes no assumption about species, task or environment; projects that use it define their own plans,
-stimuli and objectives.
+neurogenesis-sim is a general toolbox for building circuits through development. You describe where tissue is (2D or 3D
+shapes) and what is already known about it (layers, areas, maps, cell positions). You then choose a sequence of
+developmental stages (cell division, migration, differentiation, axon growth, pruning, activity-dependent refinement
+...), and for every parameter of every stage you decide whether it is:
+- set **by hand**;
+- read from a **hand-drawn field** (for example a layer boundary or an orientation map);
+- controlled by **genes** (and then evolved);
+- or **fitted to data**.
 
-## Install
-```
-pip install -e .                 # Python >= 3.10: numpy, jax (CPU; on GPU install "jax[cuda12]"), matplotlib
-pip install -e ".[test]" && pytest
-cd viz && npm ci && npm run dev  # 3D viewer at http://localhost:5173 (Node >= 18)
-```
+The result is an integer leaky integrate-and-fire network, or a more detailed one, that can be simulated, measured,
+evolved and shared as a module.
 
-## Concepts
+| Workflow | What you specify | What development does |
+|---|---|---|
+| Supervised (by hand) | geometry, cells, connections or connection rules | compiles and simulates exactly what you specified |
+| Unsupervised (genetic) | a genome and a schedule of stages | genes control every stage; evolution searches genomes that work for every developmental seed |
+| Semi-supervised | a hand-made scaffold (e.g. cortical layers, cytochrome-oxidase blobs, pinwheel centres) plus a schedule | genes and fitted parameters work on top of the scaffold |
+
+The toolbox makes no assumption about species, organ, task or environment. Projects that use it define their own
+geometries, stages, stimuli and objectives, and can publish working circuits (for example a retina with ON/OFF ganglion
+cells) as modules that others reuse as-is.
+
+**Status (2026-11-01).** The spiking kernel, neuron models, cost estimates, body plans with a fixed growth procedure,
+genomes, evolution, modules and a 3D viewer exist and are tested. Geometries, fields, configurable developmental stages,
+supervised fitting and the GUI editors are planned: see `docs/ROADMAP.md`, written as tasks for parallel development
+(and `AGENTS.md` for the rules every contributor follows).
+
+## What exists today
 | Piece | Module | What it is |
 |---|---|---|
-| Spiking kernel | `neurogenesis.spiking` | Integer LIF neurons: bit-shift leak and synaptic decay, per-neuron threshold, refractory period, Poisson drivers, intrinsic bursters, axonal delays up to 31 ticks. Three implementations give the same spikes bit for bit: `reference` (Python), `jax_backend` (CPU or GPU, `jax.vmap` over networks) and the browser kernel (`viz/src/sim/kernel.ts`). `batch.simulate_counts` runs many networks on sequences of stimuli. |
-| Neuron models | `neurogenesis.spiking.models` | `lif_int` (default), `two_compartment` (soma + dendrite) and `hh` (Hodgkin–Huxley), switchable per simulation on the same grown network (`simulate_counts(..., model=)`), with the same synapses, delays and drivers. See `docs/NEURON_MODELS.md`. |
-| Cost estimates | `neurogenesis.cost` | Memory and time of a simulation per model, before running it, calibrated on the actual machine (`python -m neurogenesis estimate --neurons 3e8 --synapses-per-neuron 5000`). Every simulation refuses networks that cannot fit. |
-| Body plan | `neurogenesis.development.BodyPlan` | Regions (`Region`: box in space, fixed or grown placement, role input / internal / output, imposed sign, refractory period) and allowed projections, in growth order. Plain data, saved as JSON. |
-| Genome | `neurogenesis.genome` | A nested dict. Genes are addressed by paths (`("guidance", ("a", "b"), "B", 0, 1)`), coded in [0, 1] for evolution (`from_unit`, `to_unit`) and grouped by mechanism (`guidance_genes`, `body_genes`, `differentiation_genes`, `identity_genes`, ...). |
-| Development | `neurogenesis.development.grow` | Placement and sign → differentiation (lateral inhibition, Notch–Delta type) → molecular identity → axon growth (positional chemoaffinity plus registered guidance rules). Deterministic for a given development seed; `grow_many` grows in parallel processes with identical results. |
-| Developmental rules | `neurogenesis.development.rules` | The extension points of growth, in five phases: placement (e.g. mosaics), guidance shift / target / probability (identity-dependent targets and receptor expression, point-to-point topography, laminar targeting, no autapse, projections made only by excitatory or inhibitory neurons), and synaptic weight (e.g. sign-inverting receptors). Each built-in rule acts only when its gene is present. New mechanisms: `@register(phase, name)`, listed in the plan, shipped as plan `plugins`. See `docs/EXTENDING.md`. |
-| Knockouts, tonic currents | `neurogenesis.development` | `knockout(genome, regions, projections)` for virtual knockouts; `tonic_current` for standing currents of cell types (`genome["tonic"]`). |
-| Evolution | `neurogenesis.evolution` | Island model on [0, 1] gene vectors with fresh development seeds every generation; choice on validation seeds; audits on held-out seeds (`robust_value` = worst + 0.25 × mean − cost). |
-| Modules | `neurogenesis.modules` | `Module` = plan + genome + inputs / outputs + validation + provenance, saved as JSON (`neurogenesis-module/1`). `compose` assembles modules into a larger system: region names are prefixed, each module keeps its genes, and links add new projections. |
-| Viewer | `viz/` | Browser sandbox (three.js): imports any network JSON, shows neurons by role and sign, rasters, per-neuron inspection and editing. |
+| Spiking kernel | `neurogenesis.spiking` | Integer LIF neurons (bit-shift leak and synaptic decay, per-neuron threshold, refractory period, Poisson drivers, bursters, axonal delays up to 31 ticks of 1 ms). Identical spikes in Python (`reference`), JAX (`jax_backend`, CPU or GPU) and the browser. `batch.simulate_counts` runs many networks on sequences of stimuli. |
+| Neuron models | `neurogenesis.spiking.models` | `lif_int` (default), `two_compartment` (soma + dendrite) and `hh` (Hodgkin–Huxley), switchable per simulation on the same network, sharing synapses, delays and drivers. See `docs/NEURON_MODELS.md`. |
+| Cost estimates | `neurogenesis.cost` | Memory and time per model before running, calibrated on the actual machine (`python -m neurogenesis estimate --neurons 3e8 --synapses-per-neuron 5000`). Every simulation refuses networks that cannot fit. |
+| Body plans and growth | `neurogenesis.development` | Regions (fixed or grown placement, roles, imposed sign) and allowed projections; one growth procedure: placement and sign → lateral-inhibition differentiation → molecular identity → axon guidance. Deterministic per development seed; parallel growth. |
+| Developmental rules | `neurogenesis.development.rules` | Extension points in 5 phases. **placement:** mosaics. **guidance shift / target / probability:** identity-dependent targets and receptor expression, point-to-point topography, laminar targeting, no autapse, sign-specific projections. **weight:** sign-inverting receptors. Each rule is inactive unless its gene is present; plugins travel with plans. |
+| Knockouts, tonic currents | `neurogenesis.development` | `knockout(genome, regions, projections)`; standing currents per cell type (`genome["tonic"]`). |
+| Genomes | `neurogenesis.genome` | Nested dicts; genes addressed by paths (into arrays too), coded in [0, 1] for evolution, grouped by mechanism, saved as JSON. |
+| Evolution | `neurogenesis.evolution` | Island model with fresh development seeds each generation; choice on validation seeds; audits on held-out seeds (fitness = worst + 0.25 × mean − cost). |
+| Modules | `neurogenesis.modules` | `Module` = plan + genome + inputs / outputs + validation + provenance + neuron model, saved as JSON; `compose` assembles modules (prefixed names, each keeps its genes, plugins and rules merged). |
+| Analysis | `neurogenesis.analysis` | Frequency–current curves (from rest), mosaic regularity. |
+| Viewer | `viz/` | Browser 3D viewer and sandbox (three.js): imports network JSON, shows neurons by role and sign, rasters, per-neuron inspection and editing. |
 
-## Minimal example
+## Install and try
 ```
-python examples/topographic_map.py --cpu
+pip install -e ".[test]"                    # Python >= 3.10: numpy, jax (CPU; "jax[cuda12]" for GPU), matplotlib
+cd viz && npm ci && npm run build:kernel && cd ..   # browser kernel, for the equivalence tests
+JAX_PLATFORMS=cpu pytest -q
+python examples/topographic_map.py --cpu    # a sensor sheet -> map circuit grown from a genome
+python -m neurogenesis estimate --neurons 1e5 --synapses-per-neuron 1000 --seconds 1
+cd viz && npm run dev                       # viewer at http://localhost:5173; import example_out/network.json
 ```
-grows a sensor sheet → map circuit, stimulates two corners, prints where the map responds, and writes
-`example_out/network.json` (open it in the viewer) and `example_out/module.json` (a shareable module).
 
 ```python
 from neurogenesis.development import BodyPlan, FixedPlacement, Region, grow
+from neurogenesis.spiking.batch import simulate_counts
 from neurogenesis.modules import Module
 
 plan = BodyPlan("demo", regions=[Region("sensor", (0, 0, 0), (30, 30, 5), FixedPlacement(labels), role=1),
                                  Region("map", (50, 0, 0), (30, 30, 10))], projections=[("sensor", "map")])
-net = grow(plan, genome, seed=0)            # an SNNNetwork; net.save_json("network.json") for the viewer
+net = grow(plan, genome, seed=0)                              # an SNNNetwork; net.save_json("network.json")
+counts = simulate_counts([net], [currents], ticks=100, model="lif_int")   # or "two_compartment", "hh"
 Module("demo", plan, genome, inputs=["sensor"], outputs=["map"]).save("demo.module.json")
 ```
 
+## Documentation
+- `docs/ROADMAP.md`: target architecture (geometry, fields, tissue, stages, parameter sources, GUI), design rules and
+  the task list.
+- `AGENTS.md`: rules for contributors and agents (determinism, backward compatibility, low compute, tests).
+- `docs/EXTENDING.md`: rules, plugins, knockouts, tonic currents, module projects.
+- `docs/NEURON_MODELS.md`: neuron models, units, cost estimates.
+- `CONTRIBUTING.md`: code and module contributions.
+- `docs/THIRD_PARTY.md`: software used and the literature behind each mechanism.
+
 ## Continuous integration
 GitHub Actions (`.github/workflows/ci.yml`), on every push:
-- every test on Python 3.10 and 3.12: every neuron model, development, evolution, modules and cost estimates;
+- every test on Python 3.10 and 3.12;
 - the browser kernel compiled, so that the Python / JAX / browser equivalence tests run and are never skipped;
 - the cost estimator from the command line;
-- the 3D viewer type-checked and built.
+- the viewer type-checked and built.
 
 ## Reproducibility
-- Same plan + genome + development seed → the same network, bit for bit (tests: `tests/test_development.py`).
-- Same network + kernel seed → the same spikes in Python, JAX and the browser (`tests/test_kernel.py`; the browser test
-  needs `cd viz && npm run build:kernel` once).
+- Same plan + genome + development seed → the same network, bit for bit.
+- Same network + kernel seed → the same `lif_int` spikes in Python, JAX and the browser. Float models are deterministic
+  per platform.
 - Projects that depend on the toolbox should freeze fingerprints of the networks their results come from, and test them.
 
-## Extending
-`docs/EXTENDING.md`: where new biology goes (regions, rules, plugins), how to organise a module project (plan, assay,
-capacity test, evolution, audit with knockouts), and how to compose other people's modules.
-
-## Contributing a module
-See `CONTRIBUTING.md`: a module comes with its plan, genome, interface, the stimuli and metrics used to validate it, and
-its pass rate on development seeds never used during its design or evolution.
-
 ## Licence
-MIT (`LICENSE`). Third-party software and the literature behind each mechanism: `docs/THIRD_PARTY.md`.
+MIT (`LICENSE`).
