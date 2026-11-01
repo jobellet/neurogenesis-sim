@@ -19,3 +19,6 @@ neurogenesis = "neurogenesis.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["neurogenesis*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

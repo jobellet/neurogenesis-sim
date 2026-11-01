@@ -20,6 +20,8 @@ cd viz && npm ci && npm run dev  # 3D viewer at http://localhost:5173 (Node >= 1
 | Piece | Module | What it is |
 |---|---|---|
 | Spiking kernel | `neurogenesis.spiking` | Integer LIF neurons: bit-shift leak and synaptic decay, per-neuron threshold, refractory period, Poisson drivers, intrinsic bursters, axonal delays up to 31 ticks. Three implementations give the same spikes bit for bit: `reference` (Python), `jax_backend` (CPU or GPU, `jax.vmap` over networks) and the browser kernel (`viz/src/sim/kernel.ts`). `batch.simulate_counts` runs many networks on sequences of stimuli. |
+| Neuron models | `neurogenesis.spiking.models` | `lif_int` (default), `two_compartment` (soma + dendrite) and `hh` (Hodgkin–Huxley), switchable per simulation on the same grown network (`simulate_counts(..., model=)`), with the same synapses, delays and drivers. See `docs/NEURON_MODELS.md`. |
+| Cost estimates | `neurogenesis.cost` | Memory and time of a simulation per model, before running it, calibrated on the actual machine (`python -m neurogenesis estimate --neurons 3e8 --synapses-per-neuron 5000`). Every simulation refuses networks that cannot fit. |
 | Body plan | `neurogenesis.development.BodyPlan` | Regions (`Region`: box in space, fixed or grown placement, role input / internal / output, imposed sign, refractory period) and allowed projections, in growth order. Plain data, saved as JSON. |
 | Genome | `neurogenesis.genome` | A nested dict. Genes are addressed by paths (`("guidance", ("a", "b"), "B", 0, 1)`), coded in [0, 1] for evolution (`from_unit`, `to_unit`) and grouped by mechanism (`guidance_genes`, `body_genes`, `differentiation_genes`, `identity_genes`, ...). |
 | Development | `neurogenesis.development.grow` | Placement and sign → differentiation (lateral inhibition, Notch–Delta type) → molecular identity → axon growth (positional chemoaffinity plus registered guidance rules). Deterministic for a given development seed; `grow_many` grows in parallel processes with identical results. |
@@ -45,6 +47,13 @@ plan = BodyPlan("demo", regions=[Region("sensor", (0, 0, 0), (30, 30, 5), FixedP
 net = grow(plan, genome, seed=0)            # an SNNNetwork; net.save_json("network.json") for the viewer
 Module("demo", plan, genome, inputs=["sensor"], outputs=["map"]).save("demo.module.json")
 ```
+
+## Continuous integration
+GitHub Actions (`.github/workflows/ci.yml`), on every push:
+- every test on Python 3.10 and 3.12: every neuron model, development, evolution, modules and cost estimates;
+- the browser kernel compiled, so that the Python / JAX / browser equivalence tests run and are never skipped;
+- the cost estimator from the command line;
+- the 3D viewer type-checked and built.
 
 ## Reproducibility
 - Same plan + genome + development seed → the same network, bit for bit (tests: `tests/test_development.py`).

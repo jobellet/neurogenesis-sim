@@ -108,6 +108,19 @@ def cmd_export_presets(args: argparse.Namespace) -> None:
     print(f"✓ Exported 3 presets to {out_dir.resolve()}")
 
 
+def cmd_estimate(args: argparse.Namespace) -> None:
+    """Memory and time of a simulation for each neuron model, on this machine (calibrates once per model and device)."""
+    from .cost import estimate
+    n = int(float(args.neurons))
+    e = int(n * float(args.synapses_per_neuron))
+    ticks = int(float(args.seconds) * 1000)
+    models = args.model or ["lif_int", "two_compartment", "hh"]
+    print(f"{n:,} neurons, {e:,} synapses, {args.seconds} simulated s ({ticks:,} ticks of 1 ms)")
+    for m in models:
+        r = estimate(m, n, e, ticks)
+        print(f"  {m:16s} {r['verdict']}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="python -m neurogenesis",
@@ -154,6 +167,14 @@ def main() -> None:
     p_pre = subparsers.add_parser("export-presets", help="Export standard JSON network presets")
     p_pre.add_argument("--out-dir", type=str, default="presets", help="Output directory (default: presets)")
     p_pre.set_defaults(func=cmd_export_presets)
+
+    # Subcommand: estimate
+    p_est = subparsers.add_parser("estimate", help="Memory and time of a simulation per neuron model, before running it")
+    p_est.add_argument("--neurons", required=True, help="number of neurons (e.g. 3e8)")
+    p_est.add_argument("--synapses-per-neuron", default="1000", help="mean number of synapses per neuron")
+    p_est.add_argument("--seconds", default="1", help="simulated seconds")
+    p_est.add_argument("--model", action="append", help="neuron model (repeatable; default: all)")
+    p_est.set_defaults(func=cmd_estimate)
 
     args = parser.parse_args()
     args.func(args)

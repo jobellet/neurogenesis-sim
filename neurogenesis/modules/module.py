@@ -30,6 +30,7 @@ class Module:
     description: str = ""
     validation: dict = field(default_factory=dict)       # metrics, seeds, pass fractions (how the module was tested)
     provenance: dict = field(default_factory=dict)       # authors, source repository, commit, date
+    neuron_model: str = "lif_int"                         # the neuron model the module was validated with
 
     def grow(self, seed=0, **kw):
         return grow(self.plan, self.genome, seed, **kw)
@@ -37,14 +38,14 @@ class Module:
     def to_dict(self):
         return dict(format=FORMAT, name=self.name, description=self.description, plan=self.plan.to_dict(),
                     genome=to_json(self.genome), inputs=list(self.inputs), outputs=list(self.outputs),
-                    validation=to_json(self.validation), provenance=to_json(self.provenance))
+                    validation=to_json(self.validation), provenance=to_json(self.provenance), neuron_model=self.neuron_model)
 
     @classmethod
     def from_dict(cls, d):
         assert d.get("format") == FORMAT, f"not a {FORMAT} file"
         return cls(name=d["name"], plan=BodyPlan.from_dict(d["plan"]), genome=from_json(d["genome"]), inputs=list(d["inputs"]),
                    outputs=list(d["outputs"]), description=d.get("description", ""), validation=d.get("validation", {}),
-                   provenance=d.get("provenance", {}))
+                   provenance=d.get("provenance", {}), neuron_model=d.get("neuron_model", "lif_int"))
 
     def save(self, path):
         Path(path).write_text(json.dumps(self.to_dict(), indent=1))

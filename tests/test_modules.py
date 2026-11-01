@@ -17,6 +17,7 @@ def test_module_save_load_grows_the_same_network(tmp_path):
     m.save(tmp_path / "m.json")
     m2 = Module.load(tmp_path / "m.json")
     assert fp(m2.grow(4)) == fp(m.grow(4)) and m2.inputs == ["sheet"] and m2.provenance["author"] == "test"
+    assert m2.neuron_model == "lif_int"
 
 
 def test_composition_prefixes_regions_keeps_genes_and_links():
