@@ -1,3 +1,4 @@
+import warnings
 from typing import Dict, Any, Tuple
 import numpy as np
 
@@ -72,10 +73,18 @@ class MyelinateStage:
         if tissue.connectivity is None or len(tissue.connectivity.pre) == 0:
             return tissue
 
-        factor = resolve(params.get("factor", 0.5), genome, fields)
+        factor = resolve(params.get("factor", params.get("delay_factor", 0.5)), genome, fields)
         
-        # Scale delays down, keeping at least 1
-        new_delays = np.maximum(1, np.round(tissue.connectivity.delay * factor)).astype(np.int32)
+        # Scale delays down, clipping to [1, 31]
+        raw_delays = np.round(tissue.connectivity.delay * factor).astype(np.int32)
+        n_clipped = int(np.sum(raw_delays > 31))
+        if n_clipped > 0:
+            warnings.warn(
+                f"myelinate: {n_clipped} synapses clipped to maximum delay 31 ticks (kernel limit)",
+                UserWarning,
+                stacklevel=2
+            )
+        new_delays = np.clip(raw_delays, 1, 31).astype(np.int32)
         tissue.connectivity.delay = new_delays
 
         return tissue
