@@ -54,8 +54,29 @@ public static class PythonLocator
             if (File.Exists(full)) return full;
         }
 
-        // 3. Fallback to system Python
+        // In packaged builds, never fall back to system Python
+        if (IsPackagedBuild())
+        {
+            throw new FileNotFoundException(
+                "Bundled Python runtime was not found in this packaged build. " +
+                "Reinstall the application or set the NEUROGENESIS_PYTHON environment variable.");
+        }
+
+        // 3. Fallback to system Python (dev builds and test suites only)
         string sys = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "python.exe" : "python3";
         return sys;
+    }
+
+    /// <summary>
+    /// Detects whether the app is executing inside a packaged release bundle.
+    /// </summary>
+    public static bool IsPackagedBuild()
+    {
+        string baseDir = AppContext.BaseDirectory;
+        return File.Exists(Path.Combine(baseDir, ".packaged"))
+            || File.Exists(Path.Combine(baseDir, "runtime", "runtime.json"))
+            || File.Exists(Path.Combine(baseDir, "runtime.json"))
+            || Environment.GetEnvironmentVariable("NEUROGENESIS_PACKAGED") == "1"
+            || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("APPIMAGE"));
     }
 }
