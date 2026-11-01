@@ -7,30 +7,26 @@ from neurogenesis.stages.base import register_stage
 from neurogenesis.tissue import Tissue
 from neurogenesis.params import resolve
 from neurogenesis.geometry import Geometry
+from neurogenesis.spatial import CellList
 
 @register_stage("seed_cells")
 class SeedCells:
+    """Seeds initial cell population into tissue geometries.
+
+    Linear O(N) allocation and sampling.
+    """
     @classmethod
     def cost(cls, N: int, E: int, params: Dict[str, Any]) -> Tuple[int, int]:
-        # seed_cells adds M cells. We need to estimate M.
-        # If N_seed is a Const, we can use it.
-        # If it's a field or gene, we might only know the max or assume it's small.
-        # We'll just read it if it's a const, else return a rough estimate.
-        M = 0
+        M = 100
         if "N" in params:
             from neurogenesis.params import Const
-            if isinstance(params["N"], Const):
-                M = int(params["N"].value)
-            elif isinstance(params["N"], (int, float)):
-                M = int(params["N"])
-            else:
-                M = 1000  # fallback
-        elif "density" in params:
-            # We don't know geometry volume easily here, fallback
-            M = 1000
-        
-        bytes_cost = M * 200  # Rough estimate of per-cell bytes
-        ops_cost = M * 10
+            p_n = params["N"]
+            if isinstance(p_n, Const):
+                M = int(p_n.value)
+            elif isinstance(p_n, (int, float, np.integer, np.floating)):
+                M = int(p_n)
+        bytes_cost = M * 128
+        ops_cost = M * 15
         return bytes_cost, ops_cost
 
     def run(self, tissue: Tissue, params: Dict[str, Any], genome: Dict[str, Any], fields: Dict[str, Any], rng: np.random.Generator) -> Tissue:
@@ -89,10 +85,23 @@ class SeedCells:
 
 @register_stage("proliferate")
 class Proliferate:
+    """Cell division and proliferation.
+
+    Linear O(N) allocation of daughter cells.
+    """
     @classmethod
     def cost(cls, N: int, E: int, params: Dict[str, Any]) -> Tuple[int, int]:
-        bytes_cost = N * 200
-        ops_cost = N * 50
+        prob = 0.5
+        if "prob" in params:
+            from neurogenesis.params import Const
+            p_val = params["prob"]
+            if isinstance(p_val, Const) and isinstance(p_val.value, (int, float)):
+                prob = float(p_val.value)
+            elif isinstance(p_val, (int, float)):
+                prob = float(p_val)
+        M = max(1, int(N * prob))
+        bytes_cost = M * 128
+        ops_cost = N * 10 + M * 20
         return bytes_cost, ops_cost
 
     def run(self, tissue: Tissue, params: Dict[str, Any], genome: Dict[str, Any], fields: Dict[str, Any], rng: np.random.Generator) -> Tissue:
@@ -167,12 +176,19 @@ class Proliferate:
 
 @register_stage("apoptosis")
 class Apoptosis:
+    """Density-dependent, trophic, and stochastic cell death.
+
+    Uses CellList for O(N) density-dependent neighbor searches.
+    Dense N x N distance matrix is only used as a fast path below documented threshold (N <= 2048).
+    """
     @classmethod
     def cost(cls, N: int, E: int, params: Dict[str, Any]) -> Tuple[int, int]:
-        bytes_cost = N * 4
+        bytes_cost = N * 16
         ops_cost = N * 10
         if "density_radius" in params:
-            ops_cost += N * N  # brute force density cost
+            ops_cost += N * 50
+        if "min_inputs" in params or "min_outputs" in params:
+            ops_cost += E * 2
         return bytes_cost, ops_cost
 
     def run(self, tissue: Tissue, params: Dict[str, Any], genome: Dict[str, Any], fields: Dict[str, Any], rng: np.random.Generator) -> Tissue:
@@ -199,17 +215,28 @@ class Apoptosis:
             max_density_param = params.get("max_density", 10)
             max_density = resolve(max_density_param, genome, fields, positions=tissue.positions)
             
-            # brute force distance
-            diff = tissue.positions[:, np.newaxis, :] - tissue.positions[np.newaxis, :, :]
-            dist_sq = np.sum(diff**2, axis=-1)
-            
-            if np.isscalar(radius):
-                neighbors = np.sum(dist_sq < radius**2, axis=-1) - 1
-            else:
-                radius_sq = np.asarray(radius)**2
-                neighbors = np.sum(dist_sq < radius_sq[:, np.newaxis], axis=-1) - 1
-                
-            dying = dying | (neighbors > max_density)
+            r_scalar = float(radius) if np.isscalar(radius) else float(np.max(radius))
+            if r_scalar > 0:
+                if N <= 2048 and np.isscalar(radius):
+                    # Fast vector path below documented threshold (N <= 2048)
+                    diff = tissue.positions[:, np.newaxis, :] - tissue.positions[np.newaxis, :, :]
+                    dist_sq = np.sum(diff**2, axis=-1)
+                    neighbors = np.sum(dist_sq < radius**2, axis=-1) - 1
+                else:
+                    # O(N) CellList search without dense N x N matrix
+                    cl = CellList(tissue.positions, cutoff=r_scalar)
+                    src_idx, dst_idx, dists = cl.query_radius(tissue.positions, r_scalar, return_distances=True)
+                    if len(src_idx) > 0:
+                        if np.isscalar(radius):
+                            valid = dists < radius
+                        else:
+                            valid = dists < np.asarray(radius)[src_idx]
+                        non_self = valid & (src_idx != dst_idx)
+                        neighbors = np.bincount(src_idx[non_self], minlength=N)
+                    else:
+                        neighbors = np.zeros(N, dtype=np.int32)
+
+                dying = dying | (neighbors > max_density)
 
         # 3. Trophic support (based on connectivity)
         min_inputs_param = params.get("min_inputs", None)

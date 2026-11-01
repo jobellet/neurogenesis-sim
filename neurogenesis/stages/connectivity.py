@@ -83,7 +83,10 @@ class _PlanRulesAdapter:
 
 @register_stage("grow_axons")
 class GrowAxons:
-    """Axon guidance and synaptogenesis between candidate populations using sparse guidance principles."""
+    """Axon guidance and synaptogenesis between candidate populations using sparse guidance principles.
+
+    No dense Ns x Nd arrays except when exact=True below documented threshold (max(Ns, Nd) <= 2048).
+    """
     @classmethod
     def cost(cls, N: int, E: int, params: Dict[str, Param]) -> tuple[int, int]:
         return (N * 64, N * 100)
@@ -267,7 +270,10 @@ class GrowAxons:
             if len(edges_pre) == 0:
                 continue
                 
-            ws = np.asarray([w_mean * (-inh if inhibitory_src[i] else 1.0) * (0.9 + 0.2 * rng.random()) for i in edges_pre], float)
+            # Vectorized weight calculation without Python loops over synapses
+            inh_factors = np.where(inhibitory_src[edges_pre], -inh, 1.0)
+            noise = 0.9 + 0.2 * rng.random(len(edges_pre))
+            ws = (w_mean * inh_factors * noise).astype(float)
             wctx = WeightContext(str(src_str), str(dst_str), edges_pre, edges_post, ws, gd)
             
             p_weight_rules = gd.get("rules_weight", weight_rules)
