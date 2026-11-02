@@ -13,6 +13,7 @@
 | `validate` | rerun a module's validation assays (exit 1 on failure) | `module.json --assays` |
 | `install` | install a module into the local catalogue | `module.json --catalogue --force` |
 | `modules` | list installed modules | `--catalogue` |
+| `data info` / `data fetch` | dataset size, license, citation; resumable, checksum-verified download | `dataset --manifest --target --yes` |
 
 Every command has `--help`. Worked examples: {doc}`../tutorials/cli`.
 
@@ -26,8 +27,10 @@ JSON-lines server for apps and other programs. No options; see {doc}`bridge-prot
 | `XLA_PYTHON_CLIENT_MEM_FRACTION` | fraction of GPU memory JAX may take |
 | `NEUROGENESIS_CACHE` | calibration cache directory (default `~/.cache/neurogenesis`) |
 | `NEUROGENESIS_MODULES` | module catalogue directory (default `~/.cache/neurogenesis/modules`) |
+| `NEUROGENESIS_DATA`, `NEUROGENESIS_DATASETS` | dataset cache; extra manifest directory |
+| `NEUROGENESIS_PROFILES` | pharmacology profile directory |
 
 ```{admonition} PLACEHOLDER
 :class: placeholder
-Planned: `neurogenesis run`, `neurogenesis stages --json`, `neurogenesis data list|info|fetch`.
+Planned: `neurogenesis run`, `neurogenesis stages --json`, `neurogenesis data list`.
 ```

@@ -383,6 +383,7 @@ Enable importing public connectome datasets (supervised) and using them as stati
 - CLI command: `python -m neurogenesis data fetch <dataset_id> --target <dir>`.
 - Prints dataset size and license before download; caches in `~/.cache/neurogenesis/data` outside repository tree. Resumable, verified against SHA256 checksums.
 - Unit tests run against tiny synthetic fixtures created in-memory, never downloading over the network.
+- **Status:** done: `neurogenesis.data.catalogue` (manifests, `fetch` with Range resume and SHA-256) and `python -m neurogenesis data info|fetch`.
 
 **I2. Streaming connectome importer.**
 - Memory-efficient streaming import via lazy `pyarrow`:
@@ -391,17 +392,20 @@ Enable importing public connectome datasets (supervised) and using them as stati
   - Filter criteria: cell type (list / regex), class / superclass, region / ROI, side, explicit ID list, bounding box, minimum synapse count.
   - Print cost estimate before allocating network.
   - Record license and citation metadata in the provenance of created `Tissue` / network.
+- **Status:** done: `neurogenesis.data.import_connectome` (CSV with NumPy, Parquet / Feather / CSV with optional pyarrow; filters by type (list or regex), class, superclass, region, side, ids, bounding box, minimum synapses; provenance in `info`).
 
 **I3. Coordinate frames & spatial registration.**
 - Map raw voxel coordinates to physical units ($\mu\text{m}$) via affine transform declared in manifest (voxel size, origin offset, optional mirroring).
 - Space units set conduction delays; region-local $[0, 1]^3$ coordinates are derived only inside regions.
 - Neuropil ROI masks and column coordinates interfaced via `Geometry` and `Field` adapters.
 - Clip delays $>31\text{ ms}$ with a counted warning until K4 merges.
+- **Status:** partial: affine registration (voxel size, origin, mirroring) and clipped delays; ROI masks and column coordinates through `Geometry` / `Field` adapters are not done (use `VoxelMaskGeometry` and fields directly).
 
 **I4. Synapse count to synaptic weight mapping.**
 - Configurable mapping from anatomical synapse counts to functional weights (linear, Hill/saturating, or `Param`).
 - Weight mapping fits into target int16 weight range (`w_clip` 512–2047).
 - Depends on P1: sign and channel determination compiled through pharmacology profile. (Before P1 exists, accepts an explicit caller-provided transmitter $\to$ sign map).
+- **Status:** done: `map_weights` (linear, Hill, log; `Param` values; `w_clip` 512–2047), signs from a transmitter map, transmitter bits from a profile.
 
 **I5. Cell-type statistical targets for fitting.**
 - Extract cell-type-level statistical targets for Phase E (`E2` / `E3` fitting):

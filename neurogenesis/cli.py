@@ -10,6 +10,7 @@ Usage:
   python -m neurogenesis fit --project project.json --targets targets.json --out genome.json
   python -m neurogenesis validate module.json
   python -m neurogenesis install module.json
+  python -m neurogenesis data fetch <dataset_id> --target <dir>
 """
 
 from __future__ import annotations
@@ -186,6 +187,20 @@ def cmd_modules(args: argparse.Namespace) -> None:
         print(f"{e['name']:24s} {e['version']:10s} toolbox {e['toolbox']:14s} {e.get('description', '')[:60]}")
 
 
+def cmd_data(args: argparse.Namespace) -> None:
+    """Dataset manifests (I1): info, fetch (prints size and license first; resumable, checksum-verified)."""
+    from .data.catalogue import describe, fetch, load_manifest
+    m = load_manifest(args.manifest or args.dataset)
+    if args.data_command == "info":
+        print(describe(m))
+        return
+    confirm = None
+    if not args.yes:
+        confirm = lambda text: input("Download? [y/N] ").strip().lower() in ("y", "yes")
+    d = fetch(m, target=args.target, confirm=confirm)
+    print(f"✓ {m['id']} in {d}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="python -m neurogenesis",
@@ -266,6 +281,16 @@ def main() -> None:
     p_mod = subparsers.add_parser("modules", help="List installed modules")
     p_mod.add_argument("--catalogue", help="catalogue directory")
     p_mod.set_defaults(func=cmd_modules)
+
+    p_data = subparsers.add_parser("data", help="Connectome datasets: info and fetch (manifests in datasets/<id>.json)")
+    data_sub = p_data.add_subparsers(dest="data_command", required=True)
+    for name, text in (("info", "show size, license and citation"), ("fetch", "download and verify a dataset")):
+        q = data_sub.add_parser(name, help=text)
+        q.add_argument("dataset", help="dataset id (or a manifest path)")
+        q.add_argument("--manifest", help="manifest JSON (instead of looking the id up)")
+        q.add_argument("--target", help="data directory (default $NEUROGENESIS_DATA or ~/.cache/neurogenesis/data)")
+        q.add_argument("--yes", action="store_true", help="do not ask before downloading")
+        q.set_defaults(func=cmd_data)
 
     args = parser.parse_args()
     args.func(args)

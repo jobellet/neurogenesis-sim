@@ -16,6 +16,7 @@ Each tutorial runs on a laptop CPU in a few minutes. Set `JAX_PLATFORMS=cpu` if 
 | 10 | {doc}`viewer` | the browser viewer |
 | 11 | {doc}`desktop-apps` | the macOS, Windows and Linux apps |
 | 12 | {doc}`fitting-validation` | fitting `Fit` params to data, semi-supervised and Pareto evolution, validation assays, the module registry |
+| 13 | {doc}`connectome-data` | connectome manifests, downloads and streaming import |
 
 ```{toctree}
 :hidden:
@@ -32,6 +33,7 @@ plasticity
 viewer
 desktop-apps
 fitting-validation
+connectome-data
 ```
 
 ```{admonition} PLACEHOLDER
