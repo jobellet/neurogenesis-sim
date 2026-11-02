@@ -77,3 +77,18 @@ def test_refine_by_activity_stage(base_tissue):
     c1, c2 = stage.cost(3, 4, {"ticks": 10})
     assert c1 > 0 and c2 > 0
 
+
+def test_scale_without_inputs_emits_no_warning(base_tissue):
+    import warnings
+    base_tissue.add_cells(1)  # a cell without incoming synapses
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        t = ScaleStage().run(base_tissue, {"target": 40}, {}, {}, np.random.default_rng(0))
+    assert list(t.connectivity.weight) == [40, -10, 40, -30]
+
+
+def test_refine_by_activity_cost_uses_gene_upper_bound():
+    from neurogenesis.params import Const, Gene
+    gene_cost = RefineByActivityStage.cost(3, 4, {"ticks": Gene(path=("t",), lo=10, hi=200, integer=True)})
+    assert gene_cost == RefineByActivityStage.cost(3, 4, {"ticks": Const(200)})
+    assert RefineByActivityStage.cost(3, 4, {"ticks": {"type": "Const", "value": 50}}) == RefineByActivityStage.cost(3, 4, {"ticks": 50})

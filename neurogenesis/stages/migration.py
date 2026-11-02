@@ -21,7 +21,7 @@ class MigrateStage:
         if N == 0:
             return tissue
             
-        speed_param = params.get("speed", Const(1.0))
+        speed_param = params.get("speed", Const(0.0))
         speed = resolve(speed_param, genome, fields, tissue.positions)
         
         radial = params.get("radial", Const(False))
@@ -166,7 +166,7 @@ class SortStage:
 
     def run(self, tissue: Tissue, params: Dict[str, Param], genome: Dict[str, Any], fields: Dict[str, Any], rng: np.random.Generator) -> Tissue:
         N = len(tissue.alive)
-        if N == 0:
+        if N == 0 or ("axis" not in params and "key" not in params):
             return tissue
             
         axis_param = params.get("axis", Const(np.array([0.0, 0.0, 1.0])))
