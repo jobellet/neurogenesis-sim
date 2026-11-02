@@ -8,3 +8,7 @@ scripts/js/build/
 .DS_Store
 *.DS_Store
 .wave*.json
+
+# documentation build and scratch
+docs/_build/
+docs/_scripts/_work/
