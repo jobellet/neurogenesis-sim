@@ -1,5 +1,12 @@
 name: CI
 
+# Runners come from repository variables (a JSON label or list of labels; unset = GitHub-hosted), see .github/RUNNERS.md:
+#   LINUX_RUNNER    detect-changes, python, viewer, nglif-ubuntu
+#   MAC_RUNNER      nglif-macos, mac-app
+#   WINDOWS_RUNNER  nglif-windows
+# Self-hosted runners use no Actions minutes. On pull requests, macOS and Windows jobs run on a self-hosted runner, or on
+# hosted runners (10x / 2x minutes) only with the label "full-ci". Self-hosted runners never run pull requests from forks.
+
 on:
   push:
     branches: [main]
@@ -13,7 +20,10 @@ concurrency:
 
 jobs:
   detect-changes:
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.LINUX_RUNNER || '"ubuntu-latest"') }}
+    if: >-
+      vars.LINUX_RUNNER == '' || github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       pull-requests: read
     outputs:
@@ -53,7 +63,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.python == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.LINUX_RUNNER || '"ubuntu-latest"') }}
     strategy:
       fail-fast: false
       matrix:
@@ -66,10 +76,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: Install
+      - name: Install (in a virtual environment, so a self-hosted machine keeps its own Python untouched)
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[test]"
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/venv/bin/pip" install -e ".[test]"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
       - name: Build the browser kernel (for the Python / JAX / browser equivalence tests)
         working-directory: viz
         run: |
@@ -138,7 +150,7 @@ jobs:
     if: >-
       (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.viewer == 'true') &&
       (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.LINUX_RUNNER || '"ubuntu-latest"') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -151,12 +163,12 @@ jobs:
           npm run build
 
   nglif-ubuntu:
-    # nglif golden fixtures on Ubuntu (fast, standard minutes; runs on every non-draft PR touching nglif)
+    # nglif golden fixtures on Linux: every non-draft PR touching nglif.
     needs: detect-changes
     if: >-
       (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.nglif == 'true') &&
       (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.LINUX_RUNNER || '"ubuntu-latest"') }}
     steps:
       - uses: actions/checkout@v4
       - name: Build nglif and its fixture test
@@ -166,25 +178,35 @@ jobs:
       - name: Golden fixtures (bit-identical to the Python reference)
         run: ctest --test-dir build/nglif -C Release --output-on-failure
 
-  nglif-cross:
-    # nglif on macOS (10x minutes) and Windows (2x minutes): runs ONLY on push to main, workflow_dispatch, or PRs with 'full-ci' label
+  nglif-macos:
+    # Pull requests: on a self-hosted Mac, or on hosted macOS (10x minutes) with the 'full-ci' label.
     needs: detect-changes
     if: >-
       (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.nglif == 'true') &&
-      (
-        github.event_name == 'push' ||
-        github.event_name == 'workflow_dispatch' ||
-        (
-          github.event_name == 'pull_request' &&
-          github.event.pull_request.draft == false &&
-          contains(github.event.pull_request.labels.*.name, 'full-ci')
-        )
-      )
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+      (github.event_name != 'pull_request' ||
+       (github.event.pull_request.draft == false &&
+        ((vars.MAC_RUNNER != '' && github.event.pull_request.head.repo.full_name == github.repository) ||
+         (vars.MAC_RUNNER == '' && contains(github.event.pull_request.labels.*.name, 'full-ci')))))
+    runs-on: ${{ fromJSON(vars.MAC_RUNNER || '"macos-latest"') }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build nglif and its fixture test
+        run: |
+          cmake -S desktop/common/native/nglif -B build/nglif -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/nglif --config Release
+      - name: Golden fixtures (bit-identical to the Python reference)
+        run: ctest --test-dir build/nglif -C Release --output-on-failure
+
+  nglif-windows:
+    # Pull requests: on a self-hosted Windows runner, or on hosted Windows (2x minutes) with the 'full-ci' label.
+    needs: detect-changes
+    if: >-
+      (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.nglif == 'true') &&
+      (github.event_name != 'pull_request' ||
+       (github.event.pull_request.draft == false &&
+        ((vars.WINDOWS_RUNNER != '' && github.event.pull_request.head.repo.full_name == github.repository) ||
+         (vars.WINDOWS_RUNNER == '' && contains(github.event.pull_request.labels.*.name, 'full-ci')))))
+    runs-on: ${{ fromJSON(vars.WINDOWS_RUNNER || '"windows-latest"') }}
     steps:
       - uses: actions/checkout@v4
       - name: Build nglif and its fixture test
@@ -195,29 +217,26 @@ jobs:
         run: ctest --test-dir build/nglif -C Release --output-on-failure
 
   mac-app:
-    # macOS app (10x minutes): runs ONLY on push to main, workflow_dispatch, or PRs with 'full-ci' label
+    # The macOS app. Pull requests: on a self-hosted Mac, or on hosted macOS (10x minutes) with the 'full-ci' label.
     needs: detect-changes
     if: >-
       (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.mac-app == 'true') &&
-      (
-        github.event_name == 'push' ||
-        github.event_name == 'workflow_dispatch' ||
-        (
-          github.event_name == 'pull_request' &&
-          github.event.pull_request.draft == false &&
-          contains(github.event.pull_request.labels.*.name, 'full-ci')
-        )
-      )
-    runs-on: macos-latest
+      (github.event_name != 'pull_request' ||
+       (github.event.pull_request.draft == false &&
+        ((vars.MAC_RUNNER != '' && github.event.pull_request.head.repo.full_name == github.repository) ||
+         (vars.MAC_RUNNER == '' && contains(github.event.pull_request.labels.*.name, 'full-ci')))))
+    runs-on: ${{ fromJSON(vars.MAC_RUNNER || '"macos-latest"') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install the toolbox
+      - name: Install the toolbox (in a virtual environment, so a self-hosted Mac keeps its own Python untouched)
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[test]"
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/venv/bin/pip" install -e ".[test]"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
       - name: Build the app
         run: NG_PYTHON="$(which python)" desktop/mac/build.sh --no-install
       - name: Tests (Swift binding, bridge, fixtures)
