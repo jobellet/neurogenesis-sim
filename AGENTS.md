@@ -110,7 +110,7 @@ Until Dec 1 (or until the repo is public), CI is blocked:
 - [ ] `cd viz && npm run build` passes if `viz/` changed.
 - [ ] Golden fixtures and contract tests pass if `desktop/common/`, `neurogenesis/bridge/`, or `nglif` changed.
 - [ ] Design and scope review pass against AGENTS.md and task contracts before merging.
-- [ ] Docs updated: README table, `docs/EXTENDING.md` or the relevant guide, the roadmap status line of your task,
+- [ ] Docs updated: README status block and table (checked by `tests/test_readme_status.py`), `docs/EXTENDING.md` or the relevant guide, the roadmap status line of your task,
       `docs/STAGES.md` for a stage, and any PLACEHOLDER your work fills. The status section of the AI context files is
       built from these, so a stale status line or placeholder shows up there as work still to do.
 
