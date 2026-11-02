@@ -17,9 +17,11 @@ effects) is planned as data profiles outside the core.
 They show what a mechanism can do in the simulation. Statements should be phrased as "in this simulation"; biological
 claims need biological evidence.
 
-**Why are delays limited to 31 ms?**
-The kernels keep each neuron's spike history in one 32-bit word. Longer delays need more history words; this is a
-planned kernel change (roadmap task K4).
+**How long can delays be?**
+Up to 255 ticks (the storage bound of the delay column). The kernels keep a multi-word spike history, (max_delay + 32) // 32
+words per neuron (8 words at 255), and give identical spikes in Python, JAX, the browser and `nglif`. Developmental stages
+write the distance-derived delay unchanged unless you set a `max_delay` Param, in which case clipped synapses are counted
+in a warning.
 
 **How large can networks be?**
 The CSR conversion and the browser kernel currently use 16-bit column indices (at most 65,535 neurons); NGB1 and

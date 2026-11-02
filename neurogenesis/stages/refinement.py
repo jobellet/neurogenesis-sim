@@ -155,16 +155,18 @@ class MyelinateStage:
         factor = resolve(factor_param, genome, fields)
         sel = self._selected(tissue, params, genome, fields, rng)
 
-        # Scale delays down, clipping to [1, 31]
+        # Scale delays down, clipping to [1, `max_delay`] (default 255)
         raw_delays = np.where(sel, np.round(tissue.connectivity.delay * factor), tissue.connectivity.delay).astype(np.int32)
-        n_clipped = int(np.sum(raw_delays > 31))
+        from neurogenesis.tissue import effective_max_delay
+        mx = effective_max_delay(resolve(params["max_delay"], genome, fields) if params.get("max_delay") is not None else None)
+        n_clipped = int(np.sum(raw_delays > mx))
         if n_clipped > 0:
             warnings.warn(
-                f"myelinate: {n_clipped} synapses clipped to maximum delay 31 ticks (kernel limit)",
+                f"myelinate: {n_clipped} synapses clipped to maximum delay {mx} ticks",
                 UserWarning,
                 stacklevel=2
             )
-        new_delays = np.clip(raw_delays, 1, 31).astype(np.int32)
+        new_delays = np.clip(raw_delays, 1, mx).astype(np.int32)
         tissue.connectivity.delay = new_delays
 
         return tissue

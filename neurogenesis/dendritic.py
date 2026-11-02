@@ -76,14 +76,15 @@ def apply_dendritic_attenuation(
         delay_add = np.round(d / velocity).astype(np.int32)
         total_delay = c.delay + delay_add
 
-        exceeds = total_delay > 31
+        from neurogenesis.tissue import MAX_DELAY_TICKS as MAXD
+        exceeds = total_delay > MAXD
         if np.any(exceeds):
             count = np.sum(exceeds)
             warnings.warn(
-                f"Dendritic delay exceeds 31ms for {count} synapses. Clipping to 31."
+                f"Dendritic delay exceeds {MAXD} ticks for {count} synapses. Clipping to {MAXD}."
             )
 
-        c.delay = np.clip(total_delay, 1, 31)
+        c.delay = np.clip(total_delay, 1, MAXD)
 
     if distal_compartment_threshold is not None:
         thresh = float(resolve(distal_compartment_threshold, genome=genome, fields=fields))

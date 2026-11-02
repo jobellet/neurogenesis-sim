@@ -207,17 +207,17 @@ def test_dendritic_attenuate_delay_clipping():
         post=np.array([1, 1]),
         weight=np.array([10.0, 10.0]),
         delay=np.array([1, 1]),
-        dendritic_distance=np.array([0.0, 200.0]),
+        dendritic_distance=np.array([0.0, 400.0]),
     )
 
-    with pytest.warns(UserWarning, match="Dendritic delay exceeds 31ms"):
+    with pytest.warns(UserWarning, match="Dendritic delay exceeds 255 ticks"):
         t2 = apply_dendritic_attenuation(
-            t, length_constant=100.0, dendrite_velocity=5.0
+            t, length_constant=100.0, dendrite_velocity=1.0
         )
 
     assert t2.connectivity.delay[0] == 1
-    # distance 200 / velocity 5 = 40. Expected delay 41. Clipped to 31.
-    assert t2.connectivity.delay[1] == 31
+    # distance 400 / velocity 1 = 400. Expected delay 401. Clipped to 255.
+    assert t2.connectivity.delay[1] == 255
 
 
 def test_integration_run_schedule():
