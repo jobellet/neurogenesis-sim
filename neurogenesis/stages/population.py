@@ -209,7 +209,8 @@ class Proliferate:
         prob_param = params.get("prob", 0.0)
         ctx_vars = {**(genome if isinstance(genome, dict) else {}), "cell_type": tissue.cell_type,
                     "generation": tissue.generation, "cycling": tissue.cycling, "birth_stage": tissue.birth_stage,
-                    "region": tissue.region, "x": tissue.positions[:, 0], "y": tissue.positions[:, 1],
+                    "birth_time": tissue.birth_time, "region": tissue.region,
+                    "x": tissue.positions[:, 0], "y": tissue.positions[:, 1],
                     "z": tissue.positions[:, 2], "np": np}
         prob = resolve(prob_param, genome, fields, positions=tissue.positions, context_vars=ctx_vars)
         if np.isscalar(prob):
@@ -217,7 +218,14 @@ class Proliferate:
         else:
             prob = np.asarray(prob)
 
-        dividing = (rng.random(N) < prob) & tissue.alive & tissue.cycling
+        clock_mask = getattr(tissue, "_clock_cycle_mask", None)
+        if clock_mask is not None and len(clock_mask) == N:
+            tissue._clock_cycle_mask = None
+            dividing = (rng.random(N) < prob) & tissue.alive & clock_mask
+            clock_advanced = True
+        else:
+            dividing = (rng.random(N) < prob) & tissue.alive & tissue.cycling
+            clock_advanced = False
         div_indices = np.where(dividing)[0]
 
         max_cells_param = params.get("max_cells", None)
@@ -233,7 +241,7 @@ class Proliferate:
         parent_positions = tissue.positions[div_indices]
         parent_ids = tissue.cell_id[div_indices]
         parent_clones = tissue.clone_id[div_indices]
-        generation = tissue.generation[div_indices] + 1
+        generation = tissue.generation[div_indices].copy() if clock_advanced else tissue.generation[div_indices] + 1
         birth_param = params.get("birth_stage", None)
         if birth_param is None:
             birth_stage = np.full(M, int(np.max(tissue.birth_stage[tissue.alive])) + 1, dtype=np.int32)
@@ -286,6 +294,7 @@ class Proliferate:
             birth_stage=birth_stage,
             generation=generation,
             cycling=tissue.cycling[div_indices].copy(),
+            birth_time=tissue.birth_time[div_indices].copy(),
             cell_type=cell_type,
             region=tissue.region[div_indices].copy(),
             expression=expression,
@@ -396,4 +405,101 @@ class Apoptosis:
             tissue.kill(dying)
             tissue.compact()
 
+        return tissue
+
+
+@register_stage("cell_cycle_clock")
+class CellCycleClock:
+    """Progenitor cell-cycle exit clock (Takahashi, Nowakowski & Caviness 1995, J Neurosci; 1996, J Neurosci;
+    Caviness, Takahashi & Nowakowski 2000).
+
+    Called once per cell cycle before `proliferate`. Each cycling alive cell leaves the cycle (`cycling = False`)
+    with probability `Q(generation) = min(1, k * generation^a)` or from a per-generation table `Q` (`q_table`).
+    Leaving cells keep their exit `generation` (their birth cycle) frozen across later cycles. When `T_C` (a
+    per-generation table or formula) is given, each cycling cell's `birth_time` advances by `T_C(generation)` and
+    freezes when the cell leaves the cycle. With `k = 0` (or no parameters), the stage is a no-op.
+    """
+
+    @classmethod
+    def cost(cls, N: int, E: int, params: Dict[str, Any]) -> Tuple[int, int]:
+        n = max(1, N)
+        return (n * 32, n * 10)
+
+    def run(self, tissue: Tissue, params: Dict[str, Any], genome: Dict[str, Any], fields: Dict[str, Any],
+            rng: np.random.Generator) -> Tissue:
+        N = len(tissue.alive)
+        if N == 0 or not params:
+            return tissue
+
+        cycling_mask = tissue.alive & tissue.cycling
+        if not np.any(cycling_mask):
+            return tissue
+
+        q_param = params.get("Q", params.get("q_table"))
+        k_param = params.get("k", 0.0)
+        a_param = params.get("a", 1.97)
+        tc_param = params.get("T_C", params.get("tc_table", params.get("tc")))
+
+        # Check neutral condition before mutating generation
+        ctx_check = {**(genome if isinstance(genome, dict) else {}), "cell_type": tissue.cell_type,
+                     "generation": tissue.generation, "cycling": tissue.cycling, "birth_stage": tissue.birth_stage,
+                     "birth_time": tissue.birth_time, "region": tissue.region,
+                     "x": tissue.positions[:, 0], "y": tissue.positions[:, 1],
+                     "z": tissue.positions[:, 2], "np": np}
+        if q_param is None:
+            k_val = resolve(k_param, genome, fields, positions=tissue.positions, context_vars=ctx_check)
+            if np.all(np.asarray(k_val, dtype=np.float64) <= 0.0) and tc_param is None:
+                return tissue
+
+        # Advance cycle counter for cycling cells entering this cycle (unless caller pre-populated generation >= 1 on first call)
+        if getattr(tissue, "_clock_active", False) or np.any(tissue.generation[cycling_mask] == 0):
+            tissue.generation[cycling_mask] += 1
+        tissue._clock_active = True
+        tissue._clock_cycle_mask = cycling_mask.copy()
+
+        cc = tissue.generation
+        ctx_vars = {**(genome if isinstance(genome, dict) else {}), "cell_type": tissue.cell_type,
+                    "generation": cc, "CC": cc, "cycling": tissue.cycling, "birth_stage": tissue.birth_stage,
+                    "birth_time": tissue.birth_time, "region": tissue.region,
+                    "x": tissue.positions[:, 0], "y": tissue.positions[:, 1],
+                    "z": tissue.positions[:, 2], "np": np}
+
+        if tc_param is not None:
+            tc_val = resolve(tc_param, genome, fields, positions=tissue.positions, context_vars=ctx_vars)
+            if isinstance(tc_val, dict):
+                tc_arr = np.array([float(tc_val.get(int(g), tc_val.get(str(int(g)), 0.0))) for g in cc], dtype=np.float32)
+            elif isinstance(tc_val, (list, tuple)) or (
+                isinstance(tc_val, np.ndarray) and tc_val.ndim == 1 and ("tc_table" in params or len(tc_val) != N)
+            ):
+                table = np.asarray(tc_val, dtype=np.float32)
+                idx = np.clip(cc - 1, 0, max(0, len(table) - 1))
+                tc_arr = table[idx] if len(table) > 0 else np.zeros(N, dtype=np.float32)
+            elif np.isscalar(tc_val):
+                tc_arr = np.full(N, float(tc_val), dtype=np.float32)
+            else:
+                tc_arr = np.asarray(tc_val, dtype=np.float32)
+            tissue.birth_time[cycling_mask] += tc_arr[cycling_mask]
+
+        if q_param is not None:
+            q_val = resolve(q_param, genome, fields, positions=tissue.positions, context_vars=ctx_vars)
+            if isinstance(q_val, dict):
+                q_arr = np.array([float(q_val.get(int(g), q_val.get(str(int(g)), 0.0))) for g in cc], dtype=np.float64)
+            elif isinstance(q_val, (list, tuple)) or (
+                isinstance(q_val, np.ndarray) and q_val.ndim == 1 and ("q_table" in params or len(q_val) != N)
+            ):
+                table = np.asarray(q_val, dtype=np.float64)
+                idx = np.clip(cc - 1, 0, max(0, len(table) - 1))
+                q_arr = table[idx] if len(table) > 0 else np.zeros(N, dtype=np.float64)
+            elif np.isscalar(q_val):
+                q_arr = np.full(N, float(q_val), dtype=np.float64)
+            else:
+                q_arr = np.asarray(q_val, dtype=np.float64)
+            q_prob = np.clip(q_arr, 0.0, 1.0)
+        else:
+            k_val = np.asarray(resolve(k_param, genome, fields, positions=tissue.positions, context_vars=ctx_vars), dtype=np.float64)
+            a_val = np.asarray(resolve(a_param, genome, fields, positions=tissue.positions, context_vars=ctx_vars), dtype=np.float64)
+            q_prob = np.clip(k_val * np.power(np.maximum(cc.astype(np.float64), 0.0), a_val), 0.0, 1.0)
+
+        leaving = cycling_mask & (rng.random(N) < q_prob)
+        tissue.cycling[leaving] = False
         return tissue

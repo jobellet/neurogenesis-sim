@@ -1,0 +1,22 @@
+{
+  "id": "cell_cycle_clock_mouse_neocortex",
+  "description": "Neocortical neuronogenetic interval E11-E17 (11 integer cell cycles CC1-CC11): power-law cell-cycle exit fraction Q(CC) = min(1, k * CC^a) and cycle length T_C lengthening from 8.1 h to 20.0 h primarily via G1.",
+  "citations": [
+    "Takahashi, Nowakowski & Caviness 1995, J Neurosci 15:6046-6057",
+    "Takahashi, Nowakowski & Caviness 1996, J Neurosci 16:6183-6196",
+    "Caviness, Takahashi & Nowakowski 2000, in Nelson & Luciana, eds., Handbook of Developmental Cognitive Neuroscience, MIT Press, pp. 7-22"
+  ],
+  "cycles": 11,
+  "k": 0.009,
+  "a": 1.97,
+  "basal_death_prob_per_cycle": 0.01,
+  "T_C_hours": [8.1, 8.5, 9.2, 10.2, 11.5, 13.0, 14.8, 16.8, 18.2, 19.3, 20.0],
+  "T_G1_hours": [3.0, 3.5, 4.2, 5.2, 6.5, 8.0, 9.8, 11.8, 13.2, 14.3, 15.0],
+  "reference_Q": [0.009, 0.035, 0.078, 0.138, 0.214, 0.307, 0.416, 0.541, 0.683, 0.840, 1.000],
+  "reference_PVE": [1.00, 1.98, 3.82, 7.05, 12.15, 19.09, 26.46, 30.90, 28.36, 18.01, 5.77],
+  "reference_OUT": [0.02, 0.14, 0.60, 1.95, 5.21, 11.72, 22.01, 33.45, 38.71, 30.25, 11.53],
+  "reference_cumulative_neurons_per_founder": 155.59,
+  "reference_neurons_per_founder_with_1pct_death": 140.0,
+  "reference_cc1_to_cc7_fraction": 0.2677
+}
+

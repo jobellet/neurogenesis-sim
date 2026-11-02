@@ -143,6 +143,7 @@ class Tissue:
     _next_cell_id: int = 0
     generation: Optional[np.ndarray] = None  # (N,) int32 divisions since the founder; zeros when omitted
     cycling: Optional[np.ndarray] = None  # (N,) bool progenitor cycling state; True when omitted
+    birth_time: Optional[np.ndarray] = None  # (N,) float32 cumulative cycle time at birth; zeros when omitted
     transmitter: Optional[np.ndarray] = None  # (N,) int8 bitmask of transmitters released (0 = classic sign only)
     receptor_expression: Optional[np.ndarray] = None  # (N, R) float32 receptor levels; (N, 0) when omitted
     morphology: Optional[object] = None  # optional ArborStore (neurogenesis.morphology), arbors of the cells
@@ -152,6 +153,8 @@ class Tissue:
             self.generation = np.zeros(len(self.alive), dtype=np.int32)
         if self.cycling is None:
             self.cycling = np.ones(len(self.alive), dtype=bool)
+        if self.birth_time is None:
+            self.birth_time = np.zeros(len(self.alive), dtype=np.float32)
         if self.transmitter is None:
             self.transmitter = np.zeros(len(self.alive), dtype=np.int8)
         if self.receptor_expression is None:
@@ -244,6 +247,8 @@ class Tissue:
         gen = np.asarray(kwargs.get("generation", np.zeros(N, dtype=np.int32)), dtype=np.int32)
         cyc_arg = kwargs.get("cycling")
         cyc = np.ones(N, dtype=bool) if cyc_arg is None else np.broadcast_to(np.asarray(cyc_arg, dtype=bool), (N,)).copy()
+        btime_arg = kwargs.get("birth_time")
+        btime = np.zeros(N, dtype=np.float32) if btime_arg is None else np.broadcast_to(np.asarray(btime_arg, dtype=np.float32), (N,)).copy()
         ctype = kwargs.get("cell_type", np.zeros(N, dtype=np.int32))
         reg = kwargs.get("region", np.zeros(N, dtype=np.int32))
         expr = kwargs.get("expression", np.zeros((N, K), dtype=np.float32))
@@ -287,6 +292,7 @@ class Tissue:
         self.birth_stage = np.concatenate([self.birth_stage, birth])
         self.generation = np.concatenate([self.generation, gen])
         self.cycling = np.concatenate([self.cycling, cyc])
+        self.birth_time = np.concatenate([self.birth_time, btime])
         self.cell_type = np.concatenate([self.cell_type, ctype])
         self.region = np.concatenate([self.region, reg])
         self.expression = np.concatenate([self.expression, expr])
@@ -341,6 +347,9 @@ class Tissue:
         self.birth_stage = self.birth_stage[alive_mask]
         self.generation = self.generation[alive_mask]
         self.cycling = self.cycling[alive_mask]
+        self.birth_time = self.birth_time[alive_mask]
+        if getattr(self, "_clock_cycle_mask", None) is not None and len(self._clock_cycle_mask) == N:
+            self._clock_cycle_mask = self._clock_cycle_mask[alive_mask]
         self.cell_type = self.cell_type[alive_mask]
         self.region = self.region[alive_mask]
         self.expression = self.expression[alive_mask]
@@ -414,6 +423,7 @@ class Tissue:
             _next_cell_id=self._next_cell_id,
             generation=self.generation[indices].copy(),
             cycling=self.cycling[indices].copy(),
+            birth_time=self.birth_time[indices].copy(),
             transmitter=self.transmitter[indices].copy(),
             receptor_expression=self.receptor_expression[indices].copy(),
         )
@@ -524,6 +534,7 @@ class Tissue:
             _next_cell_id=total_next_id,
             generation=np.concatenate([t.generation for t in tissues]),
             cycling=np.concatenate([t.cycling for t in tissues]),
+            birth_time=np.concatenate([t.birth_time for t in tissues]),
             transmitter=np.concatenate([t.transmitter for t in tissues]),
             receptor_expression=rex,
             morphology=_concat_morphology(tissues, offsets),
@@ -679,7 +690,7 @@ class Tissue:
         total = 0
         arrays = [
             self.positions, self.directions, self.cell_id, self.parent_id, self.clone_id,
-            self.birth_stage, self.generation, self.cycling, self.cell_type, self.region, self.expression,
+            self.birth_stage, self.generation, self.cycling, self.birth_time, self.cell_type, self.region, self.expression,
             self.sign, self.alive, self.mode, self.shift_v, self.shift_s,
             self.base_weight, self.conn_radius, self.conn_prob, self.burst_period,
             self.burst_duty, self.poisson_hz, self.refractory, self.role,
