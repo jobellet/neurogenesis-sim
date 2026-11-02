@@ -8,7 +8,7 @@ const N = net.neurons.length;
 const syn = net.synapses.filter(s => s.pre < N && s.post < N);
 const byPre = Array.from({ length: N }, () => []);
 for (const s of syn) byPre[s.pre].push(s);
-const rowPtr = new Uint32Array(N + 1), colIdx = new Uint16Array(syn.length), weights = new Int16Array(syn.length), delays = new Uint8Array(syn.length);
+const rowPtr = new Uint32Array(N + 1), colIdx = new Uint32Array(syn.length), weights = new Int16Array(syn.length), delays = new Uint8Array(syn.length);
 let k = 0;
 for (let i = 0; i < N; i++) { rowPtr[i] = k; for (const s of byPre[i]) { colIdx[k] = s.post; weights[k] = s.weight; delays[k] = s.delay; k++; } }
 rowPtr[N] = k;

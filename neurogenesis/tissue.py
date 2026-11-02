@@ -571,17 +571,17 @@ class Tissue:
         weight = self.connectivity.weight[valid_synapses]
         delay = self.connectivity.delay[valid_synapses]
         
-        net.synapses = [
-            SynapseData(
-                pre=int(pre[i]),
-                post=int(post[i]),
-                weight=int(weight[i]),
-                delay=int(delay[i])
-            )
-            for i in range(len(pre))
-        ]
-        
-        return net
+        return SNNNetwork.from_arrays(
+            version="1.0.0",
+            morphology="Custom",
+            neurons=net.neurons,
+            synapse_arrays={
+                "pre": pre.astype(np.uint32),
+                "post": post.astype(np.uint32),
+                "weight": weight.astype(np.int16),
+                "delay": delay.astype(np.uint8),
+            },
+        )
 
     @classmethod
     def from_network(cls, net: SNNNetwork) -> Tissue:
@@ -635,10 +635,16 @@ class Tissue:
         
         M = net.num_synapses
         if M > 0:
-            pre = np.array([s.pre for s in net.synapses], dtype=np.int32)
-            post = np.array([s.post for s in net.synapses], dtype=np.int32)
-            weight = np.array([s.weight for s in net.synapses], dtype=np.int32)
-            delay = np.array([s.delay for s in net.synapses], dtype=np.int32)
+            if net.synapse_arrays is not None:
+                pre = net.synapse_arrays["pre"].astype(np.int32)
+                post = net.synapse_arrays["post"].astype(np.int32)
+                weight = net.synapse_arrays["weight"].astype(np.int32)
+                delay = net.synapse_arrays["delay"].astype(np.int32)
+            else:
+                pre = np.array([s.pre for s in net.synapses], dtype=np.int32)
+                post = np.array([s.post for s in net.synapses], dtype=np.int32)
+                weight = np.array([s.weight for s in net.synapses], dtype=np.int32)
+                delay = np.array([s.delay for s in net.synapses], dtype=np.int32)
             t.connectivity = SparseConnectivity(pre, post, weight, delay)
             
         return t

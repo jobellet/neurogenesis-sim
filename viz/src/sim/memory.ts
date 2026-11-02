@@ -150,7 +150,7 @@ export function createSharedSimulationMemory(existingBuffer?: SharedArrayBuffer 
   offset = align8(offset + (MAX_NEURONS + 1) * Uint32Array.BYTES_PER_ELEMENT);
 
   const colIdxOffset = offset;
-  offset = align8(offset + MAX_SYNAPSES * Uint16Array.BYTES_PER_ELEMENT);
+  offset = align8(offset + MAX_SYNAPSES * Uint32Array.BYTES_PER_ELEMENT);
 
   const weightsOffset = offset;
   offset = align8(offset + MAX_SYNAPSES * Int16Array.BYTES_PER_ELEMENT);
@@ -212,7 +212,7 @@ export function createSharedSimulationMemory(existingBuffer?: SharedArrayBuffer 
   if (!existingBuffer) threshold.fill(1024);                      // default firing threshold for every slot
 
   const rowPtr = new Uint32Array(buffer, rowPtrOffset, MAX_NEURONS + 1);
-  const colIdx = new Uint16Array(buffer, colIdxOffset, MAX_SYNAPSES);
+  const colIdx = new Uint32Array(buffer, colIdxOffset, MAX_SYNAPSES);
   const weights = new Int16Array(buffer, weightsOffset, MAX_SYNAPSES);
   const delays = new Uint8Array(buffer, delaysOffset, MAX_SYNAPSES);
 

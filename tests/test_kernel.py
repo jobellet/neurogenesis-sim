@@ -30,10 +30,13 @@ def test_poisson_threshold_does_not_overflow():
     assert int(sim.poisson_thresh[0]) == 4294967295
 
 
-def test_csr_refuses_too_many_neurons():
+def test_csr_handles_many_neurons():
     net = SNNNetwork(neurons=[MorphogeneticEngine.generate_microcircuit(1, seed=0).neurons[0]] * 65536)
-    with pytest.raises(ValueError):
-        net.to_csr()
+    # Shouldn't raise ValueError anymore
+    row_ptr, col, w, d = net.to_csr()
+    assert len(row_ptr) == 65537
+    assert row_ptr.dtype == np.uint32
+    assert col.dtype == np.uint32
 
 
 # ---------------------------------------------------------------- refractory period and JAX port

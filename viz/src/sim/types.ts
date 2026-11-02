@@ -71,7 +71,7 @@ export interface SharedSimulationMemory {
 
   // CSR Synaptic Graph Buffers
   rowPtr: Uint32Array;          // [MAX_NEURONS + 1]
-  colIdx: Uint16Array;          // [MAX_SYNAPSES]
+  colIdx: Uint32Array;          // [MAX_SYNAPSES]
   weights: Int16Array;          // [MAX_SYNAPSES]
   delays: Uint8Array;           // [MAX_SYNAPSES]
 

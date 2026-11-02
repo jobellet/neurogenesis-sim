@@ -47,7 +47,10 @@ def write_network(net, path, extensions=None) -> None:
         for a in NEURON_F64:
             f.write(np.asarray([getattr(n, a) for n in ns], "<f8").tobytes())
         for a in SYNAPSE_I32:
-            f.write(np.asarray([getattr(s, a) for s in ss], "<i4").tobytes())
+            if net.synapse_arrays is not None and a in net.synapse_arrays:
+                f.write(np.asarray(net.synapse_arrays[a], "<i4").tobytes())
+            else:
+                f.write(np.asarray([getattr(s, a) for s in ss], "<i4").tobytes())
         if extensions:
             codes = {np.dtype(v).str: k for k, v in EXT_DTYPES.items()}
             f.write(struct.pack("<i", len(extensions)))
