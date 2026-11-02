@@ -1,0 +1,28 @@
+{
+  "id": "transporter_switch_rodent_cortex",
+  "description": "Default parameters of the transporter_switch stage (C21) for rat and mouse hippocampus and neocortex: chloride reversal potential of GABA-A / glycine receptors moves from depolarising (NKCC1, high internal chloride) to hyperpolarising (KCC2) during the first postnatal weeks. Values are defaults for a Param, not fitted data; results are 'in this simulation'.",
+  "citations": [
+    "Rivera et al. 1999, Nature 397:251-255",
+    "Ben-Ari 2002, Nat Rev Neurosci 3:728-739",
+    "Vu et al. 2000 (retina)",
+    "Zhang et al. 2003 (retina)"
+  ],
+  "observations": {
+    "immature": "high NKCC1, [Cl-]i about 25-40 mM, E_Cl about -50 to -40 mV (above a rest of -65 to -70 mV): GABA depolarises",
+    "mature": "KCC2, [Cl-]i about 4-5 mM, E_Cl about -75 mV: GABA hyperpolarises",
+    "timing": "NKCC1-dominated from E12 to about P4; functional switch between P5 and P10 (hippocampus and neocortex), up to P12-P14 in superficial layers",
+    "mechanism": "onset programmed by age, timing accelerated by activity (GABA depolarisation -> Ca2+ -> BDNF / TrkB -> KCC2)"
+  },
+  "age_unit": "days of postnatal age (P0 = 0); give `age` (or `now` and a clock in days) in this unit",
+  "params": {
+    "e_immature": -45.0,
+    "e_mature": -75.0,
+    "midpoint": 7.5,
+    "width": 1.25,
+    "activity_gain": 0.0,
+    "v_rest": -65.0,
+    "receptors": ["gaba_a", "glycine"],
+    "profile": "examples/profiles/example_receptors.json"
+  },
+  "notes": "midpoint 7.5 d and width 1.25 d put 10-90 % of the switch between about P4.8 and P10.2 (sigmoid 10-90 % = midpoint +/- 2.2 width), i.e. the P5-P10 window; activity_gain 0 is purely programmed (no gain value is given by the sources)."
+}
