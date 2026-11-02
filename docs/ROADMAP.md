@@ -375,6 +375,7 @@ Before implementing Phase I, P, and N, core contracts are updated in dedicated, 
 - Generalize spike history from 1 word (max 31 ticks) to `ceil((max_delay + 1) / 32)` 32-bit words per neuron across all four kernels (Python, JAX, browser `kernel.ts`, and C `nglif`).
 - Bit-for-bit equivalence across all four kernels with memory overhead declared in `neurogenesis.cost`.
 - Until K4 merges, tasks N3 and I3 must clip conduction delays exceeding 31 ms with a counted warning (never silently).
+- **Status:** done: multi-word spike history ($W = \lceil(\text{max\_delay} + 1) / 32\rceil$ 32-bit words) across Python `reference.py`, JAX `jax_backend.py` & `models/base.py`, browser `viz/src/sim/kernel.ts`, and C `nglif.c`, with memory overhead declared in `neurogenesis.cost`.
 
 ### Phase I: Connectome Data Layer
 

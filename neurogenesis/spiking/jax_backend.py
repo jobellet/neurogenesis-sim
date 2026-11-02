@@ -47,8 +47,11 @@ def pack(network: SNNNetwork, n_pad: int | None = None, e_pad: int | None = None
     mode = f("mode", np.int32)
     pois = np.nonzero(mode[:n] == 1)[0]
     pad_e = E - n_syn
+    delay_arr = np.concatenate([s_d, np.ones(pad_e, np.int32)]) if pad_e else s_d
+    W = max(1, (int(np.max(delay_arr)) + 32) // 32) if len(delay_arr) > 0 else 1
     out = dict(
         n=np.int32(n),
+        bits0=np.zeros((N, W), np.uint32) if W > 1 else np.zeros(N, np.uint32),
         mode=mode, shift_v=f("shift_v", np.int32, 5), shift_s=f("shift_s", np.int32, 4),
         burst_period=f("burst_period", np.int32, 200), burst_duty=f("burst_duty", np.int32, 24),
         refractory=f("refractory", np.int32, 0), role=f("role", np.int32, 0), threshold=f("threshold", np.int32, 1024),
@@ -59,7 +62,7 @@ def pack(network: SNNNetwork, n_pad: int | None = None, e_pad: int | None = None
         pre=np.concatenate([s_pre, np.zeros(pad_e, np.uint32)]) if pad_e else s_pre,
         post=np.concatenate([s_post, np.zeros(pad_e, np.uint32)]) if pad_e else s_post,
         weight=np.concatenate([s_w, np.zeros(pad_e, np.int32)]) if pad_e else s_w,
-        delay=np.concatenate([s_d, np.ones(pad_e, np.int32)]) if pad_e else s_d,
+        delay=delay_arr,
         valid=np.concatenate([np.ones(n_syn, bool), np.zeros(pad_e, bool)]) if pad_e else np.ones(n_syn, bool),
     )
     out["mode"][n:] = 0
@@ -69,7 +72,8 @@ def pack(network: SNNNetwork, n_pad: int | None = None, e_pad: int | None = None
 def init_state(net: dict, seed: int = 12345) -> dict:
     N = np.shape(net["mode"])[-1]
     z = jnp.zeros(N, jnp.int32)
-    return dict(v=z, i_syn=z, bits=jnp.zeros(N, U32), phase=z, refr=z, rng=jnp.asarray(seed, U32))
+    bits = jnp.zeros_like(net["bits0"], dtype=U32) if "bits0" in net else jnp.zeros(N, U32)
+    return dict(v=z, i_syn=z, bits=bits, phase=z, refr=z, rng=jnp.asarray(seed, U32))
 
 
 def _xorshift(x):
@@ -113,9 +117,21 @@ def tick(net: dict, st: dict, ext_current=None):
     spiked = spiked & ~in_refr
     refr = jnp.where(in_refr, st["refr"] - 1, jnp.where(spiked, net["refractory"], 0))
     v = jnp.where(spiked | in_refr, -256, v)
-    bits = (st["bits"] << U32(1)) | spiked.astype(U32)
-    # propagation through delays
-    arrivals = ((bits[net["pre"]] >> net["delay"].astype(U32)) & U32(1)).astype(jnp.int32) * net["valid"]
+    if st["bits"].ndim == 1:
+        bits = (st["bits"] << U32(1)) | spiked.astype(U32)
+        arrivals = ((bits[net["pre"]] >> net["delay"].astype(U32)) & U32(1)).astype(jnp.int32) * net["valid"]
+    else:
+        W = st["bits"].shape[-1]
+        words = [(st["bits"][:, 0] << U32(1)) | spiked.astype(U32)]
+        for w in range(1, W):
+            words.append((st["bits"][:, w] << U32(1)) | (st["bits"][:, w - 1] >> U32(31)))
+        bits = jnp.stack(words, axis=-1)
+        delay_word = net["delay"] >> 5
+        delay_bit = net["delay"] & 31
+        pre_bits = bits[net["pre"]]
+        selected_word = jnp.take_along_axis(pre_bits, delay_word[:, None].astype(jnp.int32), axis=1).squeeze(axis=1)
+        arrivals = ((selected_word >> delay_bit.astype(U32)) & U32(1)).astype(jnp.int32) * net["valid"]
+
     i_syn = i_syn.at[net["post"]].add(arrivals * net["weight"])
     return dict(v=v, i_syn=i_syn, bits=bits, phase=phase, refr=refr, rng=rng), spiked.astype(jnp.uint8), arrivals
 

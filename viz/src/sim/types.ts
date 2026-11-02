@@ -47,6 +47,7 @@ export const enum ControlIndex {
 export interface SharedSimulationMemory {
   buffer: SharedArrayBuffer | ArrayBuffer;
   isShared: boolean;
+  W?: number;                   // Multi-word history length (default 1)
   // SoA Neuron Buffers
   posXYZ: Float32Array;         // [MAX_NEURONS * 3]
   axonDirXYZ: Float32Array;     // [MAX_NEURONS * 3]
