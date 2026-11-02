@@ -415,12 +415,14 @@ Enable importing public connectome datasets (supervised) and using them as stati
   - Topographical column fraction (inputs from same vs neighboring columns from B3/B4 field);
   - Spread across individuals/datasets sets fitting tolerance; metrics averaged over development seeds.
 - Depends on E2 (`Fit` params).
+- **Status:** done: `neurogenesis.data.targets` (`extract_fitting_targets`, `compare_type_statistics`, `mean_weight` and `column_fraction` metrics registered in `neurogenesis.fitting`).
 
 **I6. Optic-lobe column benchmark example.**
 - Supervised baseline: import verified subcircuit from local attributed CC-BY 4.0 test fixture (e.g. 14k-neuron visual circuit subset: Mi1, Tm3, Mi4, Mi9 $\to$ T4) and simulate.
 - Grown circuit: semi-supervised development where hexagonal columns are a hand-drawn field, cell identities assigned, and developmental parameters fitted via I5/E2 to match imported type matrix and topography.
 - Direct statistical comparison between grown and imported networks. Runnable on CPU in minutes.
 - Note: Direction selectivity depends on dendritic placement and timing (evaluated post N3/N5), not point-neuron somata.
+- **Status:** done: `examples/optic_lobe_column.py` and `tests/test_optic_lobe_column.py`.
 
 ### Phase P: Transmitter & Receptor Pharmacology
 
