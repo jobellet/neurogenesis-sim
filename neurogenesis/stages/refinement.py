@@ -438,7 +438,10 @@ class RefineByActivityStage:
         post = packed["post"]
         weight = packed["weight"]
         delay = packed["delay"]
-        
+        if resolve(params.get("record", False), genome, fields):
+            # Off by default: keep the (ticks, N) raster for later stages (e.g. `competitive_elimination`, C22)
+            tissue._activity_spikes = np.asarray(spikes_out, dtype=np.uint8)[:, :len(tissue.alive)]
+
         # Select rule
         if rule_type == "stdp":
             A_plus = float(resolve(params.get("A_plus", 1.0), genome, fields))

@@ -275,7 +275,9 @@ sources, listed below the table.
 |---|---|
 | C14 | done: `cell_cycle_clock` (#68), Q(generation) as a power law or table, cycle-length table, `Tissue.cycling` (K6 part, #67) |
 | C15 | done: `temporal_competence` (#69), one-way competence channels advanced by generation or a field, fixed at cycle exit |
-| C16–C24 | not done |
+| C16–C21 | not done |
+| C22 | done: `competitive_elimination` in `neurogenesis/stages/competition.py`, coactivity with the target versus a `fraction` of the strongest competitor, weaken by `delta` or remove; silent targets and non-plastic synapses unchanged; raster from `spikes` or `refine_by_activity` with `record` |
+| C23–C24 | not done |
 
 **Order and priorities.** C14 → C15 first (they make birth-order-dependent layering emerge in G2.3, instead of being
 imposed); C21, C22, C23 next (they use existing P3 / P4 and C11); C18 and C24 independent; C16, C17, C19 after N2 / N3;
