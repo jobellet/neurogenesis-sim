@@ -1,3 +1,4 @@
+"""Voxel-mask geometries (B2): `VoxelMaskGeometry`, a boolean occupancy grid with an origin and a voxel pitch."""
 import numpy as np
 from typing import Dict, Type, Callable, Any, Tuple, Optional, List
 from .primitives import Geometry, register_geometry, Box

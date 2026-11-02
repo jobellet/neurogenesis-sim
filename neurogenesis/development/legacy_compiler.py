@@ -1,3 +1,9 @@
+"""Legacy compiler (A5): a `BodyPlan` as a Stage schedule.
+
+`compile_plan_to_schedule` / `compile_plan_to_project` wrap a plan into the `legacy_grow_stage` stage, which runs the
+decomposed steps of `development.grow`; with `run_schedule(..., legacy_stream=True)` the result is bit-for-bit that of
+`grow()`.
+"""
 from __future__ import annotations
 
 from typing import Dict, Any, List, Optional

@@ -323,24 +323,31 @@ example profile with cited entries is in `examples/profiles/example_receptors.js
   `e_immature` or `e_mature`: no-op. O(N + E). Rodent defaults (E_Cl −45 → −75 mV, switch P5–P10) with citations:
   `examples/profiles/transporter_switch.json`.
 Conditions use the variables of `differentiate` conditions. Each stage without its params (`rules` / `profile`) is a
-no-op. **Not implemented:** conductance-based kernels (P4) and neuromodulation (P5); the legacy `receptor_sign` rule
-is not re-expressed as a profile.
+no-op. Conductance-based synapses (P4) are in the spiking models (`docs/NEURON_MODELS.md`) and neuromodulation (P5) is
+the `neuromodulate` stage below. **Not implemented:** the legacy `receptor_sign` rule is not re-expressed as a profile.
 
 ## Neuromodulation and dendrites (P5, N5, `neurogenesis/neuromodulation.py`, `neurogenesis/dendritic.py`)
 
-**`neuromodulate` (P5).** Volume-transmitted neuromodulation gating plasticity: the spikes of `modulator_cells` are
-low-pass filtered (`tau_ms`, default 50 ms) and spread in space with an exponential kernel (`space_constant`, default
-50 space units), and the resulting modulator trace at each synapse multiplies a three-factor STDP update (eligibility
-time constant `tau_e` 50 ms, `tau_plus` / `tau_minus` 20 ms, learning rate `eta` 0.05, bounds `w_min` 0, `w_max` 1000).
+**`neuromodulate` (P5).** Three-factor plasticity (`spiking.plasticity.ThreeFactorRule`) over a recorded spike raster
+`spikes` (T × N array, a plain value), gated by a modulator released by `modulator_cells` (volume transmission). The
+level at a cell is the sum over modulator cells of their spike trains filtered with `tau_ms`, weighted by
+exp(−distance / `space_constant`); dw = `eta` × eligibility × level, the eligibility summing pre-synaptic arrivals
+(after the synaptic delay) that coincide with post-synaptic spikes, filtered with `tau_e`. Weights keep their sign and
+their magnitude is clipped to [`w_min`, `w_max`]; synapses with `plastic == False` (K6) keep their weight. Every
+parameter but `spikes` is a `Param` (a Gene-controlled `eta` is tested); a `Field` resolves to the field object, so use
+scalar sources.
 | Param | Default | Meaning |
 |---|---|---|
-| `modulator_cells` | [] | indices of the cells releasing the modulator; empty = no-op |
-| `spikes` | none | recorded spike raster (ticks × cells) the update uses; absent = no-op |
-| `space_constant`, `tau_ms` | 50.0, 50.0 | spatial (space units) and temporal (ms) constants of the volume signal |
-| `eta`, `tau_plus`, `tau_minus`, `tau_e`, `w_min`, `w_max` | 0.05, 20, 20, 50, 0, 1000 | plasticity rule |
-
-Limits: the parameters are read as plain values, not `Param`s (no gene or field control yet); the spike raster must be
-supplied (the stage does not simulate); the spatial kernel is computed between all modulator cells and all targets.
+| `modulator_cells` | none | cell indices releasing the modulator (none or empty = no-op) |
+| `space_constant`, `tau_ms` | 50.0, 50.0 | spatial decay (space units) and time constant (ticks) of the modulator |
+| `eta`, `tau_e` | 0.05, 50.0 | learning rate; eligibility time constant (ticks) |
+| `tau_plus`, `tau_minus` | 20.0, 20.0 | accepted for a timing-dependent eligibility; the current rule does not use them |
+| `w_min`, `w_max` | 0.0, 1000.0 | bounds of the weight magnitude |
+| `ticks` | all rows | rows of `spikes` used; the cost assumes 1000 when absent |
+No `spikes` or no modulator cells is the no-op. The source × target distance kernel is evaluated only at cells that
+receive synapses, in blocks of at most 2²⁰ pairs; memory is O(T N) (the per-cell modulator level) and time
+O(T S P + T E) for S modulator cells and P postsynaptic cells. The spike raster must be supplied (the stage does
+not simulate).
 
 **`dendritic_attenuate` (N5).** Passive dendritic filtering: each synaptic weight is multiplied by
 `exp(−d / length_constant)`, where `d` is the synapse's dendritic distance (computed from `post_node` and the
