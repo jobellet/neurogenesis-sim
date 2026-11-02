@@ -1,3 +1,11 @@
+"""Chunked and streaming growth (D4): axon growth for tissues whose synapses do not fit in memory.
+
+`grow_axons_streaming` runs the `grow_axons` guidance rules over chunks of `chunk_size` source cells, with a
+`CellList` over targets, and writes each chunk's synapses to an `.npz` shard; `SynapseShardManifest` lists the shards
+(JSON). `assemble_shards` concatenates them into one `SparseConnectivity`, `stream_stats` summarises weights, delays
+and out-degrees shard by shard, and `streaming_growth_cost` declares the peak memory (O(N) plus one chunk, independent
+of E) and operations.
+"""
 import json
 import hashlib
 import warnings

@@ -1,3 +1,7 @@
+"""Connectivity stages (C8-C9): `grow_axons` (axon guidance and synaptogenesis between region populations through the
+guidance rules and sparse candidate search; chemoaffinity: Sperry, 1963, PNAS), and the supervised entry points
+`place_by_hand` (explicit cells) and `connect_by_hand` (explicit synapse lists).
+"""
 from __future__ import annotations
 
 import warnings

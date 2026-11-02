@@ -1,3 +1,9 @@
+"""Migration and sorting stages (C4-C5).
+
+`migrate`: steps along a direction or vector field, radial, tangential or chemotactic (Marin, 2003, Annual Review of
+Neuroscience). `sort`: ranking along an axis and differential adhesion (Steinberg, 1963, Science). `mosaic`: homotypic
+exclusion zones (Galli-Resta, 1997, Journal of Neuroscience). Neighbour searches use `spatial.CellList`.
+"""
 import numpy as np
 from typing import Dict, Any, Tuple
 

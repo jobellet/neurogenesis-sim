@@ -1,3 +1,10 @@
+"""Point patterns and maps (B4).
+
+Point sets: `regular_points`, `jittered_points`, `poisson_disc_points` (Bridson's dart throwing with `k` attempts per
+point; Bridson, 2007, ACM SIGGRAPH sketches) and `PointSetField`. Orientation maps: `pinwheel_map` from given
+singularities, `bandpass_pinwheels` (band-pass filtered noise; Swindale, 1996, Network: Computation in Neural Systems;
+Kaschube, 2010, Science), `PinwheelField`, `find_pinwheels` and `pinwheel_charges`. Randomness only from the given rng.
+"""
 import numpy as np
 from typing import Any, Dict, Tuple, List, Union
 

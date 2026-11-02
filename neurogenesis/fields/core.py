@@ -1,3 +1,10 @@
+"""Field types (B3) and their JSON registry.
+
+`Field` is the interface (`values(points)`, `to_dict`); `GridField` (nearest or linear interpolation on a regular grid),
+`AnalyticField` (a formula of x, y, z, evaluated by `expressions.eval_expr`), `LayerStackField` (layers of `Param`
+thicknesses along an axis), `VectorField` and `LabelField`. `register_field` / `field_from_dict` map JSON types to
+classes.
+"""
 from abc import ABC, abstractmethod
 import numpy as np
 from typing import Dict, Any, Type, Optional, List, Union

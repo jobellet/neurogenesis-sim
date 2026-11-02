@@ -1,3 +1,11 @@
+"""Maturation stages (C10-C12): activity-dependent refinement during development.
+
+`prune` (weak or uncorrelated synapses; Katz, 1996, Science), `scale` (homeostatic synaptic scaling; Turrigiano, 1998,
+Nature), `myelinate` (shorter delays for active or long projections; Gibson, 2014, Science) and `refine_by_activity`
+(spontaneous activity simulated with the `lif_int` kernel, then STDP, Hebbian or three-factor updates; Izhikevich,
+2007, Cerebral Cortex). Helpers: `simulate_tissue` (spike raster of a tissue) and `coactivity` (pre / post
+coincidences per synapse).
+"""
 import warnings
 from typing import Dict, Any, Optional, Tuple
 import numpy as np

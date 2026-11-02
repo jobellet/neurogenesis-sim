@@ -1,0 +1,15 @@
+{
+  "id": "critical_period_gate_visual_cortex",
+  "description": "Ocular-dominance critical period of primary visual cortex: opening when parvalbumin-cell inhibition matures, closing with perineuronal-net condensation; enzymatic removal of the nets reopens it. Ages for choosing the gate's schedule positions and thresholds; the stage itself takes only Params.",
+  "citations": [
+    "Hensch 2005, Nat Rev Neurosci 6:877-888",
+    "Pizzorusso et al. 2002, Science 298:1248-1251",
+    "Hubel & Wiesel 1970, J Physiol 206:419-436"
+  ],
+  "windows": [
+    {"species": "mouse", "eye_opening": "P13-P14", "opens": "P19-P21", "peak": "P26-P28", "closes": "P32-P35"},
+    {"species": "cat", "opens": "weeks 3-4", "peak": "about week 6", "closes": "about 3 months"}
+  ],
+  "gate_params_example": {"source_type": 1, "measure": "mean", "open_threshold": 20.0, "close_after": 2},
+  "reopening": "chondroitinase ABC degrades perineuronal nets and restores ocular-dominance plasticity in adults (Pizzorusso et al. 2002): critical_period_gate with reopen = true"
+}

@@ -1,3 +1,7 @@
+"""Field operations (B5), composable in JSON: `Add`, `Subtract`, `Multiply`, `Threshold`, `GaussianSmooth`,
+`DistanceTransform` (exact Euclidean transform; Saito, 1994, Pattern Recognition), `Gradient` and
+`DistanceToBoundary`. Dense pairwise steps are processed in blocks of at most `MAX_PAIRS` pairs.
+"""
 import numpy as np
 from typing import Dict, Any, Type, Union, Optional
 from .core import Field, register_field, field_from_dict, GridField
