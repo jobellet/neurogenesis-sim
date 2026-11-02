@@ -599,7 +599,7 @@ Transmitter action depends on receptors and developmental context, never a stati
 
 **P5. Neuromodulation & volume transmission.**
 - Diffuse neuromodulatory fields acting on plasticity eligibility traces (interfacing Phase E `ThreeFactorRule`).
-- **Status:** done: `neurogenesis.neuromodulation` (`VolumeModulator`, `apply_modulated_plasticity`, `neuromodulate` stage).
+- **Status:** done: `neurogenesis.neuromodulation` (`VolumeModulator`, `apply_modulated_plasticity`, `neuromodulate` stage; every parameter a `Param`, see `docs/STAGES.md`).
 
 ### Phase N: Branching Neurites & Arbor Morphology
 

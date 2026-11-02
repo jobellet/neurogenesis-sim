@@ -304,8 +304,28 @@ example profile with cited entries is in `examples/profiles/example_receptors.js
   before `refine_by_activity` and `"mature"` after it for a sign switch during development; gains multiply at every
   call, so give gains other than 1 in one compilation only.
 Conditions use the variables of `differentiate` conditions. Each stage without its params (`rules` / `profile`) is a
-no-op. **Not implemented:** conductance-based kernels (P4) and neuromodulation (P5); the legacy `receptor_sign` rule
-is not re-expressed as a profile.
+no-op. Conductance-based synapses (P4) are in the spiking models (`docs/NEURON_MODELS.md`) and neuromodulation (P5) is
+the `neuromodulate` stage below. **Not implemented:** the legacy `receptor_sign` rule is not re-expressed as a profile.
+
+## Neuromodulation (P5, `neurogenesis/neuromodulation.py`)
+**`neuromodulate`.** Three-factor plasticity (`spiking.plasticity.ThreeFactorRule`) over a recorded spike raster
+`spikes` (T × N array, a plain value), gated by a modulator released by `modulator_cells` (volume transmission). The
+level at a cell is the sum over modulator cells of their spike trains filtered with `tau_ms`, weighted by
+exp(−distance / `space_constant`); dw = `eta` × eligibility × level, the eligibility summing pre-synaptic arrivals
+(after the synaptic delay) that coincide with post-synaptic spikes, filtered with `tau_e`. Weights keep their sign and
+their magnitude is clipped to [`w_min`, `w_max`]. Every parameter but `spikes` is a `Param` (a Gene-controlled `eta`
+is tested); a `Field` resolves to the field object, so use scalar sources.
+| Param | Default | Meaning |
+|---|---|---|
+| `modulator_cells` | none | cell indices releasing the modulator (none or empty = no-op) |
+| `space_constant`, `tau_ms` | 50.0, 50.0 | spatial decay (space units) and time constant (ticks) of the modulator |
+| `eta`, `tau_e` | 0.05, 50.0 | learning rate; eligibility time constant (ticks) |
+| `tau_plus`, `tau_minus` | 20.0, 20.0 | accepted for a timing-dependent eligibility; the current rule does not use them |
+| `w_min`, `w_max` | 0.0, 1000.0 | bounds of the weight magnitude |
+| `ticks` | all rows | rows of `spikes` used; the cost assumes 1000 when absent |
+No `spikes` or no modulator cells is the no-op. The source × target distance kernel is evaluated only at cells that
+receive synapses, in blocks of at most 2²⁰ pairs; memory is O(T N) (the per-cell modulator level) and time
+O(T S P + T E) for S modulator cells and P postsynaptic cells.
 
 ## Geometry (B2, `neurogenesis/geometry/mesh.py`, `voxel.py`)
 - **`mesh`** (`MeshGeometry(vertices, faces, resolution=32)`, `from_obj`, `from_stl` for ASCII and binary STL).

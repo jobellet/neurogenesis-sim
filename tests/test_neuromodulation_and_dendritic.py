@@ -248,3 +248,68 @@ def test_integration_run_schedule():
     expected_distal = 10.0 * np.exp(-1.0)
     np.testing.assert_almost_equal(t.connectivity.weight[1], expected_distal)
 
+
+
+def _modulated_tissue(n=3):
+    t = Tissue.empty()
+    t.add_cells(n, positions=np.zeros((n, 3)))
+    t.connectivity = SparseConnectivity(
+        pre=np.array([0, 0]), post=np.array([1, 1]), weight=np.array([10.0, -10.0]), delay=np.array([1, 1])
+    )
+    spikes = np.zeros((10, n))
+    spikes[0, 0] = spikes[1, 1] = spikes[2, 2] = 1.0
+    return t, spikes
+
+
+def test_neuromodulate_gene_controlled_eta():
+    from neurogenesis.stages.base import Stage
+
+    params = {"modulator_cells": [2], "tau_e": 5.0, "w_max": 100.0, "eta": {"path": ["eta"], "lo": 0.0, "hi": 1.0}}
+    weights = {}
+    for eta in (0.0, 0.5, 1.0):
+        t, spikes = _modulated_tissue()
+        stage = Stage("n", "neuromodulate", params={**params, "spikes": spikes})
+        weights[eta] = stage.run(t, {"eta": eta}, {}, np.random.default_rng(0)).connectivity.weight
+    np.testing.assert_allclose(weights[0.0], [10.0, -10.0])  # eta = 0: no change
+    assert 10.0 < weights[0.5][0] < weights[1.0][0]
+    assert weights[1.0][1] < 0.0
+    # Same result as the function with eta given directly
+    t, spikes = _modulated_tissue()
+    direct = apply_modulated_plasticity(t, spikes, np.array([2]), eta=0.5, tau_e=5.0, w_max=100.0)
+    np.testing.assert_allclose(weights[0.5], direct)
+
+
+def test_neuromodulate_trace_is_per_postsynaptic_cell():
+    # Two synapses onto two cells at different distances from the modulator cell: each sees its own level
+    t = Tissue.empty()
+    t.add_cells(4, positions=np.array([[0.0, 0, 0], [10.0, 0, 0], [200.0, 0, 0], [0.0, 0, 0]]))
+    t.connectivity = SparseConnectivity(
+        pre=np.array([0, 0]), post=np.array([2, 1]), weight=np.array([10.0, 10.0]), delay=np.array([1, 1])
+    )
+    spikes = np.zeros((10, 4))
+    spikes[0, 0] = spikes[1, 1] = spikes[1, 2] = spikes[2, 3] = 1.0
+    w = apply_modulated_plasticity(t, spikes, np.array([3]), eta=1.0, tau_e=5.0, w_max=100.0)
+    assert w[1] - 10.0 > 5 * (w[0] - 10.0) > 0  # cell 1 is near the modulator cell, cell 2 far
+
+
+def test_neuromodulate_declared_memory_within_factor_three():
+    import tracemalloc
+    from neurogenesis.stages.base import STAGE_REGISTRY, Stage
+
+    rng = np.random.default_rng(1)
+    N, E, T = 1000, 4000, 2000
+    t = Tissue.empty()
+    t.add_cells(N, positions=rng.uniform(0, 200, (N, 3)))
+    t.connectivity = SparseConnectivity(
+        pre=rng.integers(0, N, E), post=rng.integers(0, N, E), weight=rng.uniform(1, 10, E), delay=np.ones(E, int)
+    )
+    spikes = (rng.random((T, N)) < 0.01).astype(np.float32)
+    params = {"modulator_cells": list(range(20)), "ticks": T}
+    stage = Stage("n", "neuromodulate", params={**params, "spikes": spikes})
+    stage.run(t, {}, {}, rng)  # compile outside the measurement
+    tracemalloc.start()
+    stage.run(t, {}, {}, rng)
+    peak = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
+    declared = STAGE_REGISTRY["neuromodulate"].cost(N, E, params)[0]
+    assert declared / 3 <= peak <= declared * 3, (declared, peak)
