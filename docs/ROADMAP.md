@@ -278,13 +278,30 @@ field or fit can replace; values are about the cited species and ages, and resul
   - Cycle length T_C from about 8.1 h (CC1, E11) to about 20 h (CC11, E17); T_S and T_G2+M constant; the lengthening
     is almost entirely G1 (about 3 h → 14 h).
   - Leaving fraction `Q(CC) = min(1, k · CC^a)`, defaults `k = 0.009`, `a = 1.97`; P = 1 − Q.
-  - Check of these defaults (computed): Q = 0.31 at CC6, 0.42 at CC7, 0.54 at CC8, 1 at CC11; about 27 % of the
-    neurons are made in CC1–CC7; a founder yields about 156 neurons. This matches the review's pivot at CC8 (P = Q =
-    0.5, about 75 % of the interval), its "about 30 % of neurons in the first 7 cycles" and "about 140 neurons per
-    founder", but not its "Q < 0.30 up to CC7" (the formula gives Q < 0.30 up to CC5): the first source must settle
-    which one the default reproduces.
-  - Acceptance test: with the defaults, Q per cycle and the neuron output per cycle match the formula (and its
-    expected values) across development seeds, and division times follow T_C(CC).
+  - Reference table (one founder; `PVE_n = 2 · PVE_(n−1) · P_(n−1)` progenitors, `OUT_n = 2 · PVE_n · Q_n` neurons):
+
+    | CC | age | T_C (h) | T_G1 (h) | Q | PVE | OUT | cumulative |
+    |---|---|---|---|---|---|---|---|
+    | 1 | E11 | 8.1 | 3.0 | 0.009 | 1.00 | 0.02 | 0.02 |
+    | 2 | E11.5 | 8.5 | 3.5 | 0.035 | 1.98 | 0.14 | 0.16 |
+    | 3 | E12 | 9.2 | 4.2 | 0.078 | 3.82 | 0.60 | 0.76 |
+    | 4 | E12.8 | 10.2 | 5.2 | 0.138 | 7.05 | 1.95 | 2.70 |
+    | 5 | E13.5 | 11.5 | 6.5 | 0.214 | 12.15 | 5.21 | 7.91 |
+    | 6 | E14.2 | 13.0 | 8.0 | 0.307 | 19.09 | 11.72 | 19.64 |
+    | 7 | E15.0 | 14.8 | 9.8 | 0.416 | 26.46 | 22.01 | 41.65 |
+    | 8 | E15.7 | 16.8 | 11.8 | 0.541 | 30.90 | 33.45 | 75.10 |
+    | 9 | E16.3 | 18.2 | 13.2 | 0.683 | 28.36 | 38.71 | 113.81 |
+    | 10 | E16.8 | 19.3 | 14.3 | 0.840 | 18.01 | 30.25 | 144.06 |
+    | 11 | E17.0 | 20.0 | 15.0 | 1.000 | 5.77 | 11.53 | 155.59 |
+
+    Q and the counts follow from the formula (checked here); T_C and T_G1 between the measured end points (8.1 h,
+    20 h; G1 3 h → about 14–15 h) are interpolated by the review and are defaults, not data.
+  - Q passes 0.5 during CC8 (E15), when the progenitor pool peaks (about 31 founders' worth); about 27 % of the
+    neurons are made in CC1–CC7. Without cell death a founder yields about 156 neurons; the reported mean of about 140
+    corresponds to a basal progenitor death of about 1 % per cycle (the review's figure; 0.99^11 × 156 ≈ 140).
+  - Acceptance tests: Q per cycle follows the formula; the first cycle with Q > 0.5 is CC8; the progenitor pool peaks
+    at CC8; neurons per founder ≈ 156 with no death and ≈ 140 with 1 % death per cycle (averaged over development
+    seeds); division times follow T_C(CC).
 - **C15 `temporal_competence`** — ferret neocortex (McConnell and Kaznowski 1991, Science 254:282–285; McConnell 1995,
   Neuron 15:761–768; for the invertebrate temporal cascade, Isshiki et al. 2001, Cell 106:511–521).
   - Birth order to layer: layer VI E30–E34, layer V E35–E38, layer IV E39–P0, layers II/III P1–P3.
@@ -301,11 +318,19 @@ field or fit can replace; values are about the cited species and ages, and resul
     boutons about one third each on spines, proximal dendritic shafts and soma; chandelier cartridges (up to about 40
     symmetric synapses) only on the axon initial segment; 3–5 chandelier cells per superficial-layer pyramidal axon
     initial segment; one chandelier cell contacts about 300 pyramidal neurons within 200–400 µm.
-  - Contacts per connection: to be reconciled before implementation. The review gives 1–2 (rarely 4–5) for pyramidal
-    → pyramidal, while paired recordings with anatomical reconstruction in layer 5 report about 4–8 contacts per
-    connection (Markram et al. 1997, J Physiol 500:409–440; to verify). "10 to 30" for basket cells is the convergence
-    of different basket cells onto one soma, not a contact count per connection. The stage needs per-connection
-    contact distributions per type pair.
+  - Contacts per connection (multiplicity of a unitary connection, distinct from convergence), defaults as
+    distributions per (pre type, post type) `Param`:
+    - pyramidal → pyramidal: 3–8 contacts (mean about 5–6; extremes 3–12) on dendritic spines ("3–12 synapses make up
+      glutamatergic connections", Markram, DeFelipe and Thomson, in Shepherd and Grillner 2010, ch. 3; paired recordings
+      with reconstruction: Markram et al. 1997, J Physiol 500:409–440, layer 5; Feldmeyer et al., layers 2/3 and 4);
+    - basket → pyramidal: 5–15 contacts (mean about 10; "about 10 synapses on average with each target", Shepherd 2004,
+      ch. 12, p. 520), split about 30 % soma, 35 % proximal dendrites, 35 % spines; convergence of 10–30 basket cells
+      per soma is a separate number (it follows from connection probabilities, not from this stage);
+    - chandelier → pyramidal: 8–14 contacts per cartridge on the axon initial segment, so that the 3–5 converging
+      chandelier cells give the total of about 40 axon-initial-segment synapses of a layer 2/3 pyramidal cell (about
+      12–15 for layer 5) (Shepherd 2004, ch. 12, p. 521; Somogyi et al. 1982; Peters 1984).
+  - Acceptance tests: contact counts per type pair follow their distributions; with morphology, the compartment
+    fractions match; in a layer 2/3 test tissue the total chandelier contacts per axon initial segment is about 40.
 - **C21 `transporter_switch`** — rat and mouse (Rivera et al. 1999, Nature 397:251–255; Ben-Ari 2002, Nat Rev Neurosci
   3:728–739; retina: Vu et al. 2000, Zhang et al. 2003).
   - Immature: high NKCC1, [Cl⁻]i about 25–40 mM, E_Cl about −50 to −40 mV (above a rest of −65 to −70 mV): GABA
