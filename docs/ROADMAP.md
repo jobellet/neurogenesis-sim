@@ -305,6 +305,8 @@ field or fit can replace; values are about the cited species and ages, and resul
   - Acceptance tests: Q per cycle follows the formula; the first cycle with Q > 0.5 is CC8; the progenitor pool peaks
     at CC8; neurons per founder ≈ 156 with no death and ≈ 140 with 1 % death per cycle (averaged over development
     seeds); division times follow T_C(CC).
+  - **Status:** done: `cell_cycle_clock` in `neurogenesis/stages/population.py`, `Tissue.birth_time`, reference profile
+    `examples/profiles/cell_cycle_clock.json`, and 25-seed acceptance tests in `tests/test_stages_cell_cycle.py`.
 - **C15 `temporal_competence`** — ferret neocortex (McConnell and Kaznowski 1991, Science 254:282–285; McConnell 1995,
   Neuron 15:761–768; for the invertebrate temporal cascade, Isshiki et al. 2001, Cell 106:511–521).
   - Birth order to layer: layer VI E30–E34, layer V E35–E38, layer IV E39–P0, layers II/III P1–P3.

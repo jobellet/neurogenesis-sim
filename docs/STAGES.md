@@ -20,7 +20,7 @@ a parameter uses them.
 - **Neutral** means the stage leaves the tissue unchanged. Every toolbox stage called with empty params is a
   no-op (tested for every registered stage except `legacy_grow_stage`, which needs its `plan`).
 
-## Population (C1–C3, `neurogenesis/stages/population.py`)
+## Population (C1–C3, C14, `neurogenesis/stages/population.py`)
 
 **`seed_cells` (C1).** Adds cells: `N` sampled uniformly in a geometry or placed at one position, a `density`
 in a geometry, or a point set.
@@ -67,6 +67,21 @@ Daughters copy the mother's region, expression, sign, `cycling` (`True` by defau
 
 All criteria are off when absent. Neighbour counts use a dense N × N distance matrix for `N <= 2048` and the cell list
 (`CellList`, D1) above. Limits: synapse counts ignore weights and activity.
+
+**`cell_cycle_clock` (C14).** Called once per cell cycle before `proliferate` (Takahashi, Nowakowski & Caviness 1995,
+J Neurosci; 1996, J Neurosci; Caviness et al. 2000). Each cycling alive cell (`Tissue.cycling`) advances its cycle
+counter (`Tissue.generation`) and leaves the cell cycle (`cycling = False`) with probability
+`Q(generation) = min(1, k · generation^a)` or from a per-generation table `Q` (`q_table`).
+| Param | Default | Meaning |
+|---|---|---|
+| `k`, `a` | 0.0, 1.97 | power-law parameters for `Q(generation) = min(1, k · generation^a)` (per cell; `Const`, `Gene`, `Field` or `Expr`); `k <= 0` without `Q` / `T_C` is a no-op |
+| `Q` (or `q_table`) | none | per-generation exit probability table (1-indexed by cycle `generation`) or per-cell `Param`, overriding `k` and `a` |
+| `T_C` (or `tc_table`, `tc`) | none | per-generation cycle length table or formula (`Param`); advances each cycling cell's cumulative `Tissue.birth_time` |
+
+Leaving cells get `cycling = False` and their exit `generation` (birth cycle) and `birth_time` are frozen across later
+cycles, while the immediately following `proliferate` completes the current cycle's division for all cells that entered
+the cycle (producing two postmitotic daughters for leaving progenitors and two cycling progenitors for self-renewing
+ones). Reference neocortical profile: `examples/profiles/cell_cycle_clock.json`.
 
 ## Migration and sorting (C4–C5, `neurogenesis/stages/migration.py`)
 
@@ -137,7 +152,7 @@ listed properties (later entries override earlier ones).
 | Entry key | Meaning |
 |---|---|
 | `type_id` | cell type set on matching cells (default 0) |
-| `condition` | expression over `expr` (K × N, so `expr[k]`), `N`, `lineage` (cell ids), `parent`, `clone`, `cell_type`, `generation`, `birth_stage` (birth order), `region`, positions `x`, `y`, `z`, `field_<name>` (each Project field at the cell positions; geometries give 0/1) and `geom_<name>`; absent = all cells |
+| `condition` | expression over `expr` (K × N, so `expr[k]`), `N`, `lineage` (cell ids), `parent`, `clone`, `cell_type`, `generation`, `cycling`, `birth_stage` (birth order), `birth_time`, `region`, positions `x`, `y`, `z`, `field_<name>` (each Project field at the cell positions; geometries give 0/1) and `geom_<name>`; absent = all cells |
 | `sign`, `base_weight` | sign and weight magnitude; `base_weight` keeps the sign (Dale's principle) |
 | `mode`, `shift_v`, `shift_s`, `conn_radius`, `conn_prob`, `burst_period`, `burst_duty`, `poisson_hz`, `refractory`, `role`, `compartment`, `threshold`, `region`  | neuron parameters set on the matching cells |
 
