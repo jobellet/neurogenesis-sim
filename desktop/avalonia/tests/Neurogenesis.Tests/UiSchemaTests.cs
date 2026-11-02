@@ -40,7 +40,7 @@ public class UiSchemaTests
     [Fact]
     public void LoadDefault_Succeeds()
     {
-        var (ok, err, doc) = UiSchemaLoader.LoadDefault();
+        var (ok, err, doc, _) = UiSchemaLoader.LoadDefault();
         Assert.True(ok, err);
         Assert.NotNull(doc);
         Assert.Equal("neurogenesis-ui-schema", doc.Format);

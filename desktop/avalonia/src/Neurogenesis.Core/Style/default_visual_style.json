@@ -15,11 +15,24 @@
     "budget": 200000
   },
   "ui": {
+    "window_background": "#0E1014",
+    "window_foreground": "#E0E6ED",
     "panel_background": "#16191E",
     "panel_border": "#252A32",
     "status_background": "#1A1D23",
     "note_background": "#B0101318",
-    "note_foreground": "#FFD27F"
+    "note_foreground": "#FFD27F",
+    "card_background": "#1C2027",
+    "card_border": "#282E38",
+    "task_badge_bg": "#193264",
+    "task_badge_fg": "#96C8FF",
+    "available_badge_bg": "#144620",
+    "available_badge_fg": "#5ADC82",
+    "planned_badge_bg": "#46280A",
+    "planned_badge_fg": "#FFAA46",
+    "help_accent": "#78AAF0",
+    "warning_text": "#FFAA46",
+    "error_text": "#FF6464"
   },
   "palette": [
     [0.33, 0.62, 0.98, 1.0], [0.98, 0.55, 0.24, 1.0], [0.35, 0.80, 0.45, 1.0], [0.89, 0.36, 0.50, 1.0],

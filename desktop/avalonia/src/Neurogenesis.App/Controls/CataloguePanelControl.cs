@@ -2,8 +2,8 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Neurogenesis.App.Style;
 using Neurogenesis.App.ViewModels;
-using Neurogenesis.Core.Schema;
 
 namespace Neurogenesis.App.Controls;
 
@@ -41,7 +41,9 @@ public sealed class CataloguePanelControl : UserControl
         {
             var card = new Border
             {
-                Background = new SolidColorBrush(Color.FromArgb(25, 255, 255, 255)),
+                Background = ThemeBrushes.CardBackground,
+                BorderBrush = ThemeBrushes.CardBorder,
+                BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(5),
                 Padding = new Thickness(8),
                 Margin = new Thickness(0, 2)
@@ -54,11 +56,15 @@ public sealed class CataloguePanelControl : UserControl
 
             var addBtn = new Button
             {
-                Content = "+ Add",
+                Content = stage.Available ? "+ Add" : "Planned",
+                IsEnabled = stage.Available,
                 FontSize = 10,
                 Padding = new Thickness(6, 2)
             };
-            addBtn.Click += (s, e) => _vm?.AddStage(stage);
+            if (stage.Available)
+            {
+                addBtn.Click += (s, e) => _vm?.AddStage(stage);
+            }
             DockPanel.SetDock(addBtn, Dock.Right);
             headerDock.Children.Add(addBtn);
 
@@ -73,23 +79,19 @@ public sealed class CataloguePanelControl : UserControl
 
             titleStack.Children.Add(new Border
             {
-                Background = new SolidColorBrush(Color.FromArgb(50, 100, 150, 255)),
+                Background = ThemeBrushes.TaskBadgeBg,
                 CornerRadius = new CornerRadius(3),
                 Padding = new Thickness(4, 1),
                 Child = new TextBlock
                 {
                     Text = stage.Task,
                     FontSize = 9,
-                    Foreground = new SolidColorBrush(Color.FromRgb(150, 200, 255))
+                    Foreground = ThemeBrushes.TaskBadgeFg
                 }
             });
 
-            var availBrush = stage.Available
-                ? new SolidColorBrush(Color.FromArgb(60, 40, 180, 80))
-                : new SolidColorBrush(Color.FromArgb(60, 220, 120, 30));
-            var availFg = stage.Available
-                ? new SolidColorBrush(Color.FromRgb(90, 220, 130))
-                : new SolidColorBrush(Color.FromRgb(255, 170, 70));
+            var availBrush = stage.Available ? ThemeBrushes.AvailableBadgeBg : ThemeBrushes.PlannedBadgeBg;
+            var availFg = stage.Available ? ThemeBrushes.AvailableBadgeFg : ThemeBrushes.PlannedBadgeFg;
             titleStack.Children.Add(new Border
             {
                 Background = availBrush,
@@ -97,7 +99,7 @@ public sealed class CataloguePanelControl : UserControl
                 Padding = new Thickness(4, 1),
                 Child = new TextBlock
                 {
-                    Text = stage.Available ? "Registered" : "Planned",
+                    Text = stage.Available ? "Registered" : "Planned (not runnable)",
                     FontSize = 9,
                     Foreground = availFg
                 }

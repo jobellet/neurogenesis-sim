@@ -1,7 +1,11 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.IO;
+using System.Text.Json;
 using System.Text.Json.Nodes;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Neurogenesis.Core.Bridge;
 using Neurogenesis.Core.Ngb;
 using Neurogenesis.Core.Project;
 using Neurogenesis.Core.Scene;
@@ -19,9 +23,10 @@ public sealed partial class MainViewModel : ObservableObject
     public VisualStyle Style { get; } = VisualStyle.Default;
     public IReadOnlyList<ColorMode> ColorModes => Style.ColorModes;
     public ObservableCollection<FieldRow> Inspector { get; } = new();
+    public BridgeClient? Bridge { get; }
 
     public ProjectDocument Project { get; }
-    public UiSchemaDocument? UiSchema { get; }
+    [ObservableProperty] private UiSchemaDocument? _uiSchema;
 
     [ObservableProperty] private string _status = "Open a network file (.ngb) or configure schedule.";
     [ObservableProperty] private string _sceneNote = "";
@@ -34,8 +39,16 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool _canUndo;
     [ObservableProperty] private bool _canRedo;
 
+    [ObservableProperty] private float _currentTick = 0f;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(SimButtonText))] private bool _isSimulating = false;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(CanSimulateNative))] private bool _isModelNative = true;
+
     public bool HasSelection => Selected >= 0;
     public string SimButtonText => IsSimulating ? "Pause" : "Simulate";
+    public bool CanSimulateNative => Scene != null && IsModelNative;
+
+    private SimulationEngine? _simEngine;
+    private long _lastUiUpdateTimestamp;
 
     public MainViewModel()
     {
@@ -45,20 +58,104 @@ public sealed partial class MainViewModel : ObservableObject
         {
             CanUndo = Project.CanUndo;
             CanRedo = Project.CanRedo;
+            UpdateModelNative();
         };
 
-        var (success, _, doc) = UiSchemaLoader.LoadDefault();
+        // Load bundled / fallback UI schema
+        var (success, error, doc, _) = UiSchemaLoader.LoadDefault();
         if (success && doc != null)
         {
             UiSchema = doc;
-            // Populate project with default stage if empty
+            if (string.IsNullOrEmpty(Project.NeuronModel) && doc.Models.Count > 0)
+            {
+                Project.NeuronModel = doc.Models[0].Name;
+            }
             if (Project.Schedule.Count == 0 && doc.Stages.Count > 0)
             {
-                var seedStage = doc.Stages.FirstOrDefault(st => st.Operator == "seed_cells") ?? doc.Stages[0];
-                Project.AddStage(seedStage);
+                var firstAvailable = doc.Stages.FirstOrDefault(st => st.Available) ?? doc.Stages[0];
+                Project.AddStage(firstAvailable);
             }
         }
+        else if (!string.IsNullOrEmpty(error))
+        {
+            Status = $"UI Schema warning: {error}";
+        }
+
+        UpdateModelNative();
+
+        // Connect bridge if python runtime is found
+        try
+        {
+            string? py = PythonLocator.FindPython();
+            if (!string.IsNullOrEmpty(py))
+            {
+                Bridge = new BridgeClient(py);
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                        await Bridge.StartAsync(cts.Token);
+                        await RefreshSchemaFromBridgeAsync();
+                    }
+                    catch
+                    {
+                        // Bridge startup is optional during initial launch
+                    }
+                });
+            }
+        }
+        catch
+        {
+            // Python runtime not configured yet
+        }
     }
+
+    private async Task RefreshSchemaFromBridgeAsync()
+    {
+        if (Bridge == null || !Bridge.IsReady) return;
+        try
+        {
+            // Query bridge for ui_schema if supported
+            var schemaJson = await Bridge.CallAsync("ui_schema", null);
+            if (schemaJson.ValueKind == JsonValueKind.Object)
+            {
+                string raw = schemaJson.GetRawText();
+                var (valid, validationErr, dynamicDoc) = UiSchemaLoader.ValidateDynamic(raw);
+                if (valid && dynamicDoc != null)
+                {
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        UiSchema = dynamicDoc;
+                        UpdateModelNative();
+                    });
+                }
+                else
+                {
+                    Dispatcher.UIThread.Post(() => Status = $"Bridge schema invalid: {validationErr}");
+                }
+            }
+        }
+        catch
+        {
+            // Bridge does not implement ui_schema yet; fall back to embedded schema
+        }
+    }
+
+    private void UpdateModelNative()
+    {
+        if (UiSchema != null && !string.IsNullOrEmpty(Project.NeuronModel))
+        {
+            var model = UiSchema.Models.FirstOrDefault(m => string.Equals(m.Name, Project.NeuronModel, StringComparison.OrdinalIgnoreCase));
+            IsModelNative = model?.Native ?? false;
+        }
+        else
+        {
+            IsModelNative = string.IsNullOrEmpty(Project.NeuronModel) || Project.NeuronModel == "lif_int";
+        }
+    }
+
+    partial void OnUiSchemaChanged(UiSchemaDocument? value) => UpdateModelNative();
 
     public void Undo()
     {
@@ -120,6 +217,7 @@ public sealed partial class MainViewModel : ObservableObject
     public void SetNeuronModel(string modelName)
     {
         Project.NeuronModel = modelName;
+        UpdateModelNative();
     }
 
     /// <summary>Reads an NGB1 file and builds its scene off the UI thread.</summary>
@@ -165,13 +263,15 @@ public sealed partial class MainViewModel : ObservableObject
         Refresh();
     }
 
-    [ObservableProperty] private float _currentTick = 0f;
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(SimButtonText))] private bool _isSimulating = false;
-    private SimulationEngine? _simEngine;
-
     public void StartSimulation()
     {
         if (Scene == null) return;
+        if (!IsModelNative)
+        {
+            Status = "Live in-app simulation requires a native model (schema native: true).";
+            return;
+        }
+
         if (_simEngine == null)
         {
             _simEngine = new SimulationEngine(Scene.Network);
@@ -185,20 +285,40 @@ public sealed partial class MainViewModel : ObservableObject
     {
         _simEngine?.Stop();
         IsSimulating = false;
+        UpdateSimUi();
     }
 
     public void StepSimulation()
     {
         if (Scene == null) return;
+        if (!IsModelNative)
+        {
+            Status = "Live in-app simulation requires a native model (schema native: true).";
+            return;
+        }
+
         if (_simEngine == null)
         {
             _simEngine = new SimulationEngine(Scene.Network);
             _simEngine.FrameStepped += OnSimStep;
         }
         _simEngine.StepOnce();
+        UpdateSimUi();
     }
 
     private void OnSimStep()
+    {
+        if (_simEngine == null || Scene == null) return;
+
+        // Throttle UI rendering and instance array allocations to ~60 Hz
+        long now = Stopwatch.GetTimestamp();
+        if (Stopwatch.GetElapsedTime(_lastUiUpdateTimestamp, now).TotalMilliseconds < 16.0) return;
+        _lastUiUpdateTimestamp = now;
+
+        Dispatcher.UIThread.Post(UpdateSimUi);
+    }
+
+    private void UpdateSimUi()
     {
         if (_simEngine == null || Scene == null) return;
         CurrentTick = (float)_simEngine.CurrentTick;

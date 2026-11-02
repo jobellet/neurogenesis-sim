@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Neurogenesis.App.Style;
 using Neurogenesis.Core.Schema;
 
 namespace Neurogenesis.App.Controls;
@@ -11,15 +12,15 @@ namespace Neurogenesis.App.Controls;
 /// Dynamically generates editor controls for stages, schedules and parameters
 /// conforming strictly to UI_SCHEMA.md 1.0 (task Step 4).
 /// All edits update the underlying Project JSON directly without hidden state.
+/// All colors are derived from the visual style through ThemeBrushes.
 /// </summary>
 public static class DynamicPanelGenerator
 {
-    private static readonly string[] AllSources = { "Const", "Gene", "Field", "Fit", "Expr" };
-
     public static Control CreateStageEditor(
         StageSpec stage,
         int stageIndex,
         JsonObject currentStageObj,
+        IReadOnlyList<ParamSourceSpec>? paramSources,
         Action<string, JsonNode?> onParamChanged,
         Action<string> onNameChanged,
         Action<int> onRepeatChanged,
@@ -41,24 +42,20 @@ public static class DynamicPanelGenerator
         // Task badge (e.g. C1, C2)
         titlePanel.Children.Add(new Border
         {
-            Background = new SolidColorBrush(Color.FromArgb(50, 100, 150, 255)),
+            Background = ThemeBrushes.TaskBadgeBg,
             CornerRadius = new CornerRadius(3),
             Padding = new Thickness(4, 1),
             Child = new TextBlock
             {
                 Text = stage.Task,
                 FontSize = 10,
-                Foreground = new SolidColorBrush(Color.FromRgb(150, 200, 255))
+                Foreground = ThemeBrushes.TaskBadgeFg
             }
         });
 
         // Availability badge
-        var availBrush = stage.Available
-            ? new SolidColorBrush(Color.FromArgb(60, 40, 180, 80))
-            : new SolidColorBrush(Color.FromArgb(60, 220, 120, 30));
-        var availFg = stage.Available
-            ? new SolidColorBrush(Color.FromRgb(90, 220, 130))
-            : new SolidColorBrush(Color.FromRgb(255, 170, 70));
+        var availBrush = stage.Available ? ThemeBrushes.AvailableBadgeBg : ThemeBrushes.PlannedBadgeBg;
+        var availFg = stage.Available ? ThemeBrushes.AvailableBadgeFg : ThemeBrushes.PlannedBadgeFg;
         titlePanel.Children.Add(new Border
         {
             Background = availBrush,
@@ -66,7 +63,7 @@ public static class DynamicPanelGenerator
             Padding = new Thickness(4, 1),
             Child = new TextBlock
             {
-                Text = stage.Available ? "Registered" : "Planned",
+                Text = stage.Available ? "Registered" : "Planned (not runnable)",
                 FontSize = 10,
                 Foreground = availFg
             }
@@ -76,7 +73,6 @@ public static class DynamicPanelGenerator
         header.Children.Add(titlePanel);
         panel.Children.Add(header);
 
-        // Description
         if (!string.IsNullOrEmpty(stage.Description))
         {
             panel.Children.Add(new TextBlock
@@ -88,94 +84,97 @@ public static class DynamicPanelGenerator
             });
         }
 
-        // Cost scaling badge if declared
-        if (stage.Cost is { Declared: true, Samples: { Count: > 0 } })
-        {
-            var firstSample = stage.Cost.Samples[0];
-            int n = firstSample?["N"]?.GetValue<int>() ?? 0;
-            int ops = firstSample?["ops"]?.GetValue<int>() ?? 0;
-            long bytes = firstSample?["bytes"]?.GetValue<long>() ?? 0;
-
-            var costText = new TextBlock
-            {
-                Text = $"Cost (N={n:N0}): ~{ops:N0} ops, {bytes / 1024:N0} KB",
-                FontSize = 10,
-                Opacity = 0.55
-            };
-            panel.Children.Add(costText);
-        }
-
-        // Stage execution properties: Name, Repeat, Condition (When)
+        // Stage execution properties: Name, Repeat, When
         var metaGrid = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("60,*,70,60"),
+            ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,80"),
             RowDefinitions = new RowDefinitions("Auto,Auto"),
             Margin = new Thickness(0, 4)
         };
 
         // Name
-        var nameLabel = new TextBlock { Text = "Name:", VerticalAlignment = VerticalAlignment.Center, FontSize = 11, Opacity = 0.8 };
-        Grid.SetRow(nameLabel, 0);
-        Grid.SetColumn(nameLabel, 0);
-        metaGrid.Children.Add(nameLabel);
+        var lblName = new TextBlock { Text = "Stage name:", VerticalAlignment = VerticalAlignment.Center, FontSize = 11 };
+        Grid.SetRow(lblName, 0);
+        Grid.SetColumn(lblName, 0);
+        metaGrid.Children.Add(lblName);
 
-        string currentName = currentStageObj["name"]?.GetValue<string>() ?? $"{stageIndex + 1}_{stage.Operator}";
-        var nameBox = new TextBox { Text = currentName, FontSize = 11, Margin = new Thickness(0, 2, 8, 2) };
-        nameBox.TextChanged += (s, e) => onNameChanged(nameBox.Text ?? "");
-        Grid.SetRow(nameBox, 0);
-        Grid.SetColumn(nameBox, 1);
-        metaGrid.Children.Add(nameBox);
-
-        // Repeat
-        var repLabel = new TextBlock { Text = "Repeat:", VerticalAlignment = VerticalAlignment.Center, FontSize = 11, Opacity = 0.8 };
-        Grid.SetRow(repLabel, 0);
-        Grid.SetColumn(repLabel, 2);
-        metaGrid.Children.Add(repLabel);
-
-        int currentRepeat = currentStageObj["repeat"]?.GetValue<int>() ?? 1;
-        var repNum = new NumericUpDown
+        var txtName = new TextBox
         {
-            Minimum = 1,
-            Maximum = 10000,
-            Increment = 1,
-            FormatString = "0",
-            Value = currentRepeat,
-            FontSize = 11,
-            IsEnabled = stage.Repeatable,
-            Margin = new Thickness(0, 2, 0, 2)
+            Text = currentStageObj["name"]?.GetValue<string>() ?? $"{stageIndex + 1}_{stage.Operator}",
+            Margin = new Thickness(6, 2, 8, 2),
+            FontSize = 11
         };
-        repNum.ValueChanged += (s, e) =>
-        {
-            if (repNum.Value.HasValue) onRepeatChanged((int)repNum.Value.Value);
-        };
-        Grid.SetRow(repNum, 0);
-        Grid.SetColumn(repNum, 3);
-        metaGrid.Children.Add(repNum);
+        txtName.TextChanged += (s, e) => onNameChanged(txtName.Text ?? "");
+        Grid.SetRow(txtName, 0);
+        Grid.SetColumn(txtName, 1);
+        metaGrid.Children.Add(txtName);
 
-        // When (condition) if conditional
+        // Repeat (if repeatable)
+        if (stage.Repeatable)
+        {
+            var lblRep = new TextBlock { Text = "Repeat:", VerticalAlignment = VerticalAlignment.Center, FontSize = 11 };
+            Grid.SetRow(lblRep, 0);
+            Grid.SetColumn(lblRep, 2);
+            metaGrid.Children.Add(lblRep);
+
+            var numRep = new NumericUpDown
+            {
+                Minimum = 1,
+                Maximum = 100000,
+                Value = currentStageObj["repeat"]?.GetValue<int>() ?? 1,
+                FormatString = "0",
+                Margin = new Thickness(6, 2, 0, 2),
+                FontSize = 11
+            };
+            numRep.ValueChanged += (s, e) => onRepeatChanged((int)(numRep.Value ?? 1));
+            Grid.SetRow(numRep, 0);
+            Grid.SetColumn(numRep, 3);
+            metaGrid.Children.Add(numRep);
+        }
+
+        // When condition (if conditional)
         if (stage.Conditional)
         {
-            var whenLabel = new TextBlock { Text = "When:", VerticalAlignment = VerticalAlignment.Center, FontSize = 11, Opacity = 0.8 };
-            Grid.SetRow(whenLabel, 1);
-            Grid.SetColumn(whenLabel, 0);
-            metaGrid.Children.Add(whenLabel);
+            var lblWhen = new TextBlock { Text = "When condition:", VerticalAlignment = VerticalAlignment.Center, FontSize = 11, Margin = new Thickness(0, 4, 0, 0) };
+            Grid.SetRow(lblWhen, 1);
+            Grid.SetColumn(lblWhen, 0);
+            metaGrid.Children.Add(lblWhen);
 
-            string currentWhen = currentStageObj["when"]?.GetValue<string>() ?? "";
-            var whenBox = new TextBox
+            var txtWhen = new TextBox
             {
-                Text = currentWhen,
-                FontSize = 11,
-                Watermark = "e.g. rep < 5 (optional condition)",
-                Margin = new Thickness(0, 2, 0, 2)
+                Text = currentStageObj["when"]?.GetValue<string>() ?? "",
+                Watermark = "e.g. epoch == 10",
+                Margin = new Thickness(6, 4, 0, 2),
+                FontSize = 11
             };
-            whenBox.TextChanged += (s, e) => onWhenChanged(string.IsNullOrWhiteSpace(whenBox.Text) ? null : whenBox.Text);
-            Grid.SetRow(whenBox, 1);
-            Grid.SetColumn(whenBox, 1);
-            Grid.SetColumnSpan(whenBox, 3);
-            metaGrid.Children.Add(whenBox);
+            txtWhen.TextChanged += (s, e) => onWhenChanged(string.IsNullOrWhiteSpace(txtWhen.Text) ? null : txtWhen.Text);
+            Grid.SetRow(txtWhen, 1);
+            Grid.SetColumn(txtWhen, 1);
+            Grid.SetColumnSpan(txtWhen, 3);
+            metaGrid.Children.Add(txtWhen);
         }
 
         panel.Children.Add(metaGrid);
+
+        // Cost preview
+        if (stage.Cost != null)
+        {
+            panel.Children.Add(new Border
+            {
+                Background = ThemeBrushes.CardBackground,
+                BorderBrush = ThemeBrushes.CardBorder,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(3),
+                Padding = new Thickness(6, 3),
+                Margin = new Thickness(0, 2),
+                Child = new TextBlock
+                {
+                    Text = $"Cost: Declared = {stage.Cost.Declared}, Samples = {stage.Cost.Samples?.Count ?? 0}",
+                    FontSize = 10,
+                    Opacity = 0.6
+                }
+            });
+        }
 
         // Parameter list
         var paramsObj = currentStageObj["params"] as JsonObject ?? new JsonObject();
@@ -191,7 +190,7 @@ public static class DynamicPanelGenerator
 
             foreach (var p in stage.Params)
             {
-                var row = CreateParamControl(p, paramsObj, onParamChanged);
+                var row = CreateParamControl(p, paramsObj, paramSources, onParamChanged);
                 panel.Children.Add(row);
             }
         }
@@ -199,11 +198,17 @@ public static class DynamicPanelGenerator
         return panel;
     }
 
-    public static Control CreateParamControl(ParamSpec param, JsonObject currentParams, Action<string, JsonNode?> onParamChanged)
+    public static Control CreateParamControl(
+        ParamSpec param,
+        JsonObject currentParams,
+        IReadOnlyList<ParamSourceSpec>? paramSources,
+        Action<string, JsonNode?> onParamChanged)
     {
         var card = new Border
         {
-            Background = new SolidColorBrush(Color.FromArgb(25, 255, 255, 255)),
+            Background = ThemeBrushes.CardBackground,
+            BorderBrush = ThemeBrushes.CardBorder,
+            BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(4),
             Padding = new Thickness(6),
             Margin = new Thickness(0, 2)
@@ -239,7 +244,7 @@ public static class DynamicPanelGenerator
             var helpBtn = new TextBlock
             {
                 Text = "(?)",
-                Foreground = new SolidColorBrush(Color.FromRgb(120, 170, 240)),
+                Foreground = ThemeBrushes.HelpAccent,
                 Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Help),
                 FontSize = 11,
                 VerticalAlignment = VerticalAlignment.Center
@@ -251,11 +256,16 @@ public static class DynamicPanelGenerator
         DockPanel.SetDock(titleBlock, Dock.Left);
         header.Children.Add(titleBlock);
 
-        // Source Switcher (Const / Gene / Field / Fit / Expr)
-        var allowedSources = param.Sources != null && param.Sources.Count > 0 ? param.Sources.ToArray() : AllSources;
+        // Determine available source types from schema param_sources and param.Sources
+        string[] availableSourceTypes = (param.Sources != null && param.Sources.Count > 0)
+            ? param.Sources.ToArray()
+            : (paramSources != null && paramSources.Count > 0)
+                ? paramSources.Select(ps => ps.Type).ToArray()
+                : new[] { "Const" };
+
         var sourcePicker = new ComboBox
         {
-            ItemsSource = allowedSources,
+            ItemsSource = availableSourceTypes,
             FontSize = 10,
             HorizontalAlignment = HorizontalAlignment.Right,
             Margin = new Thickness(4, 0, 0, 0)
@@ -268,16 +278,20 @@ public static class DynamicPanelGenerator
         // Current param state
         var paramObj = currentParams[param.Name] as JsonObject;
         string currentSource = paramObj?["type"]?.GetValue<string>() ?? "Const";
-        if (!allowedSources.Contains(currentSource))
-            currentSource = allowedSources.FirstOrDefault() ?? "Const";
+        if (!availableSourceTypes.Contains(currentSource))
+            currentSource = availableSourceTypes.FirstOrDefault() ?? "Const";
         sourcePicker.SelectedItem = currentSource;
 
         var inputContainer = new ContentControl();
         root.Children.Add(inputContainer);
 
+        ParamSourceSpec? FindSourceSpec(string srcType) =>
+            paramSources?.FirstOrDefault(ps => ps.Type == srcType);
+
         void RenderInputs(string sourceKind)
         {
-            inputContainer.Content = CreateInputsForSource(sourceKind, param, paramObj, updatedObj =>
+            var spec = FindSourceSpec(sourceKind);
+            inputContainer.Content = CreateInputsForSource(sourceKind, param, spec, paramObj, updatedObj =>
             {
                 paramObj = updatedObj;
                 onParamChanged(param.Name, paramObj);
@@ -291,7 +305,8 @@ public static class DynamicPanelGenerator
             if (sourcePicker.SelectedItem is string newSource && newSource != currentSource)
             {
                 currentSource = newSource;
-                var newObj = CreateDefaultParamForSource(newSource, param);
+                var spec = FindSourceSpec(newSource);
+                var newObj = CreateDefaultParamForSource(newSource, param, spec);
                 paramObj = newObj;
                 onParamChanged(param.Name, paramObj);
                 RenderInputs(newSource);
@@ -302,357 +317,243 @@ public static class DynamicPanelGenerator
         return card;
     }
 
-    private static JsonObject CreateDefaultParamForSource(string source, ParamSpec param)
+    private static JsonObject CreateDefaultParamForSource(string source, ParamSpec param, ParamSourceSpec? sourceSpec)
     {
         var obj = new JsonObject { ["type"] = source };
-        switch (source)
+
+        if (sourceSpec?.Inputs != null && sourceSpec.Inputs.Count > 0)
         {
-            case "Gene":
-                obj["path"] = $"genes/{param.Name}";
-                obj["lo"] = param.Min ?? 0.0;
-                obj["hi"] = param.Max ?? 10.0;
-                obj["integer"] = param.Type == "int";
-                break;
-            case "Field":
-                obj["name"] = "default_field";
-                obj["transform"] = "x";
-                break;
-            case "Fit":
-                obj["target"] = param.Name;
-                obj["init"] = param.Min ?? 1.0;
-                obj["lo"] = param.Min ?? 0.0;
-                obj["hi"] = param.Max ?? 10.0;
-                break;
-            case "Expr":
-                obj["formula"] = "1.0";
-                break;
-            case "Const":
-            default:
-                if (param.Default != null && param.Default is JsonObject defObj && defObj["value"] != null)
+            foreach (var inp in sourceSpec.Inputs)
+            {
+                if (inp.Type == "value")
                 {
-                    obj["value"] = defObj["value"]!.DeepClone();
+                    if (param.Default != null && param.Default is JsonObject defObj && defObj["value"] != null)
+                        obj["value"] = defObj["value"]!.DeepClone();
+                    else
+                        obj["value"] = GetDefaultValueNode(param);
+                }
+                else if (inp.Type == "bool")
+                {
+                    obj[inp.Name] = false;
+                }
+                else if (inp.Type == "float" || inp.Type == "int")
+                {
+                    obj[inp.Name] = 0;
                 }
                 else
                 {
-                    obj["value"] = param.Type switch
-                    {
-                        "int" => 0,
-                        "float" => 0.0,
-                        "bool" => false,
-                        "choice" => param.Choices?.FirstOrDefault()?.Value ?? "",
-                        _ => ""
-                    };
+                    obj[inp.Name] = "";
                 }
-                break;
+            }
         }
+        else
+        {
+            if (source == "Const")
+            {
+                obj["value"] = GetDefaultValueNode(param);
+            }
+        }
+
         return obj;
     }
+
+    private static JsonNode? GetDefaultValueNode(ParamSpec param) => param.Type switch
+    {
+        "int" => 0,
+        "float" => 0.0,
+        "bool" => false,
+        "choice" => param.Choices?.FirstOrDefault()?.Value ?? "",
+        "vec3" => new JsonArray { 0.0, 0.0, 0.0 },
+        "string" => "",
+        _ => null
+    };
 
     private static Control CreateInputsForSource(
         string source,
         ParamSpec param,
+        ParamSourceSpec? sourceSpec,
         JsonObject? currentObj,
         Action<JsonObject> onUpdated)
     {
-        var workingObj = currentObj?.DeepClone() as JsonObject ?? CreateDefaultParamForSource(source, param);
+        var workingObj = currentObj?.DeepClone() as JsonObject ?? CreateDefaultParamForSource(source, param, sourceSpec);
 
-        switch (source)
+        // If no schema inputs defined, fall back to raw JSON
+        if (sourceSpec?.Inputs == null || sourceSpec.Inputs.Count == 0)
         {
-            case "Gene":
+            if (source == "Const")
             {
-                var grid = new Grid
-                {
-                    ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,60,Auto,60,Auto"),
-                    Margin = new Thickness(0, 2)
-                };
-
-                // Path
-                var lblPath = new TextBlock { Text = "Path:", VerticalAlignment = VerticalAlignment.Center, FontSize = 11, Margin = new Thickness(0, 0, 4, 0) };
-                Grid.SetColumn(lblPath, 0);
-                grid.Children.Add(lblPath);
-
-                var txtPath = new TextBox { Text = workingObj["path"]?.GetValue<string>() ?? "", FontSize = 11, Margin = new Thickness(0, 0, 6, 0) };
-                txtPath.TextChanged += (s, e) =>
-                {
-                    workingObj["path"] = txtPath.Text ?? "";
-                    onUpdated(workingObj);
-                };
-                Grid.SetColumn(txtPath, 1);
-                grid.Children.Add(txtPath);
-
-                // Lo
-                var lblLo = new TextBlock { Text = "Lo:", VerticalAlignment = VerticalAlignment.Center, FontSize = 11, Margin = new Thickness(0, 0, 4, 0) };
-                Grid.SetColumn(lblLo, 2);
-                grid.Children.Add(lblLo);
-
-                var numLo = new NumericUpDown
-                {
-                    Value = ToDecimal(workingObj["lo"]?.GetValue<double>() ?? (param.Min ?? 0.0), 0m),
-                    FontSize = 11,
-                    Increment = ToDecimal(param.Step, 0.1m),
-                    FormatString = "0.##",
-                    Margin = new Thickness(0, 0, 6, 0)
-                };
-                numLo.ValueChanged += (s, e) =>
-                {
-                    if (numLo.Value.HasValue)
-                    {
-                        workingObj["lo"] = (double)numLo.Value.Value;
-                        onUpdated(workingObj);
-                    }
-                };
-                Grid.SetColumn(numLo, 3);
-                grid.Children.Add(numLo);
-
-                // Hi
-                var lblHi = new TextBlock { Text = "Hi:", VerticalAlignment = VerticalAlignment.Center, FontSize = 11, Margin = new Thickness(0, 0, 4, 0) };
-                Grid.SetColumn(lblHi, 4);
-                grid.Children.Add(lblHi);
-
-                var numHi = new NumericUpDown
-                {
-                    Value = ToDecimal(workingObj["hi"]?.GetValue<double>() ?? (param.Max ?? 10.0), 10m),
-                    FontSize = 11,
-                    Increment = ToDecimal(param.Step, 0.1m),
-                    FormatString = "0.##",
-                    Margin = new Thickness(0, 0, 6, 0)
-                };
-                numHi.ValueChanged += (s, e) =>
-                {
-                    if (numHi.Value.HasValue)
-                    {
-                        workingObj["hi"] = (double)numHi.Value.Value;
-                        onUpdated(workingObj);
-                    }
-                };
-                Grid.SetColumn(numHi, 5);
-                grid.Children.Add(numHi);
-
-                // Integer toggle
-                var chkInt = new CheckBox
-                {
-                    Content = "int",
-                    IsChecked = workingObj["integer"]?.GetValue<bool>() ?? (param.Type == "int"),
-                    FontSize = 11
-                };
-                chkInt.IsCheckedChanged += (s, e) =>
-                {
-                    workingObj["integer"] = chkInt.IsChecked ?? false;
-                    onUpdated(workingObj);
-                };
-                Grid.SetColumn(chkInt, 6);
-                grid.Children.Add(chkInt);
-
-                return grid;
+                return CreateValueInput(param, workingObj, onUpdated);
             }
 
-            case "Field":
+            var rawBox = new TextBox
             {
-                var grid = new Grid
-                {
-                    ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,*"),
-                    Margin = new Thickness(0, 2)
-                };
-
-                var lblField = new TextBlock { Text = "Field:", VerticalAlignment = VerticalAlignment.Center, FontSize = 11, Margin = new Thickness(0, 0, 4, 0) };
-                Grid.SetColumn(lblField, 0);
-                grid.Children.Add(lblField);
-
-                var txtField = new TextBox { Text = workingObj["name"]?.GetValue<string>() ?? "", FontSize = 11, Margin = new Thickness(0, 0, 6, 0) };
-                txtField.TextChanged += (s, e) =>
-                {
-                    workingObj["name"] = txtField.Text ?? "";
-                    onUpdated(workingObj);
-                };
-                Grid.SetColumn(txtField, 1);
-                grid.Children.Add(txtField);
-
-                var lblTrans = new TextBlock { Text = "Transform:", VerticalAlignment = VerticalAlignment.Center, FontSize = 11, Margin = new Thickness(0, 0, 4, 0) };
-                Grid.SetColumn(lblTrans, 2);
-                grid.Children.Add(lblTrans);
-
-                var txtTrans = new TextBox { Text = workingObj["transform"]?.GetValue<string>() ?? "x", FontSize = 11 };
-                txtTrans.TextChanged += (s, e) =>
-                {
-                    workingObj["transform"] = txtTrans.Text ?? "";
-                    onUpdated(workingObj);
-                };
-                Grid.SetColumn(txtTrans, 3);
-                grid.Children.Add(txtTrans);
-
-                return grid;
-            }
-
-            case "Fit":
+                Text = workingObj.ToJsonString(),
+                FontSize = 11,
+                AcceptsReturn = true
+            };
+            rawBox.TextChanged += (s, e) =>
             {
-                var grid = new Grid
+                try
                 {
-                    ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,55,Auto,55,Auto,55"),
-                    Margin = new Thickness(0, 2)
-                };
-
-                var lblTarget = new TextBlock { Text = "Target:", VerticalAlignment = VerticalAlignment.Center, FontSize = 11, Margin = new Thickness(0, 0, 4, 0) };
-                Grid.SetColumn(lblTarget, 0);
-                grid.Children.Add(lblTarget);
-
-                var txtTarget = new TextBox { Text = workingObj["target"]?.GetValue<string>() ?? "", FontSize = 11, Margin = new Thickness(0, 0, 4, 0) };
-                txtTarget.TextChanged += (s, e) =>
-                {
-                    workingObj["target"] = txtTarget.Text ?? "";
-                    onUpdated(workingObj);
-                };
-                Grid.SetColumn(txtTarget, 1);
-                grid.Children.Add(txtTarget);
-
-                var lblInit = new TextBlock { Text = "Init:", VerticalAlignment = VerticalAlignment.Center, FontSize = 11, Margin = new Thickness(0, 0, 2, 0) };
-                Grid.SetColumn(lblInit, 2);
-                grid.Children.Add(lblInit);
-
-                var numInit = new NumericUpDown
-                {
-                    Value = ToDecimal(workingObj["init"]?.GetValue<double>() ?? (param.Min ?? 1.0), 1m),
-                    FontSize = 10,
-                    FormatString = "0.##",
-                    Margin = new Thickness(0, 0, 4, 0)
-                };
-                numInit.ValueChanged += (s, e) =>
-                {
-                    if (numInit.Value.HasValue)
+                    if (JsonNode.Parse(rawBox.Text ?? "{}") is JsonObject parsed)
                     {
-                        workingObj["init"] = (double)numInit.Value.Value;
+                        workingObj = parsed;
                         onUpdated(workingObj);
                     }
-                };
-                Grid.SetColumn(numInit, 3);
-                grid.Children.Add(numInit);
-
-                var lblLo = new TextBlock { Text = "Lo:", VerticalAlignment = VerticalAlignment.Center, FontSize = 11, Margin = new Thickness(0, 0, 2, 0) };
-                Grid.SetColumn(lblLo, 4);
-                grid.Children.Add(lblLo);
-
-                var numLo = new NumericUpDown
-                {
-                    Value = ToDecimal(workingObj["lo"]?.GetValue<double>() ?? (param.Min ?? 0.0), 0m),
-                    FontSize = 10,
-                    FormatString = "0.##",
-                    Margin = new Thickness(0, 0, 4, 0)
-                };
-                numLo.ValueChanged += (s, e) =>
-                {
-                    if (numLo.Value.HasValue)
-                    {
-                        workingObj["lo"] = (double)numLo.Value.Value;
-                        onUpdated(workingObj);
-                    }
-                };
-                Grid.SetColumn(numLo, 5);
-                grid.Children.Add(numLo);
-
-                var lblHi = new TextBlock { Text = "Hi:", VerticalAlignment = VerticalAlignment.Center, FontSize = 11, Margin = new Thickness(0, 0, 2, 0) };
-                Grid.SetColumn(lblHi, 6);
-                grid.Children.Add(lblHi);
-
-                var numHi = new NumericUpDown
-                {
-                    Value = ToDecimal(workingObj["hi"]?.GetValue<double>() ?? (param.Max ?? 10.0), 10m),
-                    FontSize = 10,
-                    FormatString = "0.##"
-                };
-                numHi.ValueChanged += (s, e) =>
-                {
-                    if (numHi.Value.HasValue)
-                    {
-                        workingObj["hi"] = (double)numHi.Value.Value;
-                        onUpdated(workingObj);
-                    }
-                };
-                Grid.SetColumn(numHi, 7);
-                grid.Children.Add(numHi);
-
-                return grid;
-            }
-
-            case "Expr":
-            {
-                var grid = new Grid
-                {
-                    ColumnDefinitions = new ColumnDefinitions("Auto,*"),
-                    Margin = new Thickness(0, 2)
-                };
-
-                var lblFormula = new TextBlock { Text = "Formula:", VerticalAlignment = VerticalAlignment.Center, FontSize = 11, Margin = new Thickness(0, 0, 4, 0) };
-                Grid.SetColumn(lblFormula, 0);
-                grid.Children.Add(lblFormula);
-
-                var txtFormula = new TextBox { Text = workingObj["formula"]?.GetValue<string>() ?? "", FontSize = 11 };
-                txtFormula.TextChanged += (s, e) =>
-                {
-                    workingObj["formula"] = txtFormula.Text ?? "";
-                    onUpdated(workingObj);
-                };
-                Grid.SetColumn(txtFormula, 1);
-                grid.Children.Add(txtFormula);
-
-                return grid;
-            }
-
-            case "Const":
-            default:
-            {
-                return CreateConstWidget(param, workingObj, onUpdated);
-            }
+                }
+                catch { }
+            };
+            return rawBox;
         }
+
+        // Build controls dynamically according to param_sources[].inputs
+        var container = new StackPanel { Spacing = 4, Margin = new Thickness(0, 2) };
+
+        foreach (var inp in sourceSpec.Inputs)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 1) };
+            var label = new TextBlock
+            {
+                Text = inp.Name + ":",
+                Width = 70,
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center,
+                Opacity = 0.8
+            };
+            if (!string.IsNullOrEmpty(inp.Doc)) ToolTip.SetTip(label, inp.Doc);
+            DockPanel.SetDock(label, Dock.Left);
+            row.Children.Add(label);
+
+            Control inputCtrl;
+            switch (inp.Type)
+            {
+                case "value":
+                    inputCtrl = CreateValueInput(param, workingObj, onUpdated);
+                    break;
+
+                case "float":
+                {
+                    var num = new NumericUpDown
+                    {
+                        Value = (decimal)(workingObj[inp.Name]?.GetValue<double>() ?? 0.0),
+                        Increment = 0.1m,
+                        FormatString = "0.###",
+                        FontSize = 11
+                    };
+                    num.ValueChanged += (s, e) =>
+                    {
+                        workingObj[inp.Name] = (double)(num.Value ?? 0m);
+                        onUpdated(workingObj);
+                    };
+                    inputCtrl = num;
+                    break;
+                }
+
+                case "int":
+                {
+                    var num = new NumericUpDown
+                    {
+                        Value = workingObj[inp.Name]?.GetValue<int>() ?? 0,
+                        Increment = 1,
+                        FormatString = "0",
+                        FontSize = 11
+                    };
+                    num.ValueChanged += (s, e) =>
+                    {
+                        workingObj[inp.Name] = (int)(num.Value ?? 0);
+                        onUpdated(workingObj);
+                    };
+                    inputCtrl = num;
+                    break;
+                }
+
+                case "bool":
+                {
+                    var chk = new CheckBox
+                    {
+                        IsChecked = workingObj[inp.Name]?.GetValue<bool>() ?? false,
+                        FontSize = 11
+                    };
+                    chk.IsCheckedChanged += (s, e) =>
+                    {
+                        workingObj[inp.Name] = chk.IsChecked ?? false;
+                        onUpdated(workingObj);
+                    };
+                    inputCtrl = chk;
+                    break;
+                }
+
+                case "string":
+                case "gene_path":
+                case "field":
+                {
+                    var txt = new TextBox
+                    {
+                        Text = workingObj[inp.Name]?.GetValue<string>() ?? "",
+                        FontSize = 11
+                    };
+                    txt.TextChanged += (s, e) =>
+                    {
+                        workingObj[inp.Name] = txt.Text ?? "";
+                        onUpdated(workingObj);
+                    };
+                    inputCtrl = txt;
+                    break;
+                }
+
+                default:
+                {
+                    // Unknown input type: render raw JSON text box
+                    var txt = new TextBox
+                    {
+                        Text = workingObj[inp.Name]?.ToJsonString() ?? "",
+                        FontSize = 11
+                    };
+                    txt.TextChanged += (s, e) =>
+                    {
+                        try
+                        {
+                            workingObj[inp.Name] = JsonNode.Parse(txt.Text ?? "null");
+                            onUpdated(workingObj);
+                        }
+                        catch { }
+                    };
+                    inputCtrl = txt;
+                    break;
+                }
+            }
+
+            row.Children.Add(inputCtrl);
+            container.Children.Add(row);
+        }
+
+        return container;
     }
 
-    private static decimal ToDecimal(double? val, decimal fallback)
+    private static Control CreateValueInput(
+        ParamSpec param,
+        JsonObject workingObj,
+        Action<JsonObject> onUpdated)
     {
-        if (!val.HasValue || double.IsNaN(val.Value) || double.IsInfinity(val.Value)) return fallback;
-        if (val.Value <= (double)decimal.MinValue) return decimal.MinValue;
-        if (val.Value >= (double)decimal.MaxValue) return decimal.MaxValue;
-        return (decimal)val.Value;
-    }
-
-    private static Control CreateConstWidget(ParamSpec param, JsonObject workingObj, Action<JsonObject> onUpdated)
-    {
-        JsonNode? val = null;
-        workingObj.TryGetPropertyValue("value", out val);
+        var val = workingObj["value"];
 
         switch (param.Type)
         {
-            case "bool":
-            {
-                var toggle = new CheckBox
-                {
-                    Content = param.Title,
-                    IsChecked = val?.GetValue<bool>() ?? false,
-                    FontSize = 11
-                };
-                toggle.IsCheckedChanged += (s, e) =>
-                {
-                    workingObj["value"] = toggle.IsChecked ?? false;
-                    onUpdated(workingObj);
-                };
-                return toggle;
-            }
-
             case "int":
             {
                 var num = new NumericUpDown
                 {
-                    Minimum = ToDecimal(param.Min, -1000000m),
-                    Maximum = ToDecimal(param.Max, 1000000m),
-                    Increment = ToDecimal(param.Step, 1m),
+                    Minimum = param.Min != null ? (decimal)param.Min : decimal.MinValue,
+                    Maximum = param.Max != null ? (decimal)param.Max : decimal.MaxValue,
+                    Increment = param.Step != null ? (decimal)param.Step : 1,
+                    Value = val is JsonValue jv && jv.TryGetValue<int>(out var iVal) ? iVal : 0,
                     FormatString = "0",
-                    Value = (decimal)(val?.GetValue<long>() ?? (long)(param.Min ?? 0)),
                     FontSize = 11
                 };
                 num.ValueChanged += (s, e) =>
                 {
-                    if (num.Value.HasValue)
-                    {
-                        workingObj["value"] = (long)num.Value.Value;
-                        onUpdated(workingObj);
-                    }
+                    workingObj["value"] = (int)(num.Value ?? 0);
+                    onUpdated(workingObj);
                 };
                 return num;
             }
@@ -661,37 +562,49 @@ public static class DynamicPanelGenerator
             {
                 var num = new NumericUpDown
                 {
-                    Minimum = ToDecimal(param.Min, -1000000m),
-                    Maximum = ToDecimal(param.Max, 1000000m),
-                    Increment = ToDecimal(param.Step, 0.01m),
-                    FormatString = "0.###",
-                    Value = ToDecimal(val?.GetValue<double>() ?? (param.Min ?? 0.0), 0m),
+                    Minimum = param.Min != null ? (decimal)param.Min : decimal.MinValue,
+                    Maximum = param.Max != null ? (decimal)param.Max : decimal.MaxValue,
+                    Increment = param.Step != null ? (decimal)param.Step : 0.01m,
+                    Value = val is JsonValue jv && jv.TryGetValue<double>(out var dVal) ? (decimal)dVal : 0m,
+                    FormatString = "0.####",
                     FontSize = 11
                 };
                 num.ValueChanged += (s, e) =>
                 {
-                    if (num.Value.HasValue)
-                    {
-                        workingObj["value"] = (double)num.Value.Value;
-                        onUpdated(workingObj);
-                    }
+                    workingObj["value"] = (double)(num.Value ?? 0);
+                    onUpdated(workingObj);
                 };
                 return num;
             }
 
+            case "bool":
+            {
+                var chk = new CheckBox
+                {
+                    IsChecked = val is JsonValue jv && jv.TryGetValue<bool>(out var bVal) && bVal,
+                    FontSize = 11
+                };
+                chk.IsCheckedChanged += (s, e) =>
+                {
+                    workingObj["value"] = chk.IsChecked ?? false;
+                    onUpdated(workingObj);
+                };
+                return chk;
+            }
+
             case "choice":
             {
-                var combo = new ComboBox { FontSize = 11 };
-                if (param.Choices != null)
+                var combo = new ComboBox
                 {
-                    combo.ItemsSource = param.Choices;
-                    combo.SelectedItem = param.Choices.FirstOrDefault(c => c.Value == val?.GetValue<string>());
-                }
+                    ItemsSource = param.Choices?.Select(c => c.Value).ToArray() ?? Array.Empty<string>(),
+                    SelectedItem = val is JsonValue jv && jv.TryGetValue<string>(out var sVal) ? sVal : param.Choices?.FirstOrDefault()?.Value,
+                    FontSize = 11
+                };
                 combo.SelectionChanged += (s, e) =>
                 {
-                    if (combo.SelectedItem is ParamChoice sel)
+                    if (combo.SelectedItem is string choice)
                     {
-                        workingObj["value"] = sel.Value;
+                        workingObj["value"] = choice;
                         onUpdated(workingObj);
                     }
                 };
@@ -701,17 +614,14 @@ public static class DynamicPanelGenerator
             case "vec3":
             {
                 var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*,*") };
-                double vx = 0, vy = 0, vz = 0;
-                if (val is JsonArray arr && arr.Count >= 3)
-                {
-                    vx = arr[0]?.GetValue<double>() ?? 0;
-                    vy = arr[1]?.GetValue<double>() ?? 0;
-                    vz = arr[2]?.GetValue<double>() ?? 0;
-                }
+                var arr = val as JsonArray;
+                double x = arr != null && arr.Count > 0 ? arr[0]?.GetValue<double>() ?? 0 : 0;
+                double y = arr != null && arr.Count > 1 ? arr[1]?.GetValue<double>() ?? 0 : 0;
+                double z = arr != null && arr.Count > 2 ? arr[2]?.GetValue<double>() ?? 0 : 0;
 
-                var numX = new NumericUpDown { Value = ToDecimal(vx, 0m), Watermark = "X", FontSize = 10, Margin = new Thickness(0, 0, 2, 0) };
-                var numY = new NumericUpDown { Value = ToDecimal(vy, 0m), Watermark = "Y", FontSize = 10, Margin = new Thickness(0, 0, 2, 0) };
-                var numZ = new NumericUpDown { Value = ToDecimal(vz, 0m), Watermark = "Z", FontSize = 10 };
+                var numX = new NumericUpDown { Value = (decimal)x, FormatString = "0.##", Margin = new Thickness(0, 0, 2, 0), FontSize = 10 };
+                var numY = new NumericUpDown { Value = (decimal)y, FormatString = "0.##", Margin = new Thickness(2, 0, 2, 0), FontSize = 10 };
+                var numZ = new NumericUpDown { Value = (decimal)z, FormatString = "0.##", Margin = new Thickness(2, 0, 0, 0), FontSize = 10 };
 
                 void UpdateVec()
                 {
@@ -739,17 +649,30 @@ public static class DynamicPanelGenerator
             }
 
             case "string":
-            default:
             {
+                string text = val is JsonValue jv && jv.TryGetValue<string>(out var s) ? s : (val?.ToJsonString() ?? "");
                 var txt = new TextBox
                 {
-                    Text = val?.GetValue<string>() ?? "",
+                    Text = text,
                     FontSize = 11
                 };
                 txt.TextChanged += (s, e) =>
                 {
                     workingObj["value"] = txt.Text ?? "";
                     onUpdated(workingObj);
+                };
+                return txt;
+            }
+
+            default:
+            {
+                // UI_SCHEMA.md §1: show unknown parameter types as read-only JSON, never crash
+                var txt = new TextBox
+                {
+                    Text = val?.ToJsonString() ?? "{}",
+                    FontSize = 11,
+                    IsReadOnly = true,
+                    Opacity = 0.85
                 };
                 return txt;
             }

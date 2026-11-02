@@ -1,6 +1,7 @@
 import numpy as np
 from abc import ABC, abstractmethod
 from typing import Dict, Type, Callable, Any, Tuple, Optional, List
+from neurogenesis.expressions import eval_expr
 
 _GEOMETRY_REGISTRY: Dict[str, Type] = {}
 
@@ -27,8 +28,12 @@ class Geometry(ABC):
         pass
 
     @abstractmethod
-    def sample(self, n: int, rng: np.random.Generator) -> np.ndarray:
+    def sample_points(self, n: int, rng: np.random.Generator) -> np.ndarray:
         pass
+
+    def sample(self, n: int, rng: np.random.Generator) -> np.ndarray:
+        """Backward compatibility alias for sample_points."""
+        return self.sample_points(n, rng)
 
     @abstractmethod
     def bounding_box(self) -> tuple[np.ndarray, np.ndarray]:
@@ -59,7 +64,7 @@ class Box(Geometry):
         half_size = self.size / 2.0
         return np.all(np.abs(points - self.center) <= half_size, axis=-1)
 
-    def sample(self, n: int, rng: np.random.Generator) -> np.ndarray:
+    def sample_points(self, n: int, rng: np.random.Generator) -> np.ndarray:
         return self.center + self.size * (rng.random((n, 3), dtype=np.float32) - 0.5)
 
     def bounding_box(self) -> tuple[np.ndarray, np.ndarray]:
@@ -90,7 +95,7 @@ class Sphere(Geometry):
     def contains(self, points: np.ndarray) -> np.ndarray:
         return np.sum((points - self.center)**2, axis=-1) <= self.radius**2
 
-    def sample(self, n: int, rng: np.random.Generator) -> np.ndarray:
+    def sample_points(self, n: int, rng: np.random.Generator) -> np.ndarray:
         u = rng.random(n, dtype=np.float32)
         v = rng.normal(size=(n, 3)).astype(np.float32)
         v /= np.linalg.norm(v, axis=-1, keepdims=True)
@@ -125,7 +130,7 @@ class Ellipsoid(Geometry):
     def contains(self, points: np.ndarray) -> np.ndarray:
         return np.sum(((points - self.center) / self.radii)**2, axis=-1) <= 1.0
 
-    def sample(self, n: int, rng: np.random.Generator) -> np.ndarray:
+    def sample_points(self, n: int, rng: np.random.Generator) -> np.ndarray:
         u = rng.random(n, dtype=np.float32)
         v = rng.normal(size=(n, 3)).astype(np.float32)
         v /= np.linalg.norm(v, axis=-1, keepdims=True)
@@ -170,7 +175,7 @@ class Cylinder(Geometry):
         d_sq = np.sum(proj**2, axis=-1)
         return (h >= 0.0) & (h <= self.length) & (d_sq <= self.radius**2)
 
-    def sample(self, n: int, rng: np.random.Generator) -> np.ndarray:
+    def sample_points(self, n: int, rng: np.random.Generator) -> np.ndarray:
         h = rng.random(n, dtype=np.float32) * self.length
         theta = rng.random(n, dtype=np.float32) * 2.0 * np.pi
         r = self.radius * np.sqrt(rng.random(n, dtype=np.float32))
@@ -264,7 +269,7 @@ class Sheet2D(Geometry):
         
         return (np.abs(u_proj) <= 0.5) & (np.abs(v_proj) <= 0.5) & (np.abs(w_proj) <= self.thickness / 2.0)
 
-    def sample(self, n: int, rng: np.random.Generator) -> np.ndarray:
+    def sample_points(self, n: int, rng: np.random.Generator) -> np.ndarray:
         u = rng.random(n, dtype=np.float32) - 0.5
         v = rng.random(n, dtype=np.float32) - 0.5
         w = rng.random(n, dtype=np.float32) - 0.5
@@ -328,10 +333,10 @@ class CurvedSheet(Geometry):
         self.surface_normals = self._eval_normals(u_flat, v_flat)
 
     def _eval_surface(self, u, v):
-        env = {"u": u, "v": v, "np": np, "sin": np.sin, "cos": np.cos, "pi": np.pi, "exp": np.exp}
-        x = eval(self.x_expr, env)
-        y = eval(self.y_expr, env)
-        z = eval(self.z_expr, env)
+        env = {"u": u, "v": v, "np": np}
+        x = eval_expr(self.x_expr, env)
+        y = eval_expr(self.y_expr, env)
+        z = eval_expr(self.z_expr, env)
         return np.stack([np.broadcast_to(x, u.shape), 
                          np.broadcast_to(y, u.shape), 
                          np.broadcast_to(z, u.shape)], axis=-1).astype(np.float32)
@@ -375,7 +380,7 @@ class CurvedSheet(Geometry):
         
         return thickness_cond & (tangent_dist_sq < (grid_spacing * 5)**2)
 
-    def sample(self, n: int, rng: np.random.Generator) -> np.ndarray:
+    def sample_points(self, n: int, rng: np.random.Generator) -> np.ndarray:
         u = rng.random(n, dtype=np.float32)
         v = rng.random(n, dtype=np.float32)
         w = rng.random(n, dtype=np.float32) - 0.5
@@ -426,7 +431,7 @@ class Union(Geometry):
     def contains(self, points: np.ndarray) -> np.ndarray:
         return self.a.contains(points) | self.b.contains(points)
 
-    def sample(self, n: int, rng: np.random.Generator, max_attempts: int = 100) -> np.ndarray:
+    def sample_points(self, n: int, rng: np.random.Generator, max_attempts: int = 100) -> np.ndarray:
         # Rejection sampling from bounding box
         mins, maxs = self.bounding_box()
         box = Box((mins + maxs) / 2.0, maxs - mins)
@@ -439,7 +444,7 @@ class Union(Geometry):
             if attempts > max_attempts:
                 raise RuntimeError(f"Sampling Union exceeded {max_attempts} iterations; geometry may be empty.")
             # We sample more to compensate for rejection
-            c_samples = box.sample(n, rng)
+            c_samples = box.sample_points(n, rng)
             mask = self.contains(c_samples)
             valid = c_samples[mask]
             if len(valid) > 0:
@@ -480,7 +485,7 @@ class Difference(Geometry):
     def contains(self, points: np.ndarray) -> np.ndarray:
         return self.a.contains(points) & ~self.b.contains(points)
 
-    def sample(self, n: int, rng: np.random.Generator, max_attempts: int = 100) -> np.ndarray:
+    def sample_points(self, n: int, rng: np.random.Generator, max_attempts: int = 100) -> np.ndarray:
         # Rejection sampling from 'a'
         samples = []
         collected = 0
@@ -489,7 +494,7 @@ class Difference(Geometry):
             attempts += 1
             if attempts > max_attempts:
                 raise RuntimeError(f"Sampling Difference exceeded {max_attempts} iterations; geometry may be empty.")
-            c_samples = self.a.sample(n, rng)
+            c_samples = self.a.sample_points(n, rng)
             mask = ~self.b.contains(c_samples)
             valid = c_samples[mask]
             if len(valid) > 0:

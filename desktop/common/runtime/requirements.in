@@ -1,0 +1,7 @@
+# What the embedded runtime contains besides the toolbox wheel. Locked per target, with hashes, in locks/<target>.txt
+# by `python build_runtime.py --lock`; builds install only from the locks (--require-hashes).
+# jax / jaxlib 0.4.38: the last release with macOS x86_64 wheels; pinned for every target so the apps run the same JAX.
+jax==0.4.38
+jaxlib==0.4.38
+numpy
+matplotlib

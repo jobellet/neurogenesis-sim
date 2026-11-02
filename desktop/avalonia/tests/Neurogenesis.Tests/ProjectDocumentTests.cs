@@ -8,20 +8,24 @@ namespace Neurogenesis.Tests;
 public class ProjectDocumentTests
 {
     [Fact]
-    public void DefaultProject_HasCorrectStructure()
-    {
-        var doc = new ProjectDocument();
-        Assert.Equal("1.0.0", doc.Version);
-        Assert.Equal("lif_int", doc.NeuronModel);
-        Assert.Empty(doc.Schedule);
-        Assert.False(doc.CanUndo);
-        Assert.False(doc.CanRedo);
-    }
-
+    public void DefaultProject_HasCorrectStructure()
+    {
+        var doc = new ProjectDocument();
+        Assert.Equal("1.0.0", doc.Version);
+        Assert.Equal("", doc.NeuronModel);
+        Assert.Empty(doc.Schedule);
+        Assert.False(doc.CanUndo);
+        Assert.False(doc.CanRedo);
+
+        doc.NeuronModel = "lif_int";
+        Assert.Equal("lif_int", doc.NeuronModel);
+        Assert.True(doc.CanUndo);
+    }
+
     [Fact]
     public void AddStage_And_UndoRedo_Works()
     {
-        var (ok, err, schema) = UiSchemaLoader.LoadDefault();
+        var (ok, err, schema, _) = UiSchemaLoader.LoadDefault();
         Assert.True(ok, err);
         Assert.NotNull(schema);
 
@@ -52,7 +56,7 @@ public class ProjectDocumentTests
     [Fact]
     public void ParamUpdate_AllSources_RecordToProjectJson()
     {
-        var (ok, _, schema) = UiSchemaLoader.LoadDefault();
+        var (ok, _, schema, _) = UiSchemaLoader.LoadDefault();
         Assert.True(ok);
         var doc = new ProjectDocument();
         var seedStage = schema!.Stages.First(s => s.Operator == "seed_cells");
@@ -124,7 +128,7 @@ public class ProjectDocumentTests
     [Fact]
     public void StageReorder_And_Remove_Works()
     {
-        var (ok, _, schema) = UiSchemaLoader.LoadDefault();
+        var (ok, _, schema, _) = UiSchemaLoader.LoadDefault();
         Assert.True(ok);
         var doc = new ProjectDocument();
 

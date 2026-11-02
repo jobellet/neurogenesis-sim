@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Neurogenesis.App.Style;
 using Neurogenesis.App.ViewModels;
 using Neurogenesis.Core.Schema;
 
@@ -101,8 +102,8 @@ public sealed class SchedulePanelControl : UserControl
 
                 var stageCard = new Border
                 {
-                    Background = new SolidColorBrush(Color.FromArgb(35, 255, 255, 255)),
-                    BorderBrush = new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)),
+                    Background = ThemeBrushes.CardBackground,
+                    BorderBrush = ThemeBrushes.CardBorder,
                     BorderThickness = new Thickness(1),
                     CornerRadius = new CornerRadius(5),
                     Padding = new Thickness(8),
@@ -141,7 +142,7 @@ public sealed class SchedulePanelControl : UserControl
                 {
                     Content = "✕",
                     FontSize = 10,
-                    Foreground = new SolidColorBrush(Color.FromRgb(255, 100, 100)),
+                    Foreground = ThemeBrushes.WarningText,
                     Padding = new Thickness(5, 2)
                 };
                 btnRemove.Click += (s, e) => _vm.RemoveStage(index);
@@ -167,6 +168,7 @@ public sealed class SchedulePanelControl : UserControl
                         stageSpec,
                         index,
                         stageObj,
+                        _vm.UiSchema?.ParamSources,
                         (pName, pVal) => { if (!_isRebuilding) _vm.UpdateParam(index, pName, pVal); },
                         newName => { if (!_isRebuilding) _vm.UpdateStageName(index, newName); },
                         newRepeat => { if (!_isRebuilding) _vm.UpdateStageRepeat(index, newRepeat); },
@@ -180,7 +182,7 @@ public sealed class SchedulePanelControl : UserControl
                     var fallback = new TextBlock
                     {
                         Text = $"Unknown stage operator '{opName}'",
-                        Foreground = new SolidColorBrush(Color.FromRgb(255, 180, 50)),
+                        Foreground = ThemeBrushes.WarningText,
                         FontSize = 11
                     };
                     cardStack.Children.Add(fallback);

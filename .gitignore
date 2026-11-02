@@ -5,3 +5,6 @@ viz/node_modules/
 viz/dist/
 scripts/js/build/
 !AGENTS.md
+.DS_Store
+*.DS_Store
+.wave*.json

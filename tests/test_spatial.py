@@ -130,3 +130,114 @@ def test_declared_cost():
     assert measured_bytes <= decl_bytes * 3
     assert decl_bytes <= measured_bytes * 3
 
+
+
+def _legacy_query_radius(cl, query_points, radius):
+    """Reference: the original per-cell loop of CellList.query_radius (before vectorisation)."""
+    query_points = np.asarray(query_points, dtype=np.float64)
+    gs = cl.grid_shape
+    q_cells = np.clip(np.floor((query_points - cl.box_min) / cl.box_size * gs).astype(np.int32), 0, gs - 1)
+    q_1d = q_cells[:, 0] * (gs[1] * gs[2]) + q_cells[:, 1] * gs[2] + q_cells[:, 2]
+    q_sort = np.argsort(q_1d)
+    cells, starts, counts = np.unique(q_1d[q_sort], return_index=True, return_counts=True)
+    cell_size = cl.box_size / gs
+    steps = [max(1, int(np.ceil(radius / cell_size[a]))) if gs[a] > 1 else 1 for a in range(3)]
+    grids = np.meshgrid(*[np.arange(-r, r + 1) for r in steps], indexing='ij')
+    stencil = np.stack([g.ravel() for g in grids], axis=1)
+    src, dst, dist = [], [], []
+    for cell, q0, nq in zip(cells, starts, counts):
+        c = np.array([cell // (gs[1] * gs[2]), (cell // gs[2]) % gs[1], cell % gs[2]]) + stencil
+        c = c[np.all((c >= 0) & (c < gs), axis=1)]
+        t = c[:, 0] * (gs[1] * gs[2]) + c[:, 1] * gs[2] + c[:, 2]
+        cand = np.concatenate([np.arange(s, e) for s, e in zip(cl.cell_ptr[t], cl.cell_ptr[t + 1])])
+        if len(cand) == 0:
+            continue
+        diff = query_points[q_sort[q0:q0 + nq]][:, None, :] - cl.sorted_positions[cand][None, :, :]
+        d2 = np.sum(diff * diff, axis=-1)
+        qi, ci = np.nonzero(d2 <= radius * radius)
+        src.append(q_sort[q0:q0 + nq][qi])
+        dst.append(cl.sort_idx[cand[ci]])
+        dist.append(np.sqrt(d2[qi, ci]))
+    if not src:
+        return np.zeros(0, dtype=np.int32), np.zeros(0, dtype=np.int32), np.zeros(0)
+    src, dst, dist = np.concatenate(src), np.concatenate(dst), np.concatenate(dist)
+    order = np.lexsort((dst, src))
+    return src[order], dst[order], dist[order]
+
+
+def _legacy_query_knn(cl, query_points, k):
+    """Reference: the original doubling-radius search with per-query selection and dense fallback."""
+    query_points = np.asarray(query_points, dtype=np.float64)
+    res_idx = np.full((len(query_points), k), -1, dtype=np.int32)
+    res_dist = np.full((len(query_points), k), np.inf)
+    if cl.n_points == 0 or len(query_points) == 0:
+        return res_idx, res_dist
+    density = cl.n_points / max(1e-8, float(np.prod(cl.box_size)))
+    radius = max(cl.cutoff, float((k * 3 / (4 * np.pi * max(1e-8, density))) ** (1 / 3)) * 1.5)
+    remaining = np.arange(len(query_points))
+    while len(remaining) > 0 and radius < 2.0 * float(np.max(cl.box_size)):
+        src, dst, dists = _legacy_query_radius(cl, query_points[remaining], radius)
+        found = np.zeros(len(remaining), dtype=bool)
+        if len(src):
+            ids, starts, counts = np.unique(src, return_index=True, return_counts=True)
+            for s, start, count in zip(ids, starts, counts):
+                if count >= k or count == cl.n_points:
+                    d_sub, dst_sub = dists[start:start + count], dst[start:start + count]
+                    order = np.lexsort((dst_sub, d_sub))[:k]
+                    res_idx[remaining[s], :len(order)] = dst_sub[order]
+                    res_dist[remaining[s], :len(order)] = d_sub[order]
+                found[s] = count >= k
+        remaining = remaining[~found]
+        radius *= 2.0
+    for q in remaining:
+        dists = np.linalg.norm(cl.positions - query_points[q], axis=-1)
+        order = np.lexsort((np.arange(len(dists)), dists))[:k]
+        res_idx[q, :len(order)] = order
+        res_dist[q, :len(order)] = dists[order]
+    return res_idx, res_dist
+
+
+def _assert_identical(new, ref):
+    for a, b in zip(new, ref):
+        assert a.dtype == b.dtype and a.shape == b.shape
+        assert np.array_equal(a, b)
+
+
+@pytest.mark.parametrize("layout", ["uniform", "planar", "grid_boundaries", "clustered", "explicit_box"])
+def test_vectorised_queries_identical_to_legacy(layout):
+    """Vectorised radius and knn queries return exactly the legacy indices, order and distances."""
+    rng = np.random.default_rng(7)
+    box = None
+    for n in (0, 1, 7, 250):
+        pos = rng.random((n, 3))
+        if layout == "planar":
+            pos[:, 2] = 0.0
+        elif layout == "grid_boundaries":
+            pos = np.round(pos * 5) / 5  # on cell faces, with duplicates
+        elif layout == "clustered":
+            pos = rng.normal(size=(n, 3)) * rng.choice([0.05, 0.4], size=(n, 1))
+        elif layout == "explicit_box":
+            box = (np.zeros(3), np.full(3, 0.8))  # points beyond it are clipped into edge cells
+        queries = np.concatenate([pos[:40], rng.random((30, 3)) * 1.6 - 0.3, np.full((2, 3), 50.0)])
+        for cutoff in (0.07, 0.2, 1.5):
+            cl = CellList(pos, cutoff, box)
+            for radius in (cutoff, 0.5 * cutoff, 2.3 * cutoff):
+                _assert_identical(cl.query_radius(queries, radius, return_distances=True),
+                                  _legacy_query_radius(cl, queries, radius))
+                assert all(np.array_equal(a, b) for a, b in zip(
+                    cl.query_radius(queries, radius), cl.query_radius(queries, radius, return_distances=True)))
+            for k in (1, 4, 30):
+                _assert_identical(cl.query_knn(queries, k), _legacy_query_knn(cl, queries, k))
+
+
+@pytest.mark.parametrize("n, box, cutoff", [(4000, 4 ** (1 / 3), 0.2), (4000, 1.0, 0.05), (20000, 1.0, 0.02)])
+def test_declared_cost_dense_and_sparse(n, box, cutoff):
+    """Declared bytes within a factor 3 of the measured peak, for dense and mostly empty grids."""
+    positions = np.random.default_rng(46).random((n, 3)) * box
+    tracemalloc.start()
+    m0, _ = tracemalloc.get_traced_memory()
+    src, _ = CellList(positions, cutoff).query_radius(positions, cutoff)
+    measured = tracemalloc.get_traced_memory()[1] - m0
+    tracemalloc.stop()
+    declared, _ = CellList.declared_cost(n, n, max(1.0, len(src) / n))
+    assert declared / 3 <= measured <= declared * 3

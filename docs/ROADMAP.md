@@ -86,18 +86,18 @@ GUI (viz/): geometry and field editor, schedule editor, step-by-step development
 | Area | Present | Missing |
 |---|---|---|
 | Spiking | integer LIF kernel, bit-identical in Python, JAX and the browser; `two_compartment` and `hh` models; batched runs; cost estimator with machine calibration | plasticity during simulation as a reusable component (STDP, three-factor); per-region choice of model |
-| Development | `BodyPlan` (regions, projections), one fixed growth order (placement → sign → differentiation → identity → axons), rule registry in 5 phases (placement, shift, target, probability, weight), knockouts, tonic currents | geometry, fields, tissue state, stages, schedule, proliferation, apoptosis, true migration dynamics, gene-expression dynamics, activity-dependent refinement, sparse guidance |
-| Genome / evolution | gene paths, [0, 1] coding, gene groups, JSON; island model, robust fitness, audits | `Param` sources (hand / gene / field / fit); supervised fitting; multi-objective |
+| Development | `BodyPlan` (regions, projections), one fixed growth order (placement → sign → differentiation → identity → axons), rule registry in 5 phases (placement, shift, target, probability, weight), knockouts, tonic currents; geometry, fields, `Tissue`, stage schedule (A1–A5, B1–B5, C1–C12, D2; see `docs/STAGES.md`) | `freeze` (C13), the development cost model on the command line (D3; per-stage costs and `schedule_cost` exist), chunked growth (D4), and the parts of B4, C1–C12 and D2 marked partial below |
+| Genome / evolution | gene paths, [0, 1] coding, gene groups, JSON; island model, robust fitness, audits; `Param` sources (A3) | supervised fitting (`Fit` params resolve to their initial value); multi-objective |
 | Modules | save / load, composition, plugins, neuron model recorded | module registry and versioning; validation harness |
 | GUI | 3D viewer and per-neuron editing of a finished network | geometry and field editor, schedule editor, development preview, Project import / export |
-| CI | GitHub Actions: tests on Python 3.10 and 3.12, browser-kernel equivalence, viewer build, cost command line | coverage and performance regression checks |
+| CI | GitHub Actions: tests on Python 3.10 and 3.12, browser-kernel equivalence, viewer build, cost command line, fixed CPU performance benchmarks (report only, regressions above 30% flagged) | coverage |
 
 ---
 
 ## 4. Tasks
 
 Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencies.**
-- A task is done when its tests pass in CI and its documentation is written.
+- A task is done when its tests pass locally (and in CI when run) and its documentation is written. (Until Dec 1, CI minutes are capped: local test runs with command + summary line are pasted into PRs for merge).
 - Interfaces marked **[contract]** are shared by several tasks: change them only through task A1, and announce it in the PR.
 
 ### Phase A: foundations (start here; A1–A4 mostly sequential)
@@ -162,6 +162,8 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 - Voxel masks from `.npz`.
 - **Tests:** closed-mesh containment; voxelisation volume within 2 %.
 - **Dependencies:** B1.
+- **Status:** done after #39 (vectorised ray parity, uniform mesh sampling, `.npz` voxel masks); on `main` before #39:
+  partial (Python loop over faces, no `.npz` loader). See `docs/STAGES.md`.
 
 **B3. Scalar, vector and label fields.**
 - **Field kinds:**
@@ -170,18 +172,25 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
   - layer stacks: label by depth with hand-set boundaries, e.g. a "cortical layering" helper with any number of layers and thicknesses as `Param`s.
 - **Tests:** sampling accuracy; layer labels match boundaries.
 - **Dependencies:** B1.
+- **Status:** done after #39 (grid, analytic, vector, label and layer-stack fields; thicknesses as `Param`s); before
+  #39: partial (thicknesses not `Param`s, no vector or label field types).
 
 **B4. Point patterns and maps.**
 - **Patterns:** point sets (blobs, centres); regular, jittered and Poisson-disc (minimum distance) generation.
 - **Orientation maps:** pinwheel maps from hand-placed singularities with given charges (±1/2), or from band-pass noise. Output: a vector or angle field and the pinwheel positions.
 - **Tests:** pinwheel charges recovered; minimum distances respected.
 - **Dependencies:** B3.
+- **Status:** partial: point patterns are functions returning arrays (not field types); `PinwheelField` and
+  `pinwheel_charges` after #39; band-pass maps do not return their pinwheel positions.
 
 **B5. Field operations.**
 - Arithmetic, thresholding, smoothing, distance transforms (distance to a boundary or a point set), gradients.
 - Everything must be usable as a `Field` param.
 - **Tests:** against analytic results.
 - **Dependencies:** B3.
+- **Status:** partial: `Add`, `Threshold`, `GaussianSmooth`, distance to a point set; after #39 also `Gradient` and
+  `DistanceToBoundary` in NumPy (no SciPy). Missing: subtraction / multiplication fields, `bind` through `Add` and
+  `Threshold`.
 
 ### Phase C: developmental stages (parallel after A4; each a registered stage with tests and cost declaration)
 
@@ -201,6 +210,22 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 | C12 | `myelinate` | Shorten delays of active or long projections (a `Param` factor). |
 | C13 | `freeze` | Validate and compile the tissue to an `SNNNetwork` (end of development, or a checkpoint). |
 
+**Status of C1–C12** (details and limits in `docs/STAGES.md`):
+| Task | Status |
+|---|---|
+| C1 | partial: count in a geometry or at one position; no density `Param` or field |
+| C2 | partial: probability, displacement, lineage, daughter type; no `max_cells` bound, no expression noise |
+| C3 | done: probability, density (cell list above N = 2048), neurotrophic in / out degree |
+| C4 | partial: steps along a direction, radial, stop field, boundary; no chemotaxis, target layer or collisions |
+| C5 | partial: `sort` (reorders positions along an axis by a key); no `mosaic` stage, repulsion or adhesion |
+| C6 | partial: sigmoid step with morphogen and contact (cell-list) inputs; no Hill function |
+| C7 | done for expression, field and lineage conditions (values as `Param`s after #40); birth order not available |
+| C8 | partial: guidance rules as a stage; dense by default (`exact=True`); errors on missing guidance after #38 |
+| C9 | partial: `place_by_hand`, `connect_by_hand` (index lists); no connection matrices or rules |
+| C10 | partial: `prune` by weight, `scale` to a target sum; no activity criterion |
+| C11 | partial: `lif_int` run with Poisson drivers or injected spikes, then STDP / Hebbian; no waves or twitches |
+| C12 | partial: one factor for all delays; no selection of active or long projections |
+
 **Acceptance tests for every stage:**
 - determinism;
 - no-op with neutral parameters;
@@ -219,6 +244,9 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 - **Then** the default for large tissues.
 - **Tests:** equality in exact mode; memory O(E) for 10⁵ cells.
 - **Dependencies:** D1.
+- **Status:** partial: `sparse_guidance` with an exact (dense) mode and a cell-list mode supporting three probability
+  rules; the sparse mode draws different random numbers from the dense one, is not the default for large tissues and
+  is not used by `grow()`.
 
 **D3. Development cost model.**
 - Per-stage cost declarations summed by `neurogenesis.cost`, with machine calibration as for simulations.
@@ -230,7 +258,17 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 - **Dependencies:** D1, D2.
 
 **D5. Performance regression CI.**
-- Timing of fixed benchmarks stored per commit; CI fails if a benchmark is more than 30 % slower.
+- `scripts/benchmark_performance.py` runs fixed CPU simulation and cell-list workloads. Each main-branch run stores its timings and machine fingerprint as a CI artifact and reports regressions above 30 % against the previous run when the machine matches (report only: shared runners vary too much for a gate). Locally, `--baseline perf.json --enforce` makes a regression fail on the machine that recorded the baseline.
+
+### Fix wave (F1–F6, review fixes of Wave 2; not the Phase F viewer tasks)
+- **F1** field and geometry instantiation: done (#28).
+- **F2** remove `eval`: partial (#29): fields, conditions and `Expr` use the restricted evaluator; `CurvedSheet` in
+  `neurogenesis/geometry/primitives.py` still calls `eval`.
+- **F3** guidance through `Param`s, `"src->dst"` keys: done (#30); stricter errors in #38.
+- **F4** low compute: partial (#31): apoptosis uses the cell list; `grow_axons` still builds dense Ns × Nd arrays by
+  default (`exact=True`) whatever the size.
+- **F5** delay limit of 31 ticks: done (#35).
+- **F6** `refine_by_activity` correctness and sign preservation: done (#37).
 
 ### Phase E: learning and optimisation
 
