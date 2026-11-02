@@ -2,7 +2,19 @@
 
 **Grow spiking neural networks the way nervous systems are built, by hand, by genes, or both, and simulate them
 cheaply.**
-
+## Documentation
+**<https://jobellet.github.io/neurogenesis-sim/>**: tutorials, use cases, integration guides, stage and API
+reference, related work. The site is built from `docs/` by `.github/workflows/docs.yml`; to build it locally:
+`pip install -r docs/requirements.txt && sphinx-build -b html docs docs/_build/html`. Key files:
+- `docs/ROADMAP.md`: target architecture (geometry, fields, tissue, stages, parameter sources, GUI), design rules and
+  the task list.
+- `AGENTS.md`: rules for contributors and agents (determinism, backward compatibility, low compute, tests).
+- `docs/EXTENDING.md`: rules, plugins, knockouts, tonic currents, module projects.
+- `docs/STAGES.md`: the registered stages, geometries, fields and sparse guidance: parameters, defaults, limits.
+- `docs/NEURON_MODELS.md`: neuron models, units, cost estimates.
+- `CONTRIBUTING.md`: code and module contributions.
+- `docs/THIRD_PARTY.md`: software used and the literature behind each mechanism.
+  
 neurogenesis-sim is a general toolbox for building circuits through development. You describe where tissue is (2D or 3D
 shapes) and what is already known about it (layers, areas, maps, cell positions). You then choose a sequence of
 developmental stages (cell division, migration, differentiation, axon growth, pruning, activity-dependent refinement
@@ -66,19 +78,6 @@ net = grow(plan, genome, seed=0)                              # an SNNNetwork; n
 counts = simulate_counts([net], [currents], ticks=100, model="lif_int")   # or "two_compartment", "hh"
 Module("demo", plan, genome, inputs=["sensor"], outputs=["map"]).save("demo.module.json")
 ```
-
-## Documentation
-**<https://jobellet.github.io/neurogenesis-sim/>**: tutorials, use cases, integration guides, stage and API
-reference, related work. The site is built from `docs/` by `.github/workflows/docs.yml`; to build it locally:
-`pip install -r docs/requirements.txt && sphinx-build -b html docs docs/_build/html`. Key files:
-- `docs/ROADMAP.md`: target architecture (geometry, fields, tissue, stages, parameter sources, GUI), design rules and
-  the task list.
-- `AGENTS.md`: rules for contributors and agents (determinism, backward compatibility, low compute, tests).
-- `docs/EXTENDING.md`: rules, plugins, knockouts, tonic currents, module projects.
-- `docs/STAGES.md`: the registered stages, geometries, fields and sparse guidance: parameters, defaults, limits.
-- `docs/NEURON_MODELS.md`: neuron models, units, cost estimates.
-- `CONTRIBUTING.md`: code and module contributions.
-- `docs/THIRD_PARTY.md`: software used and the literature behind each mechanism.
 
 ## Continuous integration
 GitHub Actions (`.github/workflows/ci.yml`), on every push:
