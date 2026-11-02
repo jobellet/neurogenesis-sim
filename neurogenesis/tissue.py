@@ -7,15 +7,17 @@ from neurogenesis.spiking.network import SNNNetwork, NeuronData, SynapseData
 # Optional per-synapse morphology and conductance arrays (K2, P4) and the value of a synapse that has none.
 _SYNAPSE_OPTIONAL = {"pre_node": (np.int32, -1), "post_node": (np.int32, -1),
                      "path_length": (np.float32, np.nan), "dendritic_distance": (np.float32, np.nan),
-                     "e_rev": (np.float32, np.nan), "tau_decay": (np.float32, np.nan)}
+                     "e_rev": (np.float32, np.nan), "tau_decay": (np.float32, np.nan),
+                     "plastic": (np.bool_, True)}
 
 
 @dataclass
 class SparseConnectivity:
     """Synapses as struct of arrays. `receptor_class` (E,) uint8 (0 = the classic signed synapse) always exists; the
     morphology arrays `pre_node`, `post_node` (arbor node indices, -1 = soma / none), `path_length` and
-    `dendritic_distance` (space units, NaN = unknown) and conductance arrays `e_rev` (mV), `tau_decay` (ms) are None
-    until a stage sets them. Use `take` and `concat` to filter or join synapses so that every array stays aligned."""
+    `dendritic_distance` (space units, NaN = unknown), conductance arrays `e_rev` (mV), `tau_decay` (ms) and the
+    plasticity mask `plastic` (bool; None = every synapse plastic, see `plastic_mask`) are None until a stage sets them.
+    Use `take` and `concat` to filter or join synapses so that every array stays aligned."""
     pre: np.ndarray
     post: np.ndarray
     weight: np.ndarray
@@ -27,6 +29,7 @@ class SparseConnectivity:
     dendritic_distance: Optional[np.ndarray] = None
     e_rev: Optional[np.ndarray] = None
     tau_decay: Optional[np.ndarray] = None
+    plastic: Optional[np.ndarray] = None
 
     def __post_init__(self) -> None:
         if self.receptor_class is None or len(self.receptor_class) != len(self.pre):
@@ -98,6 +101,12 @@ class SparseConnectivity:
 
     def nbytes(self) -> int:
         return int(sum(v.nbytes for v in self._arrays().values()))
+
+    def plastic_mask(self) -> np.ndarray:
+        """(E,) bool: True where activity-dependent stages (`refine_by_activity`, `prune`, `scale`, `neuromodulate`)
+        may change or remove the synapse; all True when `plastic` is None (the default)."""
+        self._sync()
+        return np.ones(len(self.pre), dtype=bool) if self.plastic is None else self.plastic.astype(bool, copy=False)
 
 def _concat_morphology(tissues, offsets):
     """Arbors of concatenated tissues, cell indices shifted by each tissue's offset (None if no tissue has arbors)."""
@@ -541,6 +550,9 @@ class Tissue:
         )
 
     def to_network(self) -> SNNNetwork:
+        """Network of the live cells and their synapses. `cycling` and the synapse `plastic` mask (when set) ride along
+        as the in-memory attributes `_cycling` / `_plastic` read back by `from_network`; network files do not store
+        them (the kernels ignore them)."""
         net = SNNNetwork()
         N = len(self.alive)
         
@@ -611,6 +623,8 @@ class Tissue:
             synapse_arrays=syn_arrays,
         )
         out._cycling = self.cycling[self.alive].copy()
+        if self.connectivity.plastic is not None:
+            out._plastic = self.connectivity.plastic[valid_synapses].copy()
         return out
 
     @classmethod
@@ -681,6 +695,9 @@ class Tissue:
                 post = np.array([s.post for s in net.synapses], dtype=np.int32)
                 weight = np.array([s.weight for s in net.synapses], dtype=np.int32)
                 delay = np.array([s.delay for s in net.synapses], dtype=np.int32)
+            plastic = getattr(net, "_plastic", None)
+            if plastic is not None and len(plastic) == M:
+                extra["plastic"] = np.asarray(plastic, dtype=bool).copy()
             t.connectivity = SparseConnectivity(pre, post, weight, delay, **extra)
             
         return t
@@ -707,3 +724,17 @@ class Tissue:
             total += self.morphology.nbytes()
 
         return total
+
+
+MAX_DELAY_TICKS = 255  # storage bound of synaptic delays (uint8 in SNNNetwork); needs (255 + 32) // 32 = 8 history words per neuron
+
+
+def effective_max_delay(max_delay=None) -> int:
+    """Largest delay (ticks) a stage may write: `max_delay` if given, else `MAX_DELAY_TICKS`. Delays above 31 use
+    multi-word spike history in all four kernels (cost: (max_delay + 32) // 32 words per neuron). Raises above the bound."""
+    if max_delay is None:
+        return MAX_DELAY_TICKS
+    m = int(max_delay)
+    if m < 1 or m > MAX_DELAY_TICKS:
+        raise ValueError(f"max_delay must be in [1, {MAX_DELAY_TICKS}] ticks, got {m}")
+    return m

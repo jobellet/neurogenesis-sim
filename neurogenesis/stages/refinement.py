@@ -98,6 +98,8 @@ class PruneStage:
             coact = coactivity(spikes, tissue.connectivity.pre, tissue.connectivity.post, tissue.connectivity.delay, window)
             keep_mask &= coact >= float(resolve(params["min_coactivity"], genome, fields))
 
+        if tissue.connectivity.plastic is not None:
+            keep_mask |= ~tissue.connectivity.plastic              # non-plastic synapses are never pruned (K6)
         tissue.connectivity = tissue.connectivity.take(keep_mask)
 
         return tissue
@@ -130,8 +132,11 @@ class ScaleStage:
             scale_factors = 1.0 + rate * (scale_factors - 1.0)
 
         # Apply scaling, maintaining the original sign
-        new_weights = tissue.connectivity.weight * scale_factors[tissue.connectivity.post]
-        tissue.connectivity.weight = np.round(new_weights).astype(np.int32)
+        new_weights = np.round(tissue.connectivity.weight * scale_factors[tissue.connectivity.post]).astype(np.int32)
+        if tissue.connectivity.plastic is not None:
+            # Non-plastic synapses keep their weight; factors still use every incoming synapse (K6)
+            new_weights = np.where(tissue.connectivity.plastic, new_weights, tissue.connectivity.weight).astype(np.int32)
+        tissue.connectivity.weight = new_weights
         return tissue
 
 
@@ -155,16 +160,18 @@ class MyelinateStage:
         factor = resolve(factor_param, genome, fields)
         sel = self._selected(tissue, params, genome, fields, rng)
 
-        # Scale delays down, clipping to [1, 31]
+        # Scale delays down, clipping to [1, `max_delay`] (default 255)
         raw_delays = np.where(sel, np.round(tissue.connectivity.delay * factor), tissue.connectivity.delay).astype(np.int32)
-        n_clipped = int(np.sum(raw_delays > 31))
+        from neurogenesis.tissue import effective_max_delay
+        mx = effective_max_delay(resolve(params["max_delay"], genome, fields) if params.get("max_delay") is not None else None)
+        n_clipped = int(np.sum(raw_delays > mx))
         if n_clipped > 0:
             warnings.warn(
-                f"myelinate: {n_clipped} synapses clipped to maximum delay 31 ticks (kernel limit)",
+                f"myelinate: {n_clipped} synapses clipped to maximum delay {mx} ticks",
                 UserWarning,
                 stacklevel=2
             )
-        new_delays = np.clip(raw_delays, 1, 31).astype(np.int32)
+        new_delays = np.clip(raw_delays, 1, mx).astype(np.int32)
         tissue.connectivity.delay = new_delays
 
         return tissue
@@ -484,7 +491,10 @@ class RefineByActivityStage:
         valid = packed["valid"]
         valid_idx = np.where(valid)[0]
         
-        tissue.connectivity.weight = np.array(new_weights)[valid_idx].astype(np.int32)
+        new_w = np.array(new_weights)[valid_idx].astype(np.int32)
+        if tissue.connectivity.plastic is not None:
+            new_w = np.where(tissue.connectivity.plastic, new_w, tissue.connectivity.weight).astype(np.int32)  # K6
+        tissue.connectivity.weight = new_w
 
         return tissue
 

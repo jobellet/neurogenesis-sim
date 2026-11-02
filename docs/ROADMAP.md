@@ -97,7 +97,7 @@ GUI (viz/): geometry and field editor, schedule editor, step-by-step development
 ## 4. Tasks
 
 Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencies.**
-- A task is done when its tests pass locally (and in CI when run) and its documentation is written. (Until Dec 1, CI minutes are capped: local test runs with command + summary line are pasted into PRs for merge).
+- A task is done when its tests pass locally (and in CI when run) and its documentation is written. CI runs on every pull request (the repository is public).
 - Interfaces marked **[contract]** are shared by several tasks: change them only through task A1, and announce it in the PR.
 
 ### Phase A: foundations (start here; A1–A4 mostly sequential)
@@ -265,7 +265,17 @@ sources, listed below the table.
   into the network where they matter (contacts as weights, plastic for later plasticity).
   - **Status:** partial: `Tissue.cycling` (bool, per cell; `True` for `seed_cells` / `proliferate`, `False` for
     `place_by_hand`; carried by `add_cells` / `compact` / `subset` / `concatenate` / `to_network` / `from_network`;
-    `proliferate` divides only cycling cells) done; `plastic` (C23) and `contacts` (C19) pending.
+    `proliferate` divides only cycling cells) done; `SparseConnectivity.plastic` (bool, per synapse; None = all
+    plastic; carried by `take` / `concat` / `append` / `compact` / `subset` / `concatenate` and, in memory only, by
+    `to_network` / `from_network`; `refine_by_activity`, `prune`, `scale` and `neuromodulate` leave non-plastic synapses
+    untouched) done; `contacts` (C19) pending.
+
+**Status of C14–C24:**
+| Task | Status |
+|---|---|
+| C14 | done: `cell_cycle_clock` (#68), Q(generation) as a power law or table, cycle-length table, `Tissue.cycling` (K6 part, #67) |
+| C15 | done: `temporal_competence` (#69), one-way competence channels advanced by generation or a field, fixed at cycle exit |
+| C16–C24 | not done |
 
 **Order and priorities.** C14 → C15 first (they make birth-order-dependent layering emerge in G2.3, instead of being
 imposed); C21, C22, C23 next (they use existing P3 / P4 and C11); C18 and C24 independent; C16, C17, C19 after N2 / N3;
@@ -524,6 +534,15 @@ Before implementing Phase I, P, and N, core contracts are updated in dedicated, 
 - Bit-for-bit equivalence across all four kernels with memory overhead declared in `neurogenesis.cost`.
 - Until K4 merges, tasks N3 and I3 must clip conduction delays exceeding 31 ms with a counted warning (never silently).
 - **Status:** done: multi-word spike history ($W = \lceil(\text{max\_delay} + 1) / 32\rceil$ 32-bit words) across Python `reference.py`, JAX `jax_backend.py` & `models/base.py`, browser `viz/src/sim/kernel.ts`, and C `nglif.c`, with memory overhead declared in `neurogenesis.cost`.
+
+**K4b. Longer delays in the developmental stages.** The kernels accept delays beyond 31 ticks (K4), but `grow_axons`,
+`connect_by_hand`, `myelinate` and `dendritic_attenuate` still clip computed delays at 31. Replace the hard-coded bound
+with the `max_delay` Param (default: no clip, or a documented bound tied to the cost model), warn only when a
+user-set bound clips, and test that a long projection keeps its delay and simulates identically in the four kernels.
+- **Status:** partial (#72): `grow_axons` (and its streamed variant), `connect_by_hand`, `myelinate`,
+  `dendritic_attenuate` and `freeze` use the `max_delay` Param, default the storage bound of 255 ticks
+  (`MAX_DELAY_TICKS`), and warn only when clipping. Still clipped at 31: `arbor_synapses`
+  (`neurogenesis/stages/arbors.py`) and the connectome importer (`neurogenesis/data/importer.py`).
 
 ### Phase I: Connectome Data Layer
 

@@ -6,6 +6,7 @@ from dataclasses import dataclass, asdict
 from typing import Dict, Any, Union, Iterator, List, Optional, Tuple
 
 import numpy as np
+from neurogenesis.tissue import effective_max_delay as effective_max_delay_
 
 from neurogenesis.tissue import Tissue, SparseConnectivity
 from neurogenesis.params import resolve
@@ -187,7 +188,7 @@ def grow_axons_streaming(
     weight_rules = resolve(params.get("rules_weight", []), genome, fields)
 
     cv = resolve(params.get("conduction_velocity", 1.0), genome, fields)
-    max_delay = resolve(params.get("max_delay", 31), genome, fields)
+    max_delay = resolve(params.get("max_delay"), genome, fields)
     global_w_clip = int(resolve(params.get("w_clip", 512), genome, fields))  # type: ignore
     global_inh = float(resolve(params.get("inh_weight_factor", 1.0), genome, fields))  # type: ignore
     exact = resolve(params.get("exact"), genome, fields)
@@ -199,7 +200,7 @@ def grow_axons_streaming(
     bounds_size = resolve(params.get("bounds_size", {}), genome, fields)
     if not isinstance(bounds_size, dict): bounds_size = {}
 
-    effective_max_delay = min(int(max_delay), 31)  # type: ignore
+    effective_max_delay = effective_max_delay_(max_delay)
 
     alive_idx = np.nonzero(tissue.alive)[0]
     region_ids = tissue.region[alive_idx]
@@ -371,7 +372,7 @@ def grow_axons_streaming(
             abs_dst = tissue.positions[dst_indices[edges_post]]
             dists_abs = np.linalg.norm(abs_src - abs_dst, axis=1)
             raw_delays = np.round(dists_abs / cv).astype(np.int32)  # type: ignore
-            n_clipped = int(np.sum(raw_delays > 31))
+            n_clipped = int(np.sum(raw_delays > effective_max_delay))
             total_clipped_delays += n_clipped
             delays = np.clip(raw_delays, 1, effective_max_delay).astype(np.int32)
 
@@ -405,7 +406,7 @@ def grow_axons_streaming(
 
     if total_clipped_delays > 0:
         warnings.warn(
-            f"grow_axons_streaming: {total_clipped_delays} synapses clipped to maximum delay 31 ticks (kernel limit)",
+            f"grow_axons_streaming: {total_clipped_delays} synapses clipped to maximum delay {effective_max_delay} ticks",
             UserWarning,
             stacklevel=2
         )

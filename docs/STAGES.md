@@ -13,7 +13,7 @@ a parameter uses them.
 - `when` is an expression evaluated by the restricted evaluator `neurogenesis.expressions.eval_expr` (no `eval`), with
   `N`, `N_alive`, `E`, `rep`, `tissue`, `genome`, `np`.
 - Units: one tick = 1 ms; positions and distances in space units (the Project's coordinates); weights and thresholds in
-  integer kernel units. Delays are clipped to the kernel limit of 31 ticks.
+  integer kernel units. Delays are limited only by the storage bound of 255 ticks (multi-word spike history in all four kernels; stages accept a `max_delay` Param).
 - `cost(N, E, params)` returns (bytes, ops); `neurogenesis.stages.base.schedule_cost` sums it over a schedule, and
   `neurogenesis.devcost.estimate_development` (command line: `python -m neurogenesis estimate --project p.json`)
   predicts N and E stage by stage, the peak memory and the time on this machine.
@@ -184,8 +184,8 @@ Reference neocortical birth-order windows: `examples/profiles/temporal_competenc
 | `projections` | the `guidance` keys | list of `"src->dst"` strings or pairs; regions are matched by id or through `region_map`; `[]` is the no-op |
 | `guidance` | none | per projection (`"src->dst"` keys, or a list of dicts with `src`, `dst`): `B` (identity), `c` (0), `sigma` (0.1), `p0` (0.0), `w` (1.0), `wc`, `inh`, per-projection rule lists, rule genes |
 | `rules_shift`, `rules_target`, `rules_probability`, `rules_weight` | [] | rule names applied in order; unknown names raise |
-| `conduction_velocity` | 1.0 | space units per tick; delay = round(distance / velocity) clipped to [1, min(`max_delay`, 31)], with a warning when clipped |
-| `max_delay` | 31 | ticks |
+| `conduction_velocity` | 1.0 | space units per tick; delay = round(distance / velocity) clipped to [1, `max_delay`], with a warning when clipped |
+| `max_delay` | unlimited (255, the storage bound) | ticks; also a Param of `myelinate` |
 | `w_clip`, `inh_weight_factor` | 512, 1.0 | weight clip and inhibitory factor (overridden per projection by `wc`, `inh`) |
 | `exact` | unset | unset: dense Ns × Nd when max(Ns, Nd) <= 2048, else sparse guidance (D2, cell list); `True`: always dense, error above 2²⁴ pairs; `False`: sparse when `sigma <= 1` |
 | `region_map`, `bounds_min`, `bounds_size`, `identities` | {} | region names → ids; region boxes for local coordinates (default: the bounding box of the region's cells); per-region identities |
@@ -201,7 +201,7 @@ default) and optional `cell_type`, `birth_stage`, `sign`, `mode`, `shift_v`, `sh
 `directions` (scalars or one value per cell). No positions = no-op.
 
 **`connect_by_hand` (C9).** Appends synapses `pre[i] → post[i]` (current cell indices, not cell ids) with `weight`
-(1.0, truncated to an integer) and `delay` (1 tick). Indices outside [0, N) and delays outside [1, 31] raise
+(1.0, truncated to an integer) and `delay` (1 tick). Indices outside [0, N) and delays outside [1, 255] raise
 `ValueError`. Empty lists = no-op. Two more supervised inputs (run before the index lists):
 - `matrix`: a dense N × N weight matrix (row = pre, column = post, 0 = no synapse), allowed up to N = 2048 cells,
   with `delay_matrix` (N × N) or a scalar `delay`.
@@ -210,11 +210,18 @@ default) and optional `cell_type`, `birth_stage`, `sign`, `mode`, `shift_v`, `sh
   expression over `cell_type`, `region`, `birth_stage`, `generation`, `sign`, `x`, `y`, `z`. Without `max_distance`
   the number of synapses is drawn from Binomial(N_pre · N_post, prob) and distinct pairs are drawn without building
   an N_pre × N_post array (O(E)); with `max_distance` candidates come from the cell list, each kept with `prob`
-  (times exp(−d²/2σ²) with `sigma`). `velocity` sets delay = round(distance / velocity) clipped to [1, 31] with a
+  (times exp(−d²/2σ²) with `sigma`). `velocity` sets delay = round(distance / velocity) clipped to [1, 255] with a
   warning; `dale` gives each synapse the presynaptic sign; autapses are dropped unless `allow_autapse`. Values may be
   `Param`s.
 
 ## Maturation (C10–C12, `neurogenesis/stages/refinement.py`)
+
+**Plasticity mask (K6).** `tissue.connectivity.plastic` is an optional per-synapse bool array; absent (None, the
+default) means every synapse is plastic and the stages below behave exactly as without it. Synapses with
+`plastic == False` keep their weight in `refine_by_activity`, `scale` and `neuromodulate` and are never removed by
+`prune` (`scale` still counts them in each cell's incoming sum). The mask follows `take` / `concat` / `append`,
+`compact`, `subset`, `concatenate`; new synapses are plastic. `to_network` / `from_network` carry it only as the
+in-memory attribute `_plastic` of the network (network files do not store it).
 
 **`prune` (C10).** Removes synapses with `|w| < threshold` (default 0, neutral). With `min_coactivity`, it also
 removes synapses whose presynaptic spikes, arriving after the synapse delay, were followed by a postsynaptic spike
@@ -243,13 +250,13 @@ Without `rule` the stage is a no-op . Limits: plasticity acts on magnitudes and 
 are cast to integers. The three-factor eligibility counts arrivals that coincide with a postsynaptic spike in the same tick. **Not implemented:** pruning inside the stage (follow with `prune`), other neuron models.
 
 **`myelinate` (C12).** Multiplies delays by `factor` (alias `delay_factor`; absent = no-op; 1.0 is neutral), rounds
-and clips to [1, 31] ticks with a warning when clipped. By default every synapse is scaled; given criteria select
+and clips to [1, `max_delay`] ticks (default 255) with a warning when clipped. By default every synapse is scaled; given criteria select
 synapses passing all of them: `min_delay` (long projections, ticks), `pre_region` / `post_region` (lists of region
 ids), `min_rate` (presynaptic rate in Hz, from `spikes` or a simulation of `ticks`; activity-dependent myelination,
 Gibson et al. 2014, Science; needs a compacted tissue).
 
 **`freeze` (C13, `neurogenesis/stages/freeze.py`).** Validates the tissue (finite positions, synapse indices in
-range, delays in [1, 31], |weight| <= 32767 and, with `dale`, outgoing signs equal to the presynaptic sign) and raises
+range, delays in [1, 255], |weight| <= 32767 and, with `dale`, outgoing signs equal to the presynaptic sign) and raises
 `FreezeError` listing every problem; the tissue is unchanged. With `path` it writes the compiled network (NGB1 for a
 `.ngb` suffix, else JSON). The functions `freeze(tissue)` → `SNNNetwork` and `develop(project, genome, seed)` (run the
 schedule, then freeze) do the same from Python.
@@ -279,7 +286,7 @@ compartment changes); `read_swc` / `write_swc` for SWC files (`scale` converts u
 default axon and neurite) within `contact_distance` of dendritic nodes (`post_compartments`, default dendrite, neurite,
 soma) of another cell, found through the cell list over nodes. Each contact is kept with `p_contact` (1.0), at most
 `max_per_pair` (1) per cell pair, closest first. Delay = round(axonal path length / `axon_velocity` (1.0) +
-dendritic path length / `dendrite_velocity` (ignored if absent)), clipped to [1, 31] ticks with a counted warning.
+dendritic path length / `dendrite_velocity` (ignored if absent)), clipped to [1, 255] ticks with a counted warning.
 Weight `weight` (1) with the presynaptic sign (`dale`, True). Each synapse records `pre_node`, `post_node`,
 `path_length` and `dendritic_distance`. No arbors or no `contact_distance` is the no-op. The cost assumes 50 nodes per
 cell unless `expected_nodes` is given.
@@ -318,6 +325,36 @@ example profile with cited entries is in `examples/profiles/example_receptors.js
 Conditions use the variables of `differentiate` conditions. Each stage without its params (`rules` / `profile`) is a
 no-op. **Not implemented:** conductance-based kernels (P4) and neuromodulation (P5); the legacy `receptor_sign` rule
 is not re-expressed as a profile.
+
+## Neuromodulation and dendrites (P5, N5, `neurogenesis/neuromodulation.py`, `neurogenesis/dendritic.py`)
+
+**`neuromodulate` (P5).** Volume-transmitted neuromodulation gating plasticity: the spikes of `modulator_cells` are
+low-pass filtered (`tau_ms`, default 50 ms) and spread in space with an exponential kernel (`space_constant`, default
+50 space units), and the resulting modulator trace at each synapse multiplies a three-factor STDP update (eligibility
+time constant `tau_e` 50 ms, `tau_plus` / `tau_minus` 20 ms, learning rate `eta` 0.05, bounds `w_min` 0, `w_max` 1000).
+| Param | Default | Meaning |
+|---|---|---|
+| `modulator_cells` | [] | indices of the cells releasing the modulator; empty = no-op |
+| `spikes` | none | recorded spike raster (ticks × cells) the update uses; absent = no-op |
+| `space_constant`, `tau_ms` | 50.0, 50.0 | spatial (space units) and temporal (ms) constants of the volume signal |
+| `eta`, `tau_plus`, `tau_minus`, `tau_e`, `w_min`, `w_max` | 0.05, 20, 20, 50, 0, 1000 | plasticity rule |
+
+Limits: the parameters are read as plain values, not `Param`s (no gene or field control yet); the spike raster must be
+supplied (the stage does not simulate); the spatial kernel is computed between all modulator cells and all targets.
+
+**`dendritic_attenuate` (N5).** Passive dendritic filtering: each synaptic weight is multiplied by
+`exp(−d / length_constant)`, where `d` is the synapse's dendritic distance (computed from `post_node` and the
+morphology's path length to the soma when missing); a non-zero weight keeps a magnitude of at least 1. With
+`dendrite_velocity`, `round(d / velocity)` ticks are added to the delay; with `distal_compartment_threshold`, the target
+cells of synapses at or beyond that distance are marked compartment 1 (distal).
+| Param | Default | Meaning |
+|---|---|---|
+| `length_constant` | 100.0 | dendritic length constant (space units); a `Param` |
+| `dendrite_velocity` | none | space units per tick for the added dendritic delay; a `Param` |
+| `distal_compartment_threshold` | none | distance (space units) beyond which targets are marked distal; a `Param` |
+
+Empty params = no-op. Limits: synapses without a dendritic distance are left unattenuated; the added delays are still
+clipped to `max_delay` (default 255 ticks), with a warning when clipped.
 
 ## Geometry (B2, `neurogenesis/geometry/mesh.py`, `voxel.py`)
 - **`mesh`** (`MeshGeometry(vertices, faces, resolution=32)`, `from_obj`, `from_stl` for ASCII and binary STL).
