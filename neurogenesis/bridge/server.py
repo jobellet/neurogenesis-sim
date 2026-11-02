@@ -249,7 +249,7 @@ def m_capabilities(p):
         ("A2", "Tissue state", _has("neurogenesis.tissue", "Tissue")),
         ("A3", "Param sources", _has("neurogenesis.params")),
         ("A4", "Stages and scheduler", reg is not None),
-        ("A5", "Legacy compiler", _any("neurogenesis.stages.legacy", "neurogenesis.development.legacy", "neurogenesis.compiler")),
+        ("A5", "Legacy compiler", _any(("neurogenesis.development.legacy_compiler", "compile_plan_to_project"), "neurogenesis.stages.legacy")),
         ("B1", "Geometry primitives", _has("neurogenesis.geometry", "Box")),
         ("B2", "Meshes and voxel masks", _any("neurogenesis.geometry.mesh", "neurogenesis.geometry.meshes", "neurogenesis.geometry.voxel")),
         ("B3", "Scalar, vector, label fields", _has("neurogenesis.fields")),
@@ -260,7 +260,7 @@ def m_capabilities(p):
         T.append((task, f"Stage {name}", name in stages))
     T += [
         ("D1", "Cell lists / spatial hash", _has("neurogenesis.spatial", "CellList")),
-        ("D2", "Sparse guidance", _any("neurogenesis.development.sparse", ("neurogenesis.development.grow", "sparse_guidance"))),
+        ("D2", "Sparse guidance", _any(("neurogenesis.development.sparse_guidance", "sparse_guidance"), ("neurogenesis.development.grow", "sparse_guidance"))),
         ("D3", "Development cost model", _any(("neurogenesis.cost", "estimate_project"), ("neurogenesis.cost", "stage_cost"),
                                               ("neurogenesis.stages.base", "schedule_cost"))),
         ("D4", "Chunked growth", _any("neurogenesis.development.chunked", "neurogenesis.chunked")),
@@ -268,7 +268,7 @@ def m_capabilities(p):
         ("E2", "Supervised fitting", _any("neurogenesis.fitting", "neurogenesis.fit", "neurogenesis.optim")),
         ("E3", "Semi-supervised workflows", _any("neurogenesis.evolution.semi", "neurogenesis.evolution.pareto")),
         ("E4", "Validation harness", _any("neurogenesis.validation", "neurogenesis.validate")),
-        ("F7", "Bridge server", _any("neurogenesis.serve", "neurogenesis.server")),
+        ("F7", "Bridge server", _any(("neurogenesis.bridge.server", "m_capabilities"), "neurogenesis.serve")),
         ("G1", "Module registry", _any("neurogenesis.modules.registry", "neurogenesis.registry")),
         ("core", "Spiking kernel and models", _has("neurogenesis.spiking.models", "MODELS")),
         ("core", "Body plans and growth", _has("neurogenesis.development", "grow")),

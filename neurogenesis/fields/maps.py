@@ -1,5 +1,7 @@
 import numpy as np
-from typing import Tuple, List, Union
+from typing import Any, Dict, Tuple, List, Union
+
+from .core import Field, register_field
 
 def regular_points(bounds: Tuple[np.ndarray, np.ndarray], spacing: Union[float, List[float]]) -> np.ndarray:
     min_b, max_b = bounds
@@ -100,16 +102,7 @@ def pinwheel_map(bounds: Tuple[np.ndarray, np.ndarray], spacing: float, singular
     """
     min_b, max_b = bounds
     points = regular_points(bounds, spacing)
-    
-    angles = np.zeros(len(points))
-    for p, q in zip(singularities, charges):
-        # Contribution from each singularity: q * angle(z - p)
-        # Ensure points and p have same shape
-        diff = points - p
-        angle = np.arctan2(diff[:, 1], diff[:, 0])
-        angles += q * angle
-        
-    angles = angles % np.pi
+    angles = PinwheelField(singularities, charges).values(points)
     
     grid_shape = np.ceil((max_b - min_b) / spacing).astype(int)
     angles_grid = angles.reshape(*grid_shape)
@@ -157,3 +150,52 @@ def bandpass_pinwheels(bounds: Tuple[np.ndarray, np.ndarray], spacing: float, k0
     
     return points_grid, angles
 
+
+
+@register_field('PinwheelField')
+class PinwheelField(Field):
+    """Orientation angle in [0, pi) around hand-placed pinwheel singularities.
+
+    theta(x) = phase + sum_k q_k atan2(y - y_k, x - x_k) (mod pi), using the first two
+    coordinates of the points; a singularity of charge q = +-1/2 rotates the orientation by
+    +-pi around it. Orientation maps with pinwheels: Swindale 1996 (Network: Computation in
+    Neural Systems); pinwheel density and statistics: Kaschube et al. 2010 (Science).
+    """
+
+    def __init__(self, singularities: Union[np.ndarray, list], charges: Union[np.ndarray, list], phase: float = 0.0):
+        self.singularities = np.asarray(singularities, dtype=float).reshape(-1, 2)
+        self.charges = np.asarray(charges, dtype=float).reshape(-1)
+        self.phase = float(phase)
+        if len(self.singularities) != len(self.charges):
+            raise ValueError("one charge per singularity is required")
+
+    def values(self, points: np.ndarray) -> np.ndarray:
+        points = np.asarray(points, dtype=float)
+        angles = np.full(points.shape[:-1], self.phase)
+        for p, q in zip(self.singularities, self.charges):  # few singularities: loop is O(K * N)
+            angles = angles + q * np.arctan2(points[..., 1] - p[1], points[..., 0] - p[0])
+        return np.mod(angles, np.pi)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {'type': 'PinwheelField', 'singularities': self.singularities.tolist(),
+                'charges': self.charges.tolist(), 'phase': self.phase}
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> 'Field':
+        return cls(d['singularities'], d['charges'], d.get('phase', 0.0))
+
+
+def pinwheel_charges(field: Field, centres: np.ndarray, radius: float, n_samples: int = 64) -> np.ndarray:
+    """Charge of the orientation field around each centre: winding of 2 theta on a circle / (4 pi).
+
+    The circle of ``radius`` around each centre (in the first two coordinates) is sampled at
+    ``n_samples`` points; steps of 2 theta are wrapped to (-pi, pi] and summed.
+    """
+    centres = np.asarray(centres, dtype=float).reshape(-1, 2)
+    phi = np.linspace(0.0, 2 * np.pi, n_samples, endpoint=False)
+    ring = radius * np.stack([np.cos(phi), np.sin(phi)], axis=-1)
+    pts = centres[:, None, :] + ring[None]  # (K, n, 2)
+    two_theta = 2.0 * np.asarray(field.values(pts), dtype=float)
+    steps = np.diff(np.concatenate([two_theta, two_theta[:, :1]], axis=1), axis=1)
+    steps = (steps + np.pi) % (2 * np.pi) - np.pi
+    return steps.sum(axis=1) / (4 * np.pi)

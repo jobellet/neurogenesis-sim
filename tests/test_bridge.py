@@ -10,8 +10,6 @@ import pytest
 
 from neurogenesis.bridge import METHODS, NGB_VERSION, PROTOCOL_VERSION, read_network, server, write_network
 from neurogenesis.development import BodyPlan, FixedPlacement, Region
-from neurogenesis.genome.io import to_json
-from neurogenesis.modules import Module
 from neurogenesis.spiking.morphology import MorphogeneticEngine
 from neurogenesis.stages import register_stage
 
@@ -84,6 +82,7 @@ def test_ping_and_capabilities():
     assert c["protocol"] == PROTOCOL_VERSION and c["ngb"] == NGB_VERSION
     tasks = {t["task"]: t["available"] for t in c["tasks"]}
     assert tasks["A1"] and tasks["A4"] and "C4" in tasks
+    assert tasks["A5"] and tasks["D2"] and tasks["F7"]
 
 
 @covers()

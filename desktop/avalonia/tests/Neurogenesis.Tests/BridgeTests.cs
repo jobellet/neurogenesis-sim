@@ -31,6 +31,32 @@ public class BridgeTests
     }
 
     [Fact]
+    public async Task CancelledStartLeavesClientUsable()
+    {
+        string python = PythonFixtures.Python;
+        string repo = PythonFixtures.RepoRoot();
+
+        await using var client = new BridgeClient(python, repo);
+
+        // Cancelled token should cancel the wait without permanently poisoning the client
+        using var cancelledCts = new CancellationTokenSource();
+        cancelledCts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            await client.StartAsync(cancelledCts.Token);
+        });
+
+        // Now wait with valid token: client successfully completes handshake
+        using var validCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await client.StartAsync(validCts.Token);
+        Assert.True(client.IsReady);
+
+        var res = await client.CallAsync("ping", ct: validCts.Token);
+        Assert.Equal("pong", res.GetString());
+    }
+
+    [Fact]
     public async Task CapabilitiesAndGenerateNetwork()
     {
         string python = PythonFixtures.Python;

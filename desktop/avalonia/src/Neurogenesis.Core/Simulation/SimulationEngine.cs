@@ -21,8 +21,11 @@ public sealed class SimulationEngine : IDisposable
     public uint Seed { get; set; } = 12345;
     public double TicksPerSecond { get; set; } = 1000.0; // 0 = as fast as possible
 
-    public long CurrentTick { get; private set; }
-    public long TotalSpikes { get; private set; }
+    private long _currentTick;
+    private long _totalSpikes;
+
+    public long CurrentTick => Interlocked.Read(ref _currentTick);
+    public long TotalSpikes => Interlocked.Read(ref _totalSpikes);
     public bool IsRunning => _running;
 
     // Spike ring buffer for raster (stores last N ticks of spikes)
@@ -32,6 +35,9 @@ public sealed class SimulationEngine : IDisposable
     // Snapshot of last spike tick per neuron for 3D flashes
     public int[] LastSpikeSnapshot { get; }
 
+    // Reusable per-tick spike buffer to avoid allocations
+    private readonly int[] _stepSpikesBuffer;
+
     public event Action? FrameStepped;
 
     public SimulationEngine(NgbNetwork net, uint seed = 12345)
@@ -40,6 +46,7 @@ public sealed class SimulationEngine : IDisposable
         Seed = seed;
         LastSpikeSnapshot = new int[NumNeurons];
         Array.Fill(LastSpikeSnapshot, int.MinValue);
+        _stepSpikesBuffer = new int[NumNeurons];
 
         _spikeRing = new List<int>[_ringCapacityTicks];
         for (int k = 0; k < _ringCapacityTicks; k++)
@@ -54,7 +61,7 @@ public sealed class SimulationEngine : IDisposable
     {
         lock (_lock)
         {
-            if (_running || _disposed) return;
+            if (_running || _disposed || _thread != null) return;
             _running = true;
             _thread = new Thread(RunLoop)
             {
@@ -67,12 +74,15 @@ public sealed class SimulationEngine : IDisposable
 
     public void Stop()
     {
+        Thread? t;
         lock (_lock)
         {
+            if (!_running && _thread == null) return;
             _running = false;
+            t = _thread;
+            _thread = null;
         }
-        _thread?.Join(500);
-        _thread = null;
+        t?.Join();
     }
 
     public void Inject(int neuron, int current)
@@ -104,8 +114,6 @@ public sealed class SimulationEngine : IDisposable
     {
         var sw = Stopwatch.StartNew();
         long lastTick = 0;
-
-        var buffer = new int[NumNeurons];
 
         while (_running && !_disposed)
         {
@@ -146,22 +154,22 @@ public sealed class SimulationEngine : IDisposable
     {
         if (_sim == null) return;
 
-        var stepSpikes = new int[NumNeurons];
-        int count = _sim.Step(stepSpikes);
+        int count = _sim.Step(_stepSpikesBuffer);
 
-        CurrentTick = _sim.Tick;
-        TotalSpikes += count;
+        long tick = _sim.Tick;
+        Interlocked.Exchange(ref _currentTick, tick);
+        Interlocked.Add(ref _totalSpikes, count);
 
         // Copy last spike states
         _sim.LastSpike.CopyTo(LastSpikeSnapshot);
 
         // Store into ring
-        int ringIdx = (int)(CurrentTick % _ringCapacityTicks);
+        int ringIdx = (int)(tick % _ringCapacityTicks);
         var list = _spikeRing[ringIdx];
         list.Clear();
         for (int k = 0; k < count; k++)
         {
-            list.Add(stepSpikes[k]);
+            list.Add(_stepSpikesBuffer[k]);
         }
     }
 
@@ -171,7 +179,10 @@ public sealed class SimulationEngine : IDisposable
         lock (_lock)
         {
             long cur = CurrentTick;
-            long start = Math.Max(0, cur - maxTicks);
+            int clamped = Math.Clamp(maxTicks, 0, _ringCapacityTicks);
+            if (clamped <= 0 || cur == 0) return result;
+
+            long start = Math.Max(0, cur - clamped + 1);
             for (long t = start; t <= cur; t++)
             {
                 int idx = (int)(t % _ringCapacityTicks);

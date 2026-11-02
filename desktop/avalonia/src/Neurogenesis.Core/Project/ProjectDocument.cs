@@ -1,12 +1,11 @@
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using Neurogenesis.Core.Schema;
 
 namespace Neurogenesis.Core.Project;
 
 /// <summary>
-/// Represents a neurogenesis Project (version 1.0.0) conforming to the Project schema.
-/// All state mutations go through undo/redo snapshots, ensuring no hidden state exists.
+/// Manages the in-memory Project JSON document conforming to the Project schema (task A1).
+/// Supports full undo/redo history for non-destructive stage and parameter editing.
 /// </summary>
 public sealed class ProjectDocument
 {
@@ -21,18 +20,33 @@ public sealed class ProjectDocument
     public bool CanUndo => _undoStack.Count > 0;
     public bool CanRedo => _redoStack.Count > 0;
 
-    public ProjectDocument()
-    {
-        Root = CreateDefaultProject();
-    }
-
-    public ProjectDocument(string json)
-    {
-        var node = JsonNode.Parse(json);
-        Root = node as JsonObject ?? throw new ArgumentException("JSON root must be an object", nameof(json));
-    }
-
-    public static JsonObject CreateDefaultProject()
+    public ProjectDocument()
+    {
+        Root = CreateDefaultProject("");
+    }
+
+    public ProjectDocument(JsonObject root)
+    {
+        Root = root ?? throw new ArgumentNullException(nameof(root));
+    }
+
+    public ProjectDocument(string json)
+    {
+        var node = JsonNode.Parse(json);
+        Root = node as JsonObject ?? throw new ArgumentException("JSON root must be an object", nameof(json));
+    }
+
+    public static ProjectDocument FromJson(string json, string? defaultModel = null)
+    {
+        var doc = new ProjectDocument(json);
+        if (defaultModel != null && string.IsNullOrEmpty(doc.NeuronModel))
+        {
+            doc.NeuronModel = defaultModel;
+        }
+        return doc;
+    }
+
+    public static JsonObject CreateDefaultProject(string defaultModel = "")
     {
         return new JsonObject
         {
@@ -42,7 +56,7 @@ public sealed class ProjectDocument
             ["schedule"] = new JsonArray(),
             ["genome"] = new JsonObject(),
             ["plugins"] = new JsonArray(),
-            ["neuron_model"] = "lif_int",
+            ["neuron_model"] = defaultModel,
             ["metadata"] = new JsonObject
             {
                 ["created"] = DateTime.UtcNow.ToString("o")
@@ -58,7 +72,7 @@ public sealed class ProjectDocument
 
     public string NeuronModel
     {
-        get => Root["neuron_model"]?.GetValue<string>() ?? "lif_int";
+        get => Root["neuron_model"]?.GetValue<string>() ?? "";
         set => Mutate(root => root["neuron_model"] = value);
     }
 
@@ -75,61 +89,50 @@ public sealed class ProjectDocument
         }
     }
 
-    public void Mutate(Action<JsonObject> mutateAction)
+    public IReadOnlyList<JsonObject> Stages
     {
-        string before = Root.ToJsonString();
-        _undoStack.Push(before);
-        if (_undoStack.Count > MaxHistory)
+        get
         {
-            var list = _undoStack.ToList();
-            list.RemoveAt(list.Count - 1);
-            _undoStack.Clear();
-            for (int i = list.Count - 1; i >= 0; i--) _undoStack.Push(list[i]);
+            var list = new List<JsonObject>();
+            foreach (var node in Schedule)
+            {
+                if (node is JsonObject obj) list.Add(obj);
+            }
+            return list;
         }
-        _redoStack.Clear();
-
-        mutateAction(Root);
-        DocumentChanged?.Invoke(this, EventArgs.Empty);
-    }
-
-    public bool Undo()
-    {
-        if (_undoStack.Count == 0) return false;
-        string current = Root.ToJsonString();
-        _redoStack.Push(current);
-
-        string prev = _undoStack.Pop();
-        Root = (JsonObject)JsonNode.Parse(prev)!;
-        DocumentChanged?.Invoke(this, EventArgs.Empty);
-        return true;
-    }
-
-    public bool Redo()
-    {
-        if (_redoStack.Count == 0) return false;
-        string current = Root.ToJsonString();
-        _undoStack.Push(current);
-
-        string next = _redoStack.Pop();
-        Root = (JsonObject)JsonNode.Parse(next)!;
-        DocumentChanged?.Invoke(this, EventArgs.Empty);
-        return true;
     }
 
     public void AddStage(StageSpec spec)
     {
         Mutate(root =>
         {
-            var schedule = GetSchedule(root);
+            var schedule = Schedule;
             var paramsObj = new JsonObject();
             if (spec.Params != null)
             {
                 foreach (var p in spec.Params)
                 {
                     if (p.Default != null)
+                    {
                         paramsObj[p.Name] = p.Default.DeepClone();
+                    }
                     else
-                        paramsObj[p.Name] = new JsonObject { ["type"] = "Const", ["value"] = 0 };
+                    {
+                        JsonNode? defaultValue = p.Type switch
+                        {
+                            "bool" => false,
+                            "string" => "",
+                            "choice" => p.Choices != null && p.Choices.Count > 0 ? p.Choices[0].Value : "",
+                            "vec3" => new JsonArray { 0, 0, 0 },
+                            "float" => 0.0,
+                            "int" => 0,
+                            _ => null
+                        };
+                        if (defaultValue != null)
+                            paramsObj[p.Name] = new JsonObject { ["type"] = "Const", ["value"] = defaultValue };
+                        else
+                            paramsObj[p.Name] = null;
+                    }
                 }
             }
 
@@ -149,7 +152,7 @@ public sealed class ProjectDocument
     {
         Mutate(root =>
         {
-            var schedule = GetSchedule(root);
+            var schedule = Schedule;
             if (index >= 0 && index < schedule.Count)
             {
                 schedule.RemoveAt(index);
@@ -161,8 +164,8 @@ public sealed class ProjectDocument
     {
         Mutate(root =>
         {
-            var schedule = GetSchedule(root);
-            if (fromIndex >= 0 && fromIndex < schedule.Count && toIndex >= 0 && toIndex < schedule.Count && fromIndex != toIndex)
+            var schedule = Schedule;
+            if (fromIndex >= 0 && fromIndex < schedule.Count && toIndex >= 0 && toIndex < schedule.Count)
             {
                 var item = schedule[fromIndex];
                 schedule.RemoveAt(fromIndex);
@@ -171,74 +174,105 @@ public sealed class ProjectDocument
         });
     }
 
-    public void UpdateStageName(int index, string name)
+    public void UpdateParam(int stageIndex, string paramName, JsonNode? value)
     {
         Mutate(root =>
         {
-            var schedule = GetSchedule(root);
-            if (index >= 0 && index < schedule.Count && schedule[index] is JsonObject st)
+            var schedule = Schedule;
+            if (stageIndex >= 0 && stageIndex < schedule.Count && schedule[stageIndex] is JsonObject stageObj)
             {
-                st["name"] = name;
+                if (stageObj["params"] is not JsonObject paramsObj)
+                {
+                    paramsObj = new JsonObject();
+                    stageObj["params"] = paramsObj;
+                }
+                paramsObj[paramName] = value?.DeepClone();
             }
         });
     }
 
-    public void UpdateStageRepeat(int index, int repeat)
+    public void UpdateStageName(int stageIndex, string name)
     {
         Mutate(root =>
         {
-            var schedule = GetSchedule(root);
-            if (index >= 0 && index < schedule.Count && schedule[index] is JsonObject st)
+            var schedule = Schedule;
+            if (stageIndex >= 0 && stageIndex < schedule.Count && schedule[stageIndex] is JsonObject stageObj)
             {
-                st["repeat"] = Math.Max(1, repeat);
+                stageObj["name"] = name;
             }
         });
     }
 
-    public void UpdateStageWhen(int index, string? when)
+    public void UpdateStageRepeat(int stageIndex, int repeat)
     {
         Mutate(root =>
         {
-            var schedule = GetSchedule(root);
-            if (index >= 0 && index < schedule.Count && schedule[index] is JsonObject st)
+            var schedule = Schedule;
+            if (stageIndex >= 0 && stageIndex < schedule.Count && schedule[stageIndex] is JsonObject stageObj)
+            {
+                stageObj["repeat"] = Math.Max(1, repeat);
+            }
+        });
+    }
+
+    public void UpdateStageWhen(int stageIndex, string? when)
+    {
+        Mutate(root =>
+        {
+            var schedule = Schedule;
+            if (stageIndex >= 0 && stageIndex < schedule.Count && schedule[stageIndex] is JsonObject stageObj)
             {
                 if (string.IsNullOrWhiteSpace(when))
-                    st.Remove("when");
+                    stageObj.Remove("when");
                 else
-                    st["when"] = when;
+                    stageObj["when"] = when;
             }
         });
     }
 
-    public void UpdateParam(int stageIndex, string paramName, JsonNode? paramValue)
+    public bool Undo()
     {
-        Mutate(root =>
+        if (_undoStack.Count == 0) return false;
+        _redoStack.Push(Root.ToJsonString());
+        string previous = _undoStack.Pop();
+        Root = (JsonObject)JsonNode.Parse(previous)!;
+        DocumentChanged?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
+    public bool Redo()
+    {
+        if (_redoStack.Count == 0) return false;
+        _undoStack.Push(Root.ToJsonString());
+        string next = _redoStack.Pop();
+        Root = (JsonObject)JsonNode.Parse(next)!;
+        DocumentChanged?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
+    private void Mutate(Action<JsonObject> action)
+    {
+        string before = Root.ToJsonString();
+        action(Root);
+        string after = Root.ToJsonString();
+
+        if (before != after)
         {
-            var schedule = GetSchedule(root);
-            if (stageIndex >= 0 && stageIndex < schedule.Count && schedule[stageIndex] is JsonObject st)
+            _undoStack.Push(before);
+            if (_undoStack.Count > MaxHistory)
             {
-                if (st["params"] is not JsonObject ps)
-                {
-                    ps = new JsonObject();
-                    st["params"] = ps;
-                }
-                ps[paramName] = paramValue?.DeepClone();
+                var list = _undoStack.ToList();
+                list.RemoveAt(list.Count - 1);
+                _undoStack.Clear();
+                for (int i = list.Count - 1; i >= 0; i--) _undoStack.Push(list[i]);
             }
-        });
-    }
-
-    private static JsonArray GetSchedule(JsonObject root)
-    {
-        if (root["schedule"] is not JsonArray arr)
-        {
-            arr = new JsonArray();
-            root["schedule"] = arr;
+            _redoStack.Clear();
+            DocumentChanged?.Invoke(this, EventArgs.Empty);
         }
-        return arr;
     }
 
     public string ToJsonString(bool indented = true)
     {
-        return JsonSerializer.Serialize(Root, new JsonSerializerOptions { WriteIndented = indented });
+        return Root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = indented });
     }
 }

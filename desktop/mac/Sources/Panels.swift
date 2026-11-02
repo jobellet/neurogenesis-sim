@@ -1251,10 +1251,17 @@ struct RoadmapPanel: View {
                 }
             }
         }
-        Card(title: "Python", subtitle: "The interpreter (with numpy, jax, matplotlib) and the neurogenesis-sim checkout the app drives.") {
-            Row("Python", help: "Full path of a Python that has numpy, jax and matplotlib (e.g. /opt/anaconda3/bin/python).") { TextField("Python", text: $python).labelsHidden() }
-            Row("Toolbox checkout", help: "Folder of the neurogenesis-sim repository whose code the app uses (where merged work lands).") { TextField("Toolbox checkout", text: $repo).labelsHidden() }
-            Button("Apply and restart Python") { app.restartBridge(python: python, repo: repo) }
+        if AppConfig.load().isRelease {
+            Card(title: "Python", subtitle: "This release build always uses the Python embedded in the app, with the toolbox installed in it; it does not use any Python on this Mac.") {
+                LabeledContent("Runtime") { Text(AppConfig.runtimeDescription).textSelection(.enabled) }
+                LabeledContent("Interpreter") { Text(AppConfig.bundledPython ?? "missing: reinstall the app").font(.caption).textSelection(.enabled) }
+            }
+        } else {
+            Card(title: "Python", subtitle: "Development build: the interpreter (with numpy, jax, matplotlib) and the neurogenesis-sim checkout the app drives.") {
+                Row("Python", help: "Full path of a Python that has numpy, jax and matplotlib (e.g. /opt/anaconda3/bin/python).") { TextField("Python", text: $python).labelsHidden() }
+                Row("Toolbox checkout", help: "Folder of the neurogenesis-sim repository whose code the app uses (where merged work lands).") { TextField("Toolbox checkout", text: $repo).labelsHidden() }
+                Button("Apply and restart Python") { app.restartBridge(python: python, repo: repo) }
+            }
         }
         Card(title: "Console") {
             ScrollView {
