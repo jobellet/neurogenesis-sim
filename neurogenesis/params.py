@@ -258,6 +258,23 @@ def resolve(
         return param
 
 
+def resolve_nested(value: Any, genome: Dict[str, Any], fields: Dict[str, Any]) -> Any:
+    """`resolve` applied at every depth of nested dicts and lists (no positions): a Param anywhere inside, e.g. a
+    `Gene` in one entry of a matrix, is replaced by its value; plain values and plain dicts are kept."""
+    if isinstance(value, dict):
+        param = param_from_dict(value)
+        if isinstance(param, Const) and param.value is value:
+            return {k: resolve_nested(v, genome, fields) for k, v in value.items()}
+        value = param
+    if isinstance(value, Const):
+        return resolve_nested(value.value, genome, fields)
+    if isinstance(value, (Gene, Field, Fit, Expr)):
+        return resolve(value, genome, fields)
+    if isinstance(value, (list, tuple)):
+        return [resolve_nested(v, genome, fields) for v in value]
+    return value
+
+
 def _gene_path(path: Union[Tuple, List, str]) -> Tuple:
     if isinstance(path, (list, tuple)):
         return tuple(path)

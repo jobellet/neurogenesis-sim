@@ -10,7 +10,7 @@ import numpy as np
 from typing import Dict, Any, List, Optional, Tuple, Union
 
 from neurogenesis.tissue import Tissue, SparseConnectivity
-from neurogenesis.params import Param, resolve, worst_case
+from neurogenesis.params import Param, resolve, resolve_nested, worst_case
 from neurogenesis.stages.base import register_stage
 from neurogenesis.development.rules import RULES, GuidanceContext, WeightContext
 from neurogenesis.development.sparse_guidance import sparse_guidance
@@ -281,7 +281,7 @@ class GrowAxons:
             if len(src_indices) == 0 or len(dst_indices) == 0:
                 continue
 
-            gd = {k: resolve(v, genome, fields) for k, v in gd.items()}
+            gd = {k: resolve_nested(v, genome, fields) for k, v in gd.items()}   # Genes at any depth, e.g. in B
             
             # Local positions
             if src_str in bounds_min and src_str in bounds_size:

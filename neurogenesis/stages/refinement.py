@@ -241,7 +241,9 @@ class RefineByActivityStage:
         rule_type = resolve(rule_param, genome, fields)
         
         # Configure drivers:
-        # A) Explicit sources / driver cells with Poisson mode
+        # A) Explicit sources / driver cells with Poisson mode (kept in the tissue unless restore_modes)
+        restore_modes = bool(resolve(params.get("restore_modes", False), genome, fields))
+        saved_modes = (tissue.mode.copy(), tissue.poisson_hz.copy()) if restore_modes else None
         sources = resolve(params.get("sources", params.get("driver_cells", None)), genome, fields)
         if sources is not None and "waves" not in params:
             id_to_idx = {int(cid): idx for idx, cid in enumerate(tissue.cell_id)}
@@ -271,7 +273,9 @@ class RefineByActivityStage:
                 w_interval = int(resolve(wave_cfg.get("interval", 50), genome, fields))
                 w_duration = int(resolve(wave_cfg.get("duration", 4), genome, fields))
                 w_amp = int(resolve(wave_cfg.get("amplitude", 3000), genome, fields))
+                w_cells = wave_cfg.get("cells")
             else:
+                w_cells = None
                 w_sources = [0]
                 w_speed = 1.0
                 w_interval = 50
@@ -295,14 +299,22 @@ class RefineByActivityStage:
             if not src_points and N_cells > 0:
                 src_points.append(tissue.positions[0])
 
+            # Cells the waves reach: all, or those selected by `cells` ({"region": ..., "cell_type": ...})
+            reached = np.ones(N_cells, dtype=bool)
+            if isinstance(w_cells, dict):
+                for key in ("region", "cell_type"):
+                    if key in w_cells:
+                        sel = np.asarray(resolve(w_cells[key], genome, fields)).ravel()
+                        reached &= np.isin(getattr(tissue, key), sel)
+            cols = np.flatnonzero(reached)
+
             # For each initiation event at each source point
             w_speed = max(1e-6, w_speed)
             init_times = list(range(0, ticks, max(1, w_interval)))
             for t_init in init_times:
                 for pt in src_points:
-                    dists = np.linalg.norm(tissue.positions - pt, axis=1)
+                    dists = np.linalg.norm(tissue.positions[cols] - pt, axis=1)
                     t_arr = np.round(t_init + dists / w_speed).astype(np.int64)
-                    cols = np.arange(N_cells)
                     for k in range(max(0, w_duration)):              # vectorised over cells
                         rows = t_arr + k
                         ok = (rows >= 0) & (rows < ticks)
@@ -511,5 +523,7 @@ class RefineByActivityStage:
             new_w = np.where(tissue.connectivity.plastic, new_w, tissue.connectivity.weight).astype(np.int32)  # K6
         tissue.connectivity.weight = new_w
 
+        if saved_modes is not None:
+            tissue.mode, tissue.poisson_hz = saved_modes
         return tissue
 
