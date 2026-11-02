@@ -1,3 +1,10 @@
+"""Tissue state (A2): the struct-of-arrays state that stages read and write.
+
+`Tissue` holds per-cell arrays (positions, lineage, type, region, expression, sign, alive, birth time, transmitters,
+receptors, morphology) and a `SparseConnectivity` (pre, post, weight, delay, receptor class, and optional morphology
+and conductance arrays). Helpers add, compact, subset and concatenate cells with every array kept aligned, and
+`to_network` compiles a tissue to a simulation network.
+"""
 from __future__ import annotations
 import numpy as np
 from dataclasses import dataclass, field

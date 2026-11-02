@@ -1,3 +1,10 @@
+"""Expression and differentiation stages (C6-C7, C15).
+
+`express`: a gene-regulatory step updating expression with Hill-type inputs from morphogen fields and contacts (Alon,
+2006, An Introduction to Systems Biology). `differentiate`: cell types from a rule table over expression, fields,
+lineage, birth order and position. `temporal_competence`: a progressive, irreversible progenitor competence cascade
+(McConnell, 1991, Science; Isshiki, 2001, Cell).
+"""
 import numpy as np
 import math
 from typing import Dict, Any, Tuple

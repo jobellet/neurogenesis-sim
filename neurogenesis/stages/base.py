@@ -1,3 +1,9 @@
+"""Stage interface and scheduler (A4).
+
+`register_stage` adds a stage class (`run(tissue, params, genome, fields, rng)`, `cost(N, E, params)`) to
+`STAGE_REGISTRY`; `Stage` is one schedule entry (`when` condition, `repeat`); `run_schedule` runs a Project's schedule
+with one random stream per stage name and repeat; `schedule_cost` sums the declared costs.
+"""
 from __future__ import annotations
 
 import copy

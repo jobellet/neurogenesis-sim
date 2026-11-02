@@ -1,3 +1,12 @@
+"""Passive dendritic attenuation (N5): synaptic efficacy and delay from the distance along the dendrite.
+
+`apply_dendritic_attenuation` scales each synapse's weight by exp(-d / `length_constant`), d being its
+`dendritic_distance` (computed from `post_node` and the arbor path lengths when missing), following the passive cable
+attenuation of distal inputs (Rall, 1967, Journal of Neurophysiology); `dendrite_velocity` adds round(d / velocity)
+ticks of delay (clipped to 31 with a warning), and synapses beyond `distal_compartment_threshold` mark their
+postsynaptic cells as distal-compartment (1) cells for the `two_compartment` model. The `dendritic_attenuate` stage
+runs it with `Param` values; empty params are a no-op.
+"""
 import numpy as np
 from typing import Any, Dict, Tuple, Optional
 import warnings

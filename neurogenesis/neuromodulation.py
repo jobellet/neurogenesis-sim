@@ -1,3 +1,16 @@
+"""Neuromodulation by volume transmission (P5): a diffuse modulator gating three-factor plasticity.
+
+Modulator cells release a transmitter that spreads through the tissue (volume transmission; Agnati, 1995,
+Neuroscience). Its level at a cell is the sum over modulator cells of their spike trains low-pass filtered with time
+constant `tau_ms` (one tick = 1 ms), weighted by exp(-distance / `space_constant`). That level is the third factor of
+`spiking.plasticity.ThreeFactorRule`: dw = eta x eligibility x modulator, the eligibility trace (time constant `tau_e`)
+summing pre-synaptic arrivals coinciding with post-synaptic spikes (Izhikevich, 2007, Cerebral Cortex; Fremaux, 2016,
+Frontiers in Neural Circuits). Weights keep their sign (Dale's principle) and their magnitude is clipped to
+[w_min, w_max].
+
+Entry points: `VolumeModulator` (modulator trace from a spike raster), `apply_modulated_plasticity` (weights after a
+spike raster) and the `neuromodulate` stage.
+"""
 import numpy as np
 from typing import Dict, Any, Tuple, Optional
 from neurogenesis.tissue import Tissue

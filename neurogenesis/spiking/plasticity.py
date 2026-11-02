@@ -1,3 +1,12 @@
+"""Plasticity rules (E1) on struct-of-arrays synapses, in JAX.
+
+`STDPRule`: pair-based spike-timing-dependent plasticity with pre / post traces, hard or soft bounds, optional integer
+traces (Bi, 1998, Journal of Neuroscience; Song, 2000, Nature Neuroscience). `HebbianRule`: Hebbian growth
+with subtractive or multiplicative normalisation (Miller, 1994, Neural Computation) or Oja's rule (Oja, 1982,
+Journal of Mathematical Biology). `ThreeFactorRule`: eligibility trace times a
+modulator (Izhikevich, 2007, Cerebral Cortex; Fremaux, 2016, Frontiers in Neural Circuits). Each rule has a per-tick
+`step`, an `apply` over a spike raster, and keeps weight signs (Dale's principle).
+"""
 from __future__ import annotations
 import jax
 import jax.numpy as jnp

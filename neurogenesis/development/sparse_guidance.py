@@ -1,3 +1,8 @@
+"""Sparse guidance (D2): synapse formation from the guidance rules without an all-pairs matrix.
+
+`sparse_guidance` draws, for each source cell, candidate targets within `c` x `sigma` of its guided target position
+through a `CellList` (O(N k)); `exact=True` evaluates every pair as the dense legacy rule does, for tests.
+"""
 import numpy as np
 from typing import Tuple, Any
 
