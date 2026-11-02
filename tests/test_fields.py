@@ -292,6 +292,11 @@ def test_composite_fields_bind_sub_fields():
     np.testing.assert_allclose(bound.base_field.values(pts), layers.bind(genome).values(pts) + 1.0)
     np.testing.assert_allclose(bound.values(pts), [[0, 0], [1, 0]])
     np.testing.assert_allclose(Add(1.0, layers).bind(genome).values(pts), [[11, 1.5], [21, 1.5]])
+    dtb = DistanceToBoundary(layers, ([0.0, 0.0, 0.0], [1.0, 1.0, 5.0]), 0.5, label=10)
+    with pytest.raises(ValueError, match="bind"):
+        dtb.values(pts)
+    dtb_bound = dtb.bind(genome)
+    np.testing.assert_allclose(dtb_bound.values(pts), DistanceToBoundary(layers.bind(genome), ([0.0, 0.0, 0.0], [1.0, 1.0, 5.0]), 0.5, label=10).values(pts))
     # composites without genome-dependent parameters bind to themselves
     grid = GridField(np.arange(27.0).reshape(3, 3, 3), [0, 0, 0], [1, 1, 1])
     for f in (Add(grid, AnalyticField("x")), Threshold(grid, 3.0), GaussianSmooth(grid, 1.0),

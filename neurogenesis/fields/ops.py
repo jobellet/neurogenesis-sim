@@ -318,11 +318,24 @@ class DistanceToBoundary(Field):
         self.spacing = spacing
         self.label = label
         self.signed = bool(signed)
-        nodes, shape, sp = _grid_nodes(self.bounds, spacing)
+        self.grid_field: Optional[GridField] = None
+        if isinstance(region, Field) and label is None:
+            raise ValueError("DistanceToBoundary of a field region needs a label")
+        try:
+            self.grid_field = self._build_grid(region)
+        except ValueError as exc:
+            if isinstance(region, Field) and "bind" in str(exc):
+                self.grid_field = None
+            else:
+                raise
+
+    def _build_grid(self, region: Any) -> GridField:
+        nodes, shape, sp = _grid_nodes(self.bounds, self.spacing)
         if isinstance(region, Field):
-            if label is None:
-                raise ValueError("DistanceToBoundary of a field region needs a label")
-            inside = np.asarray(region.values(nodes)) == label
+            vals = np.asarray(region.values(nodes))
+            if vals.ndim == 2 and vals.shape[0] == len(nodes):
+                vals = vals[:, 0]
+            inside = vals == self.label
         else:
             pts = nodes if nodes.shape[1] == 3 else np.pad(nodes, ((0, 0), (0, 3 - nodes.shape[1])))
             inside = np.asarray(region.contains(pts), dtype=bool)
@@ -332,16 +345,19 @@ class DistanceToBoundary(Field):
         dist = np.maximum(np.where(inside, d_in, d_out) - 0.5 * float(np.min(sp)), 0.0)
         if self.signed:
             dist = np.where(inside, dist, -dist)
-        self.grid_field = GridField(dist, self.bounds[0], sp, method='trilinear')
+        return GridField(dist, self.bounds[0], sp, method='trilinear')
 
     def bind(self, genome: Dict[str, Any]) -> 'Field':
         if not isinstance(self.region, Field):
             return self
         region = self.region.bind(genome)
-        return self if region is self.region else DistanceToBoundary(region, self.bounds, self.spacing, self.label,
-                                                                     self.signed)
+        if region is self.region and self.grid_field is not None:
+            return self
+        return DistanceToBoundary(region, self.bounds, self.spacing, self.label, self.signed)
 
     def values(self, points: np.ndarray) -> np.ndarray:
+        if self.grid_field is None:
+            raise ValueError("DistanceToBoundary has an unbound region field (call bind(genome) first)")
         return self.grid_field.values(np.asarray(points, dtype=float)[..., :len(self.bounds[0])])
 
     def to_dict(self) -> Dict[str, Any]:
