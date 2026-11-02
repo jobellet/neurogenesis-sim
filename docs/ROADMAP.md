@@ -82,7 +82,7 @@ GUI (viz/): geometry and field editor, schedule editor, step-by-step development
 7. **Each part is testable alone.** Stages are pure functions of (tissue, params, rng); the GUI only edits and previews
    Project files; Python runs the full development.
 
-## 3. Current state (2026-11-01)
+## 3. Current state (2026-11-02)
 | Area | Present | Missing |
 |---|---|---|
 | Spiking | integer LIF kernel, bit-identical in Python, JAX and the browser; `two_compartment` and `hh` models; batched runs; cost estimator with machine calibration; STDP, Hebbian and three-factor plasticity (E1) | per-region choice of model |
@@ -91,6 +91,31 @@ GUI (viz/): geometry and field editor, schedule editor, step-by-step development
 | Modules | save / load, composition, plugins, neuron model recorded; versions, local registry (G1); validation assays (E4) | a shared online catalogue |
 | GUI | 3D viewer and per-neuron editing of a finished network | geometry and field editor, schedule editor, development preview, Project import / export |
 | CI | GitHub Actions: tests on Python 3.10 and 3.12, browser-kernel equivalence, viewer build, cost command line, fixed CPU performance benchmarks (report only, regressions above 30% flagged) | coverage |
+
+
+### Task status
+One line per phase; details in each task's **Status:** line below. The bridge method `capabilities` reports the same
+status per task (`done`, `partial` with a note, `missing`), and the desktop apps show it in Roadmap status. Keep the
+two in step (`PARTIAL` in `neurogenesis/bridge/server.py`).
+
+| Phase | Done | Partial | Not started |
+|---|---|---|---|
+| A foundations | A1–A5 | | |
+| B geometry and fields | B1–B5 | | |
+| C stages | C1–C7, C9–C13 | C8 (cell-list search: 3 probability rules) | |
+| D performance | D3, D5 | D1 (no JAX path), D2 (sparse and dense draw different random numbers) | D4 |
+| E learning | E1, E3, E4 | E2 (no gradients) | |
+| F viewer | F6 | F7 (no live activity streaming) | |
+| H desktop apps | H1, H2, H4 (macOS app) | H7 (macOS release only) | H3, H5, H6 (optional) |
+| K contracts | K1, K2 | | K3, K4 |
+| I connectome data | I1, I2, I4 | I3 (no ROI-mask adapters) | I5, I6 |
+| P pharmacology | P1, P2 | P3 (no reversal potentials) | P4, P5 |
+| N arbors | N1–N3 | | N4, N5 |
+| G modules and docs | G1, G2 | G3 | |
+
+Totals over 64 tasks: 43 done, 9 partial, 12 not started (H6, optional, counted as not started). The open tasks are
+the kernel contracts (K3, K4, then P4, N5), the Windows / Linux app (H3, H5, then H7), chunked growth (D4) and the
+data-driven tasks (I5, I6, N4), plus P5.
 
 ---
 
