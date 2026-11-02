@@ -204,7 +204,7 @@ class NeuromodulateStage:
         if ticks is not None:
             spikes = spikes[: int(ticks)]
 
-        tissue.connectivity.weight = apply_modulated_plasticity(
+        new_weights = apply_modulated_plasticity(
             tissue,
             spikes,
             source_cells,
@@ -217,4 +217,7 @@ class NeuromodulateStage:
             w_min=float(value("w_min", 0.0)),
             w_max=float(value("w_max", 1000.0)),
         )
+        if tissue.connectivity.plastic is not None:
+            new_weights = np.where(tissue.connectivity.plastic, new_weights, tissue.connectivity.weight)  # K6
+        tissue.connectivity.weight = new_weights
         return tissue

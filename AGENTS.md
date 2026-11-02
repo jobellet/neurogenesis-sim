@@ -88,24 +88,29 @@ the roadmap (e.g. "C4 migrate"), and stay within its scope.**
   - currents in toolbox units unless a model states its physical mapping.
 - Commit messages: imperative summary line, a body saying what changed and how it was tested.
 
-## CI
-The repository is public, so GitHub-hosted runners (Linux, macOS and Windows) are free. CI runs on every pull request;
-do not use `[skip ci]`.
-- **Run the test suite locally before pushing**, and paste the exact command and summary line into the PR description
-  (e.g. `JAX_PLATFORMS=cpu pytest -q -ra` and `204 passed in 216s`).
-- **All jobs** (Python, viewer, `nglif` on Ubuntu / macOS / Windows, `mac-app`) run on every non-draft PR whose files
-  they cover, on pushes to `main` and on `workflow_dispatch`; draft PRs run the Python tests only. Runners and their
-  variables are described in `.github/RUNNERS.md`.
+## Continuous integration
+The repository is public, so GitHub-hosted CI is free: every pull request runs the jobs its changes touch (path
+filters), and merges to `main` rebuild and publish the documentation site and the AI context files.
+- **Do not use `[skip ci]`**, in pull-request commits or in squash-merge titles: every pull request is checked, and
+  `main` must be built and its site published after every merge.
+- Run the tests locally before pushing anyway (CI is the check, not the debugger), and batch commits: one push per
+  finished step.
+- All jobs (Python, viewer, `nglif` on Ubuntu / macOS / Windows, `mac-app`) run on every non-draft pull request whose
+  files they cover, on `main` and by hand (`workflow_dispatch`); draft pull requests run the Python tests only.
+  Runners and their variables are described in `.github/RUNNERS.md`.
+- A pull request merges with green checks. Paste the local test summary in the description only when a check cannot
+  run (e.g. a macOS-only step).
 
 ## Testing checklist for a pull request
 - [ ] `JAX_PLATFORMS=cpu pytest -q` passes locally, with nothing skipped (kernel tests need `npm run build:kernel`).
-- [ ] Local test command and summary line pasted into the PR description, and CI green.
+- [ ] CI checks green (or, for a step CI cannot run, the local command and summary line in the description).
+- [ ] Commits batched (one push per finished step); no `[skip ci]` in the squash title.
 - [ ] New code has tests: determinism; neutral parameters = no-op; the documented behaviour; the cost declaration.
 - [ ] Existing networks unchanged (development fingerprints).
 - [ ] `cd viz && npm run build` passes if `viz/` changed.
 - [ ] Golden fixtures and contract tests pass if `desktop/common/`, `neurogenesis/bridge/`, or `nglif` changed.
 - [ ] Design and scope review pass against AGENTS.md and task contracts before merging.
-- [ ] Docs updated: README table, `docs/EXTENDING.md` or the relevant guide, the roadmap status line of your task,
+- [ ] Docs updated: README status block and table (checked by `tests/test_readme_status.py`), `docs/EXTENDING.md` or the relevant guide, the roadmap status line of your task,
       `docs/STAGES.md` for a stage, and any PLACEHOLDER your work fills. The status section of the AI context files is
       built from these, so a stale status line or placeholder shows up there as work still to do.
 

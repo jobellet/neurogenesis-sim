@@ -216,6 +216,13 @@ default) and optional `cell_type`, `birth_stage`, `sign`, `mode`, `shift_v`, `sh
 
 ## Maturation (C10–C12, `neurogenesis/stages/refinement.py`)
 
+**Plasticity mask (K6).** `tissue.connectivity.plastic` is an optional per-synapse bool array; absent (None, the
+default) means every synapse is plastic and the stages below behave exactly as without it. Synapses with
+`plastic == False` keep their weight in `refine_by_activity`, `scale` and `neuromodulate` and are never removed by
+`prune` (`scale` still counts them in each cell's incoming sum). The mask follows `take` / `concat` / `append`,
+`compact`, `subset`, `concatenate`; new synapses are plastic. `to_network` / `from_network` carry it only as the
+in-memory attribute `_plastic` of the network (network files do not store it).
+
 **`prune` (C10).** Removes synapses with `|w| < threshold` (default 0, neutral). With `min_coactivity`, it also
 removes synapses whose presynaptic spikes, arriving after the synapse delay, were followed by a postsynaptic spike
 within `window` ticks (default 5) fewer than `min_coactivity` times ("use it or lose it", Katz & Shatz 1996, Science).
@@ -307,14 +314,16 @@ Conditions use the variables of `differentiate` conditions. Each stage without i
 no-op. Conductance-based synapses (P4) are in the spiking models (`docs/NEURON_MODELS.md`) and neuromodulation (P5) is
 the `neuromodulate` stage below. **Not implemented:** the legacy `receptor_sign` rule is not re-expressed as a profile.
 
-## Neuromodulation (P5, `neurogenesis/neuromodulation.py`)
-**`neuromodulate`.** Three-factor plasticity (`spiking.plasticity.ThreeFactorRule`) over a recorded spike raster
+## Neuromodulation and dendrites (P5, N5, `neurogenesis/neuromodulation.py`, `neurogenesis/dendritic.py`)
+
+**`neuromodulate` (P5).** Three-factor plasticity (`spiking.plasticity.ThreeFactorRule`) over a recorded spike raster
 `spikes` (T × N array, a plain value), gated by a modulator released by `modulator_cells` (volume transmission). The
 level at a cell is the sum over modulator cells of their spike trains filtered with `tau_ms`, weighted by
 exp(−distance / `space_constant`); dw = `eta` × eligibility × level, the eligibility summing pre-synaptic arrivals
 (after the synaptic delay) that coincide with post-synaptic spikes, filtered with `tau_e`. Weights keep their sign and
-their magnitude is clipped to [`w_min`, `w_max`]. Every parameter but `spikes` is a `Param` (a Gene-controlled `eta`
-is tested); a `Field` resolves to the field object, so use scalar sources.
+their magnitude is clipped to [`w_min`, `w_max`]; synapses with `plastic == False` (K6) keep their weight. Every
+parameter but `spikes` is a `Param` (a Gene-controlled `eta` is tested); a `Field` resolves to the field object, so use
+scalar sources.
 | Param | Default | Meaning |
 |---|---|---|
 | `modulator_cells` | none | cell indices releasing the modulator (none or empty = no-op) |
@@ -325,7 +334,22 @@ is tested); a `Field` resolves to the field object, so use scalar sources.
 | `ticks` | all rows | rows of `spikes` used; the cost assumes 1000 when absent |
 No `spikes` or no modulator cells is the no-op. The source × target distance kernel is evaluated only at cells that
 receive synapses, in blocks of at most 2²⁰ pairs; memory is O(T N) (the per-cell modulator level) and time
-O(T S P + T E) for S modulator cells and P postsynaptic cells.
+O(T S P + T E) for S modulator cells and P postsynaptic cells. The spike raster must be supplied (the stage does
+not simulate).
+
+**`dendritic_attenuate` (N5).** Passive dendritic filtering: each synaptic weight is multiplied by
+`exp(−d / length_constant)`, where `d` is the synapse's dendritic distance (computed from `post_node` and the
+morphology's path length to the soma when missing); a non-zero weight keeps a magnitude of at least 1. With
+`dendrite_velocity`, `round(d / velocity)` ticks are added to the delay; with `distal_compartment_threshold`, the target
+cells of synapses at or beyond that distance are marked compartment 1 (distal).
+| Param | Default | Meaning |
+|---|---|---|
+| `length_constant` | 100.0 | dendritic length constant (space units); a `Param` |
+| `dendrite_velocity` | none | space units per tick for the added dendritic delay; a `Param` |
+| `distal_compartment_threshold` | none | distance (space units) beyond which targets are marked distal; a `Param` |
+
+Empty params = no-op. Limits: synapses without a dendritic distance are left unattenuated; the added delays are still
+clipped at 31 ticks (the kernels accept longer delays since K4).
 
 ## Geometry (B2, `neurogenesis/geometry/mesh.py`, `voxel.py`)
 - **`mesh`** (`MeshGeometry(vertices, faces, resolution=32)`, `from_obj`, `from_stl` for ASCII and binary STL).

@@ -106,6 +106,8 @@ class PruneStage:
             coact = coactivity(spikes, tissue.connectivity.pre, tissue.connectivity.post, tissue.connectivity.delay, window)
             keep_mask &= coact >= float(resolve(params["min_coactivity"], genome, fields))
 
+        if tissue.connectivity.plastic is not None:
+            keep_mask |= ~tissue.connectivity.plastic              # non-plastic synapses are never pruned (K6)
         tissue.connectivity = tissue.connectivity.take(keep_mask)
 
         return tissue
@@ -138,8 +140,11 @@ class ScaleStage:
             scale_factors = 1.0 + rate * (scale_factors - 1.0)
 
         # Apply scaling, maintaining the original sign
-        new_weights = tissue.connectivity.weight * scale_factors[tissue.connectivity.post]
-        tissue.connectivity.weight = np.round(new_weights).astype(np.int32)
+        new_weights = np.round(tissue.connectivity.weight * scale_factors[tissue.connectivity.post]).astype(np.int32)
+        if tissue.connectivity.plastic is not None:
+            # Non-plastic synapses keep their weight; factors still use every incoming synapse (K6)
+            new_weights = np.where(tissue.connectivity.plastic, new_weights, tissue.connectivity.weight).astype(np.int32)
+        tissue.connectivity.weight = new_weights
         return tissue
 
 
@@ -492,7 +497,10 @@ class RefineByActivityStage:
         valid = packed["valid"]
         valid_idx = np.where(valid)[0]
         
-        tissue.connectivity.weight = np.array(new_weights)[valid_idx].astype(np.int32)
+        new_w = np.array(new_weights)[valid_idx].astype(np.int32)
+        if tissue.connectivity.plastic is not None:
+            new_w = np.where(tissue.connectivity.plastic, new_w, tissue.connectivity.weight).astype(np.int32)  # K6
+        tissue.connectivity.weight = new_w
 
         return tissue
 
