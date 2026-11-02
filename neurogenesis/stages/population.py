@@ -207,7 +207,10 @@ class Proliferate:
             return tissue
 
         prob_param = params.get("prob", 0.0)
-        prob = resolve(prob_param, genome, fields, positions=tissue.positions)
+        ctx_vars = {**(genome if isinstance(genome, dict) else {}), "cell_type": tissue.cell_type,
+                    "generation": tissue.generation, "birth_stage": tissue.birth_stage, "region": tissue.region,
+                    "x": tissue.positions[:, 0], "y": tissue.positions[:, 1], "z": tissue.positions[:, 2], "np": np}
+        prob = resolve(prob_param, genome, fields, positions=tissue.positions, context_vars=ctx_vars)
         if np.isscalar(prob):
             prob = np.full(N, prob)
         else:

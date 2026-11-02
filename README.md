@@ -54,6 +54,10 @@ pip install -e ".[test]"                    # Python >= 3.10: numpy, jax (CPU; "
 cd viz && npm ci && npm run build:kernel && cd ..   # browser kernel, for the equivalence tests
 JAX_PLATFORMS=cpu pytest -q
 python examples/topographic_map.py --cpu    # a sensor sheet -> map circuit grown from a genome
+python examples/hand_built_network.py      # supervised: every cell and synapse by hand
+python examples/hand_drawn_column.py --cpu # semi-supervised: hand-drawn layers, genes choose cell types
+python examples/pinwheel_sheet.py --cpu    # semi-supervised: density follows hand-placed pinwheels
+python examples/evolved_development.py     # unsupervised: a genetic schedule evolved on a toy objective
 python -m neurogenesis estimate --neurons 1e5 --synapses-per-neuron 1000 --seconds 1
 cd viz && npm run dev                       # viewer at http://localhost:5173; import example_out/network.json
 ```

@@ -77,11 +77,11 @@ class Express:
             if isinstance(m, dict):
                 f_val = resolve(m.get("field"), genome, fields, tissue.positions)
                 w_val = m.get("weights")
-                if hasattr(w_val, "type") or hasattr(w_val, "value"):
-                    w = resolve(w_val, genome, fields, None)
+                if isinstance(w_val, (list, tuple)):
+                    w = [resolve(x, genome, fields, None) for x in w_val]   # entries may be Params (e.g. Genes)
                 else:
-                    w = w_val
-                    
+                    w = resolve(w_val, genome, fields, None)
+
                 w = np.array(w, dtype=np.float32)
                 
                 if isinstance(f_val, (float, int)):

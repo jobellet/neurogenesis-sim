@@ -78,3 +78,56 @@ def test_layered_sheet_birth_order_predicts_layer_across_seeds(tmp_path):
     assert np.mean(correlations) > 0.75
 
 
+
+
+def _run_example(name, tmp_path, *args):
+    import json
+    r = subprocess.run([sys.executable, str(ROOT / "examples" / name), "--cpu", "--out", str(tmp_path), *args],
+                       capture_output=True, text=True, cwd=tmp_path)
+    assert r.returncode == 0, r.stderr
+    assert (tmp_path / "project.json").exists() and (tmp_path / "network.json").exists()
+    return json.loads((tmp_path / "stats.json").read_text())
+
+
+def test_hand_built_network_example(tmp_path):
+    """G2.4: a fully hand-built ring compiles, validates (Dale) and propagates activity in order."""
+    stats = _run_example("hand_built_network.py", tmp_path)
+    assert stats["neurons"] == 17 and stats["synapses"] > 12
+    assert stats["propagates_in_order"]
+
+
+def test_hand_drawn_column_example(tmp_path):
+    """G2.1: cells per layer follow the hand-drawn thicknesses; genes set the inhibitory fraction of each layer."""
+    stats = _run_example("hand_drawn_column.py", tmp_path)
+    counts = np.asarray(stats["cells_per_layer"], float)
+    np.testing.assert_allclose(counts / counts.sum(), [0.3, 0.3, 0.4], atol=0.06)
+    f = stats["inhibitory_fraction"]
+    assert f[0] < 0.15 and 0.2 < f[1] < 0.6 and f[2] > 0.7               # genes -3, 0, +1.5
+    assert stats["genes"] == [["inhibitory_bias", "L0"], ["inhibitory_bias", "L1"], ["inhibitory_bias", "L2"]]
+
+
+def test_hand_drawn_column_genes_change_fates():
+    sys.path.insert(0, str(ROOT))
+    from examples.hand_drawn_column import build_project, layer_stats
+    from neurogenesis.stages.base import run_schedule
+    p = build_project(inh_genes=(3.0, 3.0, -3.0))
+    f = layer_stats(run_schedule(p.to_dict(), p.genome, 1))["inhibitory_fraction"]
+    assert f[0] > 0.8 and f[1] > 0.8 and f[2] < 0.15
+
+
+def test_pinwheel_sheet_example(tmp_path):
+    """G2.2: density follows the hand-placed pinwheels and the map's pinwheels are recovered."""
+    stats = _run_example("pinwheel_sheet.py", tmp_path)
+    assert stats["density_ratio"] > 1.5
+    assert sorted(stats["pinwheel_charges"]) == [-0.5, -0.5, 0.5, 0.5]
+    found = np.asarray(stats["pinwheels_found"])
+    centres = np.array([[3.0, 3.0], [7.0, 7.0], [3.0, 7.0], [7.0, 3.0]])
+    assert np.all(np.min(np.linalg.norm(found[:, None] - centres[None], axis=-1), axis=0) < 0.2)
+
+
+def test_evolved_development_example(tmp_path):
+    """G2.3: a fully genetic schedule (genes collected automatically) improves under island evolution."""
+    stats = _run_example("evolved_development.py", tmp_path)
+    assert stats["final_best"] > stats["first_best"] + 0.3
+    assert ["div"] in stats["genes"] and ["p0"] in stats["genes"] and ["div2"] in stats["genes"]
+    assert stats["cells_type1"] > 0 and stats["synapses"] > 0

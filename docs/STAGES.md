@@ -43,7 +43,7 @@ cost assumes `N = 100` (or `max_cells`) unless `N` is a constant.
 **`proliferate` (C2).** Each alive cell divides with probability `prob`; the daughter is appended, the mother stays.
 | Param | Default | Meaning |
 |---|---|---|
-| `prob` | 0.0 | division probability per cell and call (per cell); 0 is neutral |
+| `prob` | 0.0 | division probability per cell and call (per cell; an `Expr` sees `cell_type`, `generation`, `birth_stage`, `region`, `x`, `y`, `z` and the top-level genes); 0 is neutral |
 | `jitter` | 0.1 | standard deviation of the daughter's Gaussian displacement from the mother (space units, per cell) |
 | `new_type` | none | cell type of the daughters (per cell); if absent daughters copy the mother's type |
 | `max_cells` | none | upper bound on alive cells; if divisions would exceed it, a random subset divides so the bound holds exactly |
@@ -119,7 +119,7 @@ nearest-neighbour regularity index of each type (Galli-Resta et al. 1997, J Neur
 |---|---|---|
 | `K` | 0 | number of genes; `K <= 0` (or no params) is a no-op; expression is padded or cut to K columns |
 | `weights` | zeros | K × K regulatory weights `W` (or K² values) |
-| `morphogens` | [] | list of `{"field": Param, "weights": [K]}`; the field is evaluated at the cell positions |
+| `morphogens` | [] | list of `{"field": Param, "weights": [K]}`; the field is evaluated at the cell positions; each weight may be a `Param` (e.g. a `Gene`) |
 | `radius` | 0.0 | contact radius (space units) for neighbour input through the cell list; 0 disables it |
 | `neighbor_weights` | zeros | K × K weights `W_n` applied to the **sum** of neighbours' expression |
 | `dt`, `decay` | 1.0, 0.0 | step size and linear decay rate |
