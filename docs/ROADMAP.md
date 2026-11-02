@@ -265,6 +265,7 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 **D4. Chunked and streaming growth.**
 - Tissues larger than memory processed in spatial chunks, writing synapses to disk (`.npz` shards).
 - **Dependencies:** D1, D2.
+- **Status:** done: `neurogenesis.streaming` (`grow_axons_streaming`, `SynapseShardManifest`, `assemble_shards`, `stream_stats`, `streaming_growth_cost`).
 
 **D5. Performance regression CI.**
 - `scripts/benchmark_performance.py` runs fixed CPU simulation and cell-list workloads. Each main-branch run stores its timings and machine fingerprint as a CI artifact and reports regressions above 30 % against the previous run when the machine matches (report only: shared runners vary too much for a gate). Locally, `--baseline perf.json --enforce` makes a regression fail on the machine that recorded the baseline.
