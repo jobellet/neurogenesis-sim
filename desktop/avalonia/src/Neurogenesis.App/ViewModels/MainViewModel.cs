@@ -119,6 +119,10 @@ public sealed partial class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             Status = $"Python runtime error: {ex.Message}";
+            if (PythonLocator.IsPackagedBuild())
+            {
+                SceneNote = "Bundled Python runtime missing";
+            }
         }
     }
 

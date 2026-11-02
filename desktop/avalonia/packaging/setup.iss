@@ -2,7 +2,9 @@
 ; Built for per-user installation without requiring administrator privileges.
 
 #define MyAppName "Neurogenesis"
+#ifndef MyAppVersion
 #define MyAppVersion "0.1.0"
+#endif
 #define MyAppPublisher "Neurogenesis Sim Contributors"
 #define MyAppURL "https://github.com/jobellet/neurogenesis-sim"
 #define MyAppExeName "Neurogenesis.exe"

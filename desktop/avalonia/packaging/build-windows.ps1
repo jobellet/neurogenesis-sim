@@ -19,6 +19,17 @@ New-Item -ItemType Directory -Force -Path $PublishDir | Out-Null
 
 Write-Host "=== Building Neurogenesis Windows Package ===" -ForegroundColor Cyan
 
+# Extract version from pyproject.toml if present
+$Pyproject = Join-Path $Root "pyproject.toml"
+$AppVersion = "0.1.0"
+if (Test-Path $Pyproject) {
+    $Content = Get-Content $Pyproject -Raw
+    if ($Content -match '(?m)^version\s*=\s*["\']([^"\']+)["\']') {
+        $AppVersion = $Matches[1]
+    }
+}
+Write-Host "Application version: $AppVersion"
+
 # 1. Publish self-contained Avalonia app
 Write-Host "Publishing self-contained .NET 8 app (win-x64)..."
 dotnet publish "$Root\desktop\avalonia\src\Neurogenesis.App\Neurogenesis.App.csproj" `
@@ -91,7 +102,7 @@ foreach ($c in $IsccCandidates) {
 
 if ($IsccPath) {
     Write-Host "Compiling Inno Setup installer using $IsccPath..."
-    & $IsccPath "/O$OutputDir" "$PSScriptRoot\setup.iss"
+    & $IsccPath "/DMyAppVersion=$AppVersion" "/O$OutputDir" "$PSScriptRoot\setup.iss"
     if ($LASTEXITCODE -ne 0) { throw "ISCC compilation failed with exit code $LASTEXITCODE" }
     Write-Host "Installer created in $OutputDir" -ForegroundColor Green
 } else {
