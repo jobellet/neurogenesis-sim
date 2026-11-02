@@ -175,6 +175,8 @@ class NeuromodulateStage:
             w_min,
             w_max,
         )
+        if tissue.connectivity.plastic is not None:
+            new_weights = np.where(tissue.connectivity.plastic, new_weights, tissue.connectivity.weight)  # K6
         tissue.connectivity.weight = new_weights
 
         return tissue

@@ -216,6 +216,13 @@ default) and optional `cell_type`, `birth_stage`, `sign`, `mode`, `shift_v`, `sh
 
 ## Maturation (C10–C12, `neurogenesis/stages/refinement.py`)
 
+**Plasticity mask (K6).** `tissue.connectivity.plastic` is an optional per-synapse bool array; absent (None, the
+default) means every synapse is plastic and the stages below behave exactly as without it. Synapses with
+`plastic == False` keep their weight in `refine_by_activity`, `scale` and `neuromodulate` and are never removed by
+`prune` (`scale` still counts them in each cell's incoming sum). The mask follows `take` / `concat` / `append`,
+`compact`, `subset`, `concatenate`; new synapses are plastic. `to_network` / `from_network` carry it only as the
+in-memory attribute `_plastic` of the network (network files do not store it).
+
 **`prune` (C10).** Removes synapses with `|w| < threshold` (default 0, neutral). With `min_coactivity`, it also
 removes synapses whose presynaptic spikes, arriving after the synapse delay, were followed by a postsynaptic spike
 within `window` ticks (default 5) fewer than `min_coactivity` times ("use it or lose it", Katz & Shatz 1996, Science).

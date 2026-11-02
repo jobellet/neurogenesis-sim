@@ -92,3 +92,43 @@ def test_refine_by_activity_cost_uses_gene_upper_bound():
     gene_cost = RefineByActivityStage.cost(3, 4, {"ticks": Gene(path=("t",), lo=10, hi=200, integer=True)})
     assert gene_cost == RefineByActivityStage.cost(3, 4, {"ticks": Const(200)})
     assert RefineByActivityStage.cost(3, 4, {"ticks": {"type": "Const", "value": 50}}) == RefineByActivityStage.cost(3, 4, {"ticks": 50})
+
+
+def _masked(t):
+    t.connectivity.plastic = np.array([True, False, True, False])
+    return t
+
+
+def test_k6_prune_and_scale_keep_non_plastic_synapses(base_tissue):
+    import copy
+    rng = np.random.default_rng(0)
+    t = PruneStage().run(_masked(copy.deepcopy(base_tissue)), {"threshold": 100}, {}, {}, rng)
+    assert t.connectivity.weight.tolist() == [-5, -15] and t.connectivity.plastic.tolist() == [False, False]
+
+    t = ScaleStage().run(_masked(copy.deepcopy(base_tissue)), {"target": 40}, {}, {}, rng)
+    assert t.connectivity.weight.tolist() == [40, -5, 40, -15]
+
+    # All-True mask = no mask, bit for bit.
+    a = ScaleStage().run(copy.deepcopy(base_tissue), {"target": 40, "rate": 0.3}, {}, {}, rng)
+    b = copy.deepcopy(base_tissue)
+    b.connectivity.plastic = np.ones(4, dtype=bool)
+    b = ScaleStage().run(b, {"target": 40, "rate": 0.3}, {}, {}, rng)
+    assert np.array_equal(a.connectivity.weight, b.connectivity.weight)
+    assert a.connectivity.weight.dtype == b.connectivity.weight.dtype
+
+
+def test_k6_refine_by_activity_keeps_non_plastic_synapses(base_tissue):
+    import copy
+    base_tissue.mode = np.array([1, 1, 1], dtype=np.int32)
+    base_tissue.poisson_hz = np.array([1000.0, 1000.0, 1000.0], dtype=np.float64)
+    params = {"ticks": 50, "rule": "stdp", "A_plus": 5.0, "A_minus": 1.0, "w_max": 100.0}
+    free = RefineByActivityStage().run(copy.deepcopy(base_tissue), params, {}, {}, np.random.default_rng(0))
+    masked = RefineByActivityStage().run(_masked(copy.deepcopy(base_tissue)), params, {}, {}, np.random.default_rng(0))
+    orig = base_tissue.connectivity.weight
+    assert not np.array_equal(free.connectivity.weight[[1, 3]], orig[[1, 3]])  # the stage does change them
+    assert np.array_equal(masked.connectivity.weight[[1, 3]], orig[[1, 3]])
+    assert np.array_equal(masked.connectivity.weight[[0, 2]], free.connectivity.weight[[0, 2]])
+    ones = copy.deepcopy(base_tissue)
+    ones.connectivity.plastic = np.ones(4, dtype=bool)
+    ones = RefineByActivityStage().run(ones, params, {}, {}, np.random.default_rng(0))
+    assert np.array_equal(ones.connectivity.weight, free.connectivity.weight)

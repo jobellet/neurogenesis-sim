@@ -343,3 +343,36 @@ def test_k6_cycling_defaults_and_carried_through_operations():
     kwargs = {k: getattr(t, k) for k in t.__dataclass_fields__ if k != "cycling"}
     assert Tissue(**kwargs).cycling.tolist() == [True, True, True, True]
 
+
+
+def test_k6_plastic_mask_defaults_and_carried_through_operations():
+    t = Tissue.empty()
+    t.add_cells(4)
+    c = SparseConnectivity(np.array([0, 1, 2, 3], np.int32), np.array([1, 2, 3, 0], np.int32),
+                           np.array([5, 6, 7, 8], np.int32), np.array([1, 1, 1, 1], np.int32))
+    t.connectivity = c
+    # Default: no array stored (memory unchanged), every synapse plastic.
+    assert c.plastic is None and c.plastic_mask().tolist() == [True] * 4
+    nbytes = t.memory_bytes()
+    assert Tissue.from_network(t.to_network()).connectivity.plastic is None
+    assert t.memory_bytes() == nbytes
+
+    t.connectivity.plastic = np.array([True, False, True, False])
+    # Appended synapses (as connectivity stages add them) are plastic.
+    app = t.connectivity.append([0], [2], [1], [1])
+    assert app.plastic.tolist() == [True, False, True, False, True]
+    assert SparseConnectivity.concat([c.take(slice(None)), SparseConnectivity.empty().append([0], [1], [1], [1])]
+                                     ).plastic.tolist() == [True, False, True, False, True]
+
+    sub = t.subset(np.array([1, 2, 3]))                          # keeps synapses 1->2, 2->3
+    assert sub.connectivity.plastic.tolist() == [False, True]
+    cat = Tissue.concatenate([sub, t])
+    assert cat.connectivity.plastic.tolist() == [False, True, True, False, True, False]
+
+    back = Tissue.from_network(t.to_network())
+    assert back.connectivity.plastic.tolist() == [True, False, True, False]
+
+    t.kill(np.array([True, False, False, False]))                 # drops synapses 0->1 and 3->0
+    t.compact()
+    assert t.connectivity.plastic.tolist() == [False, True]
+    assert t.connectivity.plastic_mask().tolist() == [False, True]
