@@ -70,6 +70,8 @@ def test_all_stages_declare_cost_within_factor_three():
         "sort": {"axis": Const([1.0, 0.0, 0.0])},
         "mosaic": {"radius": Const(0.5)},
         "freeze": {},
+        "grow_arbors": {"steps": Const(5)},
+        "arbor_synapses": {"contact_distance": Const(1.0)},
         "prune": {"threshold": Const(10)},
         "scale": {"target": Const(100.0)},
         "myelinate": {"delay_factor": Const(0.8)},

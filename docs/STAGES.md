@@ -223,6 +223,59 @@ range, delays in [1, 31], |weight| <= 32767 and, with `dale`, outgoing signs equ
 `.ngb` suffix, else JSON). The functions `freeze(tissue)` → `SNNNetwork` and `develop(project, genome, seed)` (run the
 schedule, then freeze) do the same from Python.
 
+## Arbors (N1–N3, `neurogenesis/arbors.py`, `neurogenesis/stages/arbors.py`)
+`ArborStore` holds the trees of all cells as struct of arrays: `xyz`, `radius`, `parent` (−1 = root, always
+`parent[i] < i`), `compartment` (0 undefined, 1 soma, 2 axon, 3 dendrite, 5 neurite, other integers are user labels)
+and `cell` (index into the tissue). It lives in `Tissue.morphology` and follows `compact`, `subset` and `concatenate`.
+`path_length_to_root`, `depth` (pointer jumping, O(M log depth)), `take` (drop nodes, children re-attached to the nearest
+kept ancestor), `downsample(step)` and `to_budget(max_nodes_per_cell)` (keep roots, branch points, terminals and
+compartment changes); `read_swc` / `write_swc` for SWC files (`scale` converts units).
+
+**`grow_arbors` (N2).** Grows neurites from each selected cell's soma for `steps` steps (absent or <= 0 = no-op).
+| Param | Default | Meaning |
+|---|---|---|
+| `compartment` | `"dendrite"` | label of the new nodes (`axon`, `dendrite`, `neurite` or an integer) |
+| `n_neurites` | 1 | tips started per cell (per cell, read at the soma) |
+| `step_length`, `angle_noise` | 1.0, 0.2 | elongation per step (space units); Gaussian turning (radians) |
+| `branch_prob`, `branch_angle` | 0.0, 0.5 | branching probability per tip and step; angle of the new branch |
+| `stop_prob`, `retraction_prob` | 0.0, 0.0 | stop probability per tip and step; removal probability of each new terminal at the end |
+| `direction` | random | initial direction (vector, or per cell) |
+| `attractor_field`, `attraction` | none, 0.0 | tips turn up the gradient of this scalar field (negative: down) |
+| `stop_field`, `boundary` | none | a step into `stop_field` > 0 or out of the geometry stops the tip |
+| `cells`, `soma_radius`, `max_nodes` | all, 0, 10⁶ | `{region, cell_type}` selector; radius of new nodes; bound on new nodes |
+
+**`arbor_synapses` (N3).** Synapses from geometric proximity (Peters' rule): axonal nodes (`pre_compartments`,
+default axon and neurite) within `contact_distance` of dendritic nodes (`post_compartments`, default dendrite, neurite,
+soma) of another cell, found through the cell list over nodes. Each contact is kept with `p_contact` (1.0), at most
+`max_per_pair` (1) per cell pair, closest first. Delay = round(axonal path length / `axon_velocity` (1.0) +
+dendritic path length / `dendrite_velocity` (ignored if absent)), clipped to [1, 31] ticks with a counted warning.
+Weight `weight` (1) with the presynaptic sign (`dale`, True). Each synapse records `pre_node`, `post_node`,
+`path_length` and `dendritic_distance`. No arbors or no `contact_distance` is the no-op. The cost assumes 50 nodes per
+cell unless `expected_nodes` is given.
+
+## Pharmacology (P1–P3, `neurogenesis/pharmacology.py`, `neurogenesis/stages/pharmacology.py`)
+A **profile** (JSON: `id`, `transmitters` (at most 7, bit k of `Tissue.transmitter`), `receptors`) maps each receptor
+class (the value of a synapse's `receptor_class`) to a `transmitter`, a `sign` (+1, −1 or `"pre"`: the weight keeps
+its sign), a `gain` (number or `Param`), optional `reversal_mV`, `tau_ms` (recorded for conductance models) and
+`contexts` (`{context: {sign, gain}}`, e.g. depolarising GABA-A in immature neurons, Ben-Ari 2002, Nat Rev Neurosci).
+`load_profile` takes a dict, a path, or an id searched in `$NEUROGENESIS_PROFILES` and `./profiles/`. The default
+profile (one classic receptor, sign `"pre"`) changes no weight, so existing networks keep their fingerprints. An
+example profile with cited entries is in `examples/profiles/example_receptors.json`.
+- **`set_transmitters`**: `rules` = [{`condition`, `transmitters`: [names], `add`}] set each cell's transmitter bitmask
+  (co-transmission: several names; Dale's principle is not enforced).
+- **`express_receptors`**: `rules` = [{`condition`, `receptor`, `level` (a `Field` is read per cell)}] set
+  `Tissue.receptor_expression` (one column per receptor of the `profile`).
+- **`assign_receptors`**: each synapse's receptor class among the receptors whose transmitter the presynaptic cell
+  releases, in proportion to their postsynaptic expression (`mode` `"sample"` from the stage stream, or `"max"`);
+  synapses without an expressed candidate keep their class. O(E R).
+- **`pharmacology`**: compiles weights in a `context`: sign from the receptor, magnitude × gain, and synapses whose
+  presynaptic cell lacks the receptor's transmitter set to 0 (`require_transmitter`). Run it in context `"immature"`
+  before `refine_by_activity` and `"mature"` after it for a sign switch during development; gains multiply at every
+  call, so give gains other than 1 in one compilation only.
+Conditions use the variables of `differentiate` conditions. Each stage without its params (`rules` / `profile`) is a
+no-op. **Not implemented:** conductance-based kernels (P4) and neuromodulation (P5); the legacy `receptor_sign` rule
+is not re-expressed as a profile.
+
 ## Geometry (B2, `neurogenesis/geometry/mesh.py`, `voxel.py`)
 - **`mesh`** (`MeshGeometry(vertices, faces, resolution=32)`, `from_obj`, `from_stl` for ASCII and binary STL).
   `contains` by ray parity, vectorised over points and faces in blocks of at most 2²⁰ pairs; `sample_points` draws

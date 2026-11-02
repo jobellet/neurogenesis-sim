@@ -426,15 +426,18 @@ Transmitter action depends on receptors and developmental context, never a stati
 - Profile entries parameterizable via `Param` (const, gene, field, expr).
 - Example documented profile entries with biological citations (e.g. GluCl, mGluR6-like, histamine-gated Cl-, GABA-A/glycine chloride equilibrium switches; Ben-Ari 2002 Nat Rev Neurosci).
 - Support co-transmission: presynaptic neuron emits multiple transmitters. Dale's principle is optional.
+- **Status:** done: `neurogenesis.pharmacology` (profiles, default profile bit-for-bit, `compile_weights`), example profile in `examples/profiles/`. Not done: re-expressing the legacy `receptor_sign` rule.
 
 **P2. Receptor expression & assignment.**
 - Cell-type-specific or field-dependent receptor expression profiles (`Tissue.receptor_expression`).
 - Post-synaptic receptor type assignment during synaptogenesis based on transmitter-receptor compatibility rules.
+- **Status:** done: `set_transmitters`, `express_receptors`, `assign_receptors` stages.
 
 **P3. Developmental switches & context compilation.**
 - Model developmental shifts in reversal potentials (e.g. GABA depolarizing early $\to$ hyperpolarizing later).
 - Compile step maps (transmitter, receptor class, developmental context) into signed integer weight and channel assignment for `lif_int`, or conductance reversal potential for float models.
 - Operates both during development (inside C11 `refine_by_activity`) and during network compilation.
+- **Status:** partial: `pharmacology` stage compiles signed integer weights per context (run before and after `refine_by_activity`); reversal potentials for float models wait for P4.
 
 **P4. Multi-channel & conductance-based spiking kernels (post H2, K3, K4).**
 - Integer LIF: $k$ synaptic current channels with distinct decay shifts, bit-for-bit equivalent across all four kernels.
@@ -451,17 +454,20 @@ Grow realistic arbor morphologies and calculate conduction delays based on neuri
 - Low-memory struct-of-arrays representation of tree morphologies (`ArborStore`): node coordinates, radii, parent indices, compartment types.
 - Generic compartment labels: soma, axon, dendrite, neurite + user labels (supporting unipolar invertebrate architectures without enforcing apical/basal).
 - SWC format reader, downsampler, and writer.
+- **Status:** done: `neurogenesis.arbors` (`ArborStore`, `read_swc`, `write_swc`, `downsample`, `to_budget`, path lengths).
 
 **N2. `grow_arbors` developmental stage.**
 - Stochastic branching stage: branching probability, elongation, branching angle, stop/target field rules, retraction.
 - Every parameter is a `Param`; draws randomness strictly from stage `rng`.
 - Cost declared and verified within factor 3.
+- **Status:** done: `grow_arbors` stage (`docs/STAGES.md`).
 
 **N3. Arbor synaptogenesis & path-length conduction delays.**
 - Geometric proximity search between axons and dendrites using D1 `CellList` in $O(\text{nodes})$.
 - Conduction delay calculated from path length along neurites + axonal velocity.
 - Clips delays $>31\text{ ms}$ with counted warning until K4 merges.
 - Populates per-synapse morphology fields (`pre_node`, `post_node`, `path_length`, `dendritic_distance`).
+- **Status:** done: `arbor_synapses` stage (cell list over nodes, delays from path length, clipped with a counted warning).
 
 **N4. Connectome SWC skeleton import & simplification.**
 - Import reconstructed arbor skeletons from connectome datasets into `ArborStore` format with automatic downsampling/simplification to target compartment budgets.

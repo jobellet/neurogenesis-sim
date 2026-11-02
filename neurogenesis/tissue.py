@@ -96,6 +96,19 @@ class SparseConnectivity:
     def nbytes(self) -> int:
         return int(sum(v.nbytes for v in self._arrays().values()))
 
+def _concat_morphology(tissues, offsets):
+    """Arbors of concatenated tissues, cell indices shifted by each tissue's offset (None if no tissue has arbors)."""
+    if all(t.morphology is None for t in tissues):
+        return None
+    from neurogenesis.arbors import ArborStore
+    parts = []
+    for t, off in zip(tissues, offsets):
+        if t.morphology is not None:
+            m = t.morphology
+            parts.append(ArborStore(m.xyz, m.radius, m.parent, m.compartment, m.cell + int(off), dict(m.labels)))
+    return ArborStore.concatenate(parts)
+
+
 @dataclass
 class Tissue:
     positions: np.ndarray
@@ -339,6 +352,8 @@ class Tissue:
         self.threshold = self.threshold[alive_mask]
         self.transmitter = self.transmitter[alive_mask]
         self.receptor_expression = self.receptor_expression[alive_mask]
+        if self.morphology is not None:
+            self.morphology = self.morphology.select_cells(np.flatnonzero(alive_mask), renumber=new_indices)
         
         # Remap synapses
         if len(self.connectivity.pre) > 0:
@@ -390,8 +405,11 @@ class Tissue:
             generation=self.generation[indices].copy(),
             transmitter=self.transmitter[indices].copy(),
             receptor_expression=self.receptor_expression[indices].copy(),
-            morphology=self.morphology,
         )
+        if self.morphology is not None:
+            renumber = np.full(len(self.alive), -1, dtype=np.int32)
+            renumber[indices] = np.arange(len(indices), dtype=np.int32)
+            t.morphology = self.morphology.select_cells(indices, renumber=renumber)
         
         if len(self.connectivity.pre) > 0:
             N = len(self.alive)
@@ -496,6 +514,7 @@ class Tissue:
             generation=np.concatenate([t.generation for t in tissues]),
             transmitter=np.concatenate([t.transmitter for t in tissues]),
             receptor_expression=rex,
+            morphology=_concat_morphology(tissues, offsets),
         )
 
     def to_network(self) -> SNNNetwork:
@@ -642,5 +661,7 @@ class Tissue:
                 
         if self.connectivity is not None:
             total += self.connectivity.nbytes()
+        if self.morphology is not None:
+            total += self.morphology.nbytes()
 
         return total
