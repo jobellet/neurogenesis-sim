@@ -10,6 +10,84 @@ from neurogenesis.geometry import Geometry
 from neurogenesis.spatial import CellList
 
 
+# Uniform points used to measure a geometry's volume (Monte Carlo, relative error about 1 / sqrt(n * fraction inside)).
+_VOLUME_SAMPLES = 65536
+
+
+def geometry_volume(geometry: Geometry, rng: np.random.Generator, n: int = _VOLUME_SAMPLES) -> float:
+    """Volume of a geometry (space units cubed): bounding-box volume times the fraction of n uniform box points inside.
+
+    Flat geometries (a zero-size box axis) are measured in the remaining dimensions (area)."""
+    lo, hi = (np.asarray(b, dtype=np.float64) for b in geometry.bounding_box())
+    size = hi - lo
+    flat = size <= 0
+    pts = lo + rng.random((n, 3)) * np.where(flat, 0.0, size)
+    return float(np.prod(np.where(flat, 1.0, size)) * np.mean(geometry.contains(pts)))
+
+
+def _sample_density(geometry: Geometry, params: Dict[str, Any], genome: Dict[str, Any], fields: Dict[str, Any],
+                    rng: np.random.Generator) -> np.ndarray:
+    """Positions drawn with a density (cells per unit volume): a number, or a field thinned against `max_density`.
+
+    A constant density gives round(density x volume) uniform cells. A per-cell density (a `Field` param) is sampled
+    by thinning: round(max_density x volume) uniform candidates, each kept with probability density / max_density
+    (Lewis & Shedler 1979, Naval Res Logist Q); values above `max_density` are clipped. `max_cells` bounds the count.
+    """
+    volume = geometry_volume(geometry, rng)
+    density_param = params["density"]
+    max_cells = params.get("max_cells")
+    max_cells = int(resolve(max_cells, genome, fields)) if max_cells is not None else None
+    density = resolve(density_param, genome, fields)
+    if np.isscalar(density) and not isinstance(density, str):
+        n = int(round(float(density) * volume))
+        n = min(n, max_cells) if max_cells is not None else n
+        return geometry.sample_points(n, rng).astype(np.float64) if n > 0 else np.zeros((0, 3))
+    if params.get("max_density") is None:
+        raise ValueError("seed_cells: a density field needs 'max_density' (cells per unit volume).")
+    max_density = float(resolve(params["max_density"], genome, fields))
+    n = int(round(max_density * volume))
+    if max_cells is not None:
+        n = min(n, int(np.ceil(max_cells * 1.5)) + 16)
+    if n <= 0:
+        return np.zeros((0, 3))
+    cand = geometry.sample_points(n, rng).astype(np.float64)
+    d = np.asarray(resolve(density_param, genome, fields, positions=cand), dtype=np.float64).reshape(-1)
+    keep = rng.random(n) < np.clip(d / max_density, 0.0, 1.0)
+    out = cand[keep]
+    return out[:max_cells] if max_cells is not None else out
+
+
+def _point_set(spec: Any, rng: np.random.Generator) -> np.ndarray:
+    """(M, 3) positions from a list of points or a point-pattern dict (B4).
+
+    A dict has `pattern` ("regular", "jittered" or "poisson_disc"), `bounds` ([lo, hi] in 2 or 3 dimensions; 2D
+    points get z = 0) and `spacing` (regular, jittered), `jitter` (jittered) or `radius` (poisson_disc). A
+    registered `PointSetField` or any object with a `points` attribute gives its points.
+    """
+    from neurogenesis.fields.maps import regular_points, jittered_points, poisson_disc_points
+    if hasattr(spec, "points"):
+        pts = np.asarray(spec.points, dtype=np.float64)
+    elif isinstance(spec, dict):
+        bounds = (np.asarray(spec["bounds"][0], dtype=float), np.asarray(spec["bounds"][1], dtype=float))
+        kind = spec.get("pattern", "regular")
+        if kind == "regular":
+            pts = regular_points(bounds, spec["spacing"])
+        elif kind == "jittered":
+            pts = jittered_points(bounds, spec["spacing"], float(spec.get("jitter", 0.0)), rng)
+        elif kind == "poisson_disc":
+            pts = poisson_disc_points(bounds, float(spec["radius"]), rng)
+        else:
+            raise ValueError(f"seed_cells: unknown point pattern {kind!r}")
+    else:
+        pts = np.asarray(spec, dtype=np.float64)
+    pts = np.atleast_2d(np.asarray(pts, dtype=np.float64))
+    if pts.size == 0:
+        return np.zeros((0, 3))
+    if pts.shape[1] < 3:
+        pts = np.concatenate([pts, np.zeros((len(pts), 3 - pts.shape[1]))], axis=1)
+    return pts[:, :3]
+
+
 @register_stage("seed_cells")
 class SeedCells:
     """Seeds initial cell population into tissue geometries.
@@ -19,18 +97,14 @@ class SeedCells:
     @classmethod
     def cost(cls, N: int, E: int, params: Dict[str, Any]) -> Tuple[int, int]:
         M = int(worst_case(params.get("N"), 100))
+        if params.get("density") is not None or params.get("points") is not None:
+            M = int(worst_case(params.get("max_cells"), 100))
         bytes_cost = M * 128
         ops_cost = M * 15
         return bytes_cost, ops_cost
 
     def run(self, tissue: Tissue, params: Dict[str, Any], genome: Dict[str, Any], fields: Dict[str, Any], rng: np.random.Generator) -> Tissue:
-        N_param = params.get("N", 0)
-        N = int(resolve(N_param, genome, fields))
-        
-        if N <= 0:
-            return tissue
-
-        # Get geometry
+        geometry = None
         geom_param = params.get("geometry", None)
         if geom_param is not None:
             resolved_geom = resolve(geom_param, genome, fields)
@@ -42,21 +116,37 @@ class SeedCells:
                 geometry = resolved_geom
             else:
                 raise TypeError(f"Expected geometry name or Geometry object, got {type(resolved_geom).__name__}.")
-            
             if not isinstance(geometry, Geometry):
                 raise TypeError(f"Object {geom_param!r} is of type {type(geometry).__name__}, expected Geometry with sample_points().")
-            positions = geometry.sample_points(N, rng).astype(np.float64)
-        elif "position" in params:
-            pos_param = params.get("position", [0.0, 0.0, 0.0])
-            pos = resolve(pos_param, genome, fields)
-            if isinstance(pos, (list, tuple, np.ndarray)):
-                pos = np.array(pos, dtype=np.float64)
-            else:
-                pos = np.array([0.0, 0.0, 0.0], dtype=np.float64)
-            positions = np.tile(pos, (N, 1))
+
+        if params.get("points") is not None:
+            positions = _point_set(resolve(params["points"], genome, fields), rng)
+            if geometry is not None and len(positions):
+                positions = positions[geometry.contains(positions)]
+            N = len(positions)
+        elif params.get("density") is not None:
+            if geometry is None:
+                raise ValueError("seed_cells: 'density' needs a 'geometry'.")
+            positions = _sample_density(geometry, params, genome, fields, rng)
+            N = len(positions)
         else:
-            raise ValueError("seed_cells requires either 'geometry' or 'position' parameter.")
-            
+            N = int(resolve(params.get("N", 0), genome, fields))
+            if N <= 0:
+                return tissue
+            if geometry is not None:
+                positions = geometry.sample_points(N, rng).astype(np.float64)
+            elif "position" in params:
+                pos = resolve(params.get("position", [0.0, 0.0, 0.0]), genome, fields)
+                if isinstance(pos, (list, tuple, np.ndarray)):
+                    pos = np.array(pos, dtype=np.float64)
+                else:
+                    pos = np.array([0.0, 0.0, 0.0], dtype=np.float64)
+                positions = np.tile(pos, (N, 1))
+            else:
+                raise ValueError("seed_cells requires either 'geometry' or 'position' parameter.")
+        if N <= 0:
+            return tissue
+
         region_param = params.get("region", 0)
         region = int(resolve(region_param, genome, fields))
         

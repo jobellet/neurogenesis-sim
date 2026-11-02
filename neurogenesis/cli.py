@@ -6,6 +6,7 @@ Usage:
   python -m neurogenesis stats --network network.json
   python -m neurogenesis export-presets --out-dir presets/
   python -m neurogenesis generate --neurons 500 --weight-scale 0.2 --refractory 3 --out column_unsaturated.json
+  python -m neurogenesis estimate --project project.json
 """
 
 from __future__ import annotations
@@ -108,7 +109,21 @@ def cmd_export_presets(args: argparse.Namespace) -> None:
 
 
 def cmd_estimate(args: argparse.Namespace) -> None:
-    """Memory and time of a simulation for each neuron model, on this machine (calibrates once per model and device)."""
+    """Memory and time of a simulation for each neuron model, on this machine (calibrates once per model and device);
+    with --project, of a development schedule (per stage)."""
+    if args.project:
+        from .devcost import estimate_development, format_rows
+        from .project.io import Project
+        project = Project.load(args.project).to_dict()
+        e = estimate_development(project, calibrated=not args.no_calibrate)
+        print(format_rows(e))
+        print(e["verdict"])
+        if not e["fits"]:
+            raise SystemExit(2)
+        if not args.neurons:
+            return
+    if not args.neurons:
+        raise SystemExit("estimate: give --neurons or --project")
     from .cost import estimate
     n = int(float(args.neurons))
     e = int(n * float(args.synapses_per_neuron))
@@ -169,7 +184,9 @@ def main() -> None:
 
     # Subcommand: estimate
     p_est = subparsers.add_parser("estimate", help="Memory and time of a simulation per neuron model, before running it")
-    p_est.add_argument("--neurons", required=True, help="number of neurons (e.g. 3e8)")
+    p_est.add_argument("--neurons", help="number of neurons (e.g. 3e8)")
+    p_est.add_argument("--project", help="Project JSON: estimate its development schedule, stage by stage")
+    p_est.add_argument("--no-calibrate", action="store_true", help="do not run the development benchmark (time unknown until calibrated)")
     p_est.add_argument("--synapses-per-neuron", default="1000", help="mean number of synapses per neuron")
     p_est.add_argument("--seconds", default="1", help="simulated seconds")
     p_est.add_argument("--model", action="append", help="neuron model (repeatable; default: all)")

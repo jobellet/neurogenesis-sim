@@ -14,13 +14,16 @@ a parameter uses them.
   `N`, `N_alive`, `E`, `rep`, `tissue`, `genome`, `np`.
 - Units: one tick = 1 ms; positions and distances in space units (the Project's coordinates); weights and thresholds in
   integer kernel units. Delays are clipped to the kernel limit of 31 ticks.
-- `cost(N, E, params)` returns (bytes, ops); `neurogenesis.stages.base.schedule_cost` sums it over a schedule.
+- `cost(N, E, params)` returns (bytes, ops); `neurogenesis.stages.base.schedule_cost` sums it over a schedule, and
+  `neurogenesis.devcost.estimate_development` (command line: `python -m neurogenesis estimate --project p.json`)
+  predicts N and E stage by stage, the peak memory and the time on this machine.
 - **Neutral** means the stage leaves the tissue unchanged. Every toolbox stage called with empty params is a
   no-op (tested for every registered stage except `legacy_grow_stage`, which needs its `plan`).
 
 ## Population (C1–C3, `neurogenesis/stages/population.py`)
 
-**`seed_cells` (C1).** Adds `N` cells, sampled uniformly in a geometry or placed at one position.
+**`seed_cells` (C1).** Adds cells: `N` sampled uniformly in a geometry or placed at one position, a `density`
+in a geometry, or a point set.
 | Param | Default | Meaning |
 |---|---|---|
 | `N` | 0 | number of cells; `N <= 0` is a no-op |
@@ -28,10 +31,14 @@ a parameter uses them.
 | `position` | none | (3,) position used for all cells when `geometry` is absent |
 | `region`, `cell_type` | 0, 0 | integer labels of the new cells |
 | `jitter` | 0.0 | standard deviation of a Gaussian offset added to each position (space units) |
+| `density` | none | cells per unit volume in `geometry` (replaces `N`): a number gives round(density × volume) uniform cells; a `Field` param is sampled by thinning against `max_density` (Lewis & Shedler 1979) |
+| `max_density` | none | upper bound of a density field (required with a field) |
+| `max_cells` | none | upper bound on the cells added with `density` or `points` |
+| `points` | none | a list of positions (2D points get z = 0), a pattern dict (`pattern`: `regular` / `jittered` / `poisson_disc`, `bounds`, `spacing` / `jitter` / `radius`), or a `PointSetField`; with a `geometry`, points outside it are dropped |
 
-Limits: one of `geometry` / `position` is required (`ValueError` otherwise). **Not implemented:** a density `Param` or a
-density field, a list of hand positions (use `place_by_hand`), point sets from B4. The cost assumes `N = 100` unless `N`
-is a constant.
+Limits: one of `geometry` / `position` / `points` is required (`ValueError` otherwise). The volume is measured by
+Monte Carlo (65 536 points, about 1 % error) from the stage's random stream; flat geometries are measured by area. The
+cost assumes `N = 100` (or `max_cells`) unless `N` is a constant.
 
 **`proliferate` (C2).** Each alive cell divides with probability `prob`; the daughter is appended, the mother stays.
 | Param | Default | Meaning |
@@ -74,9 +81,10 @@ All criteria are off when absent. Neighbour counts use a dense N × N distance m
 | `min_distance` | 0.0 | soft repulsion through the cell list: each cell of a pair closer than this moves half the overlap |
 | `stop_field` | none | evaluated at the new position; True or a value > 0 cancels the step for that cell |
 | `boundary` | none | geometry name; a step that would leave it is cancelled |
+| `tangential` | False | (per cell) remove the component of `direction` along the radial vector from `target`, so cells move perpendicular to it (tangential migration) |
 
-Limits: deterministic (no random motion). **Not implemented:** tangential migration, the inside-out layering test
-case as a test of `migrate` alone.
+Limits: deterministic (no random motion). Tangential steps are straight, so they drift outwards by O(speed²/r) per
+step. **Not implemented:** the inside-out layering test case as a test of `migrate` alone.
 
 **`sort` (C5).** Two modes, run in this order when both are given; with neither, a no-op.
 - **Ordering:** reassigns the cells' coordinates along `axis` so that their order along it follows `key`
@@ -92,7 +100,16 @@ case as a test of `migrate` alone.
 | `radius`, `contact`, `rate`, `steps` | 0.1, radius/2, 0.1, 1 | adhesion-mode interaction radius, contact distance, rate, iterations |
 
 Limits: no random motility, so weak cross-type adhesion gives local clumps rather than full separation.
-**Not implemented:** the `mosaic` stage (the legacy `mosaic` placement rule of `neurogenesis.development.rules` exists).
+
+**`mosaic` (C5).** Homotypic exclusion zones: for `steps` iterations, living cells of the same type closer than
+`radius` move apart by `rate` × half their overlap (cell list), plus optional Gaussian motility `jitter` from the stage
+random stream; `types` restricts it to some cell types and `boundary` keeps cells in a geometry. This raises the
+nearest-neighbour regularity index of each type (Galli-Resta et al. 1997, J Neurosci); other types are ignored.
+| Param | Default | Meaning |
+|---|---|---|
+| `radius` | 0.0 | exclusion radius (space units); <= 0 is the no-op |
+| `steps`, `rate`, `jitter` | 1, 1.0, 0.0 | iterations, fraction of the overlap removed, motility std |
+| `types`, `boundary` | all, none | cell types that interact; geometry that cells may not leave |
 
 ## Expression and differentiation (C6–C7, `neurogenesis/stages/differentiation.py`)
 
@@ -106,9 +123,11 @@ Limits: no random motility, so weak cross-type adhesion gives local clumps rathe
 | `radius` | 0.0 | contact radius (space units) for neighbour input through the cell list; 0 disables it |
 | `neighbor_weights` | zeros | K × K weights `W_n` applied to the **sum** of neighbours' expression |
 | `dt`, `decay` | 1.0, 0.0 | step size and linear decay rate |
+| `activation` | `"sigmoid"` | `"sigmoid"`, or `"hill"`: x⁺ⁿ / (kⁿ + x⁺ⁿ) of the positive part x⁺ of the input |
+| `hill_n`, `hill_k` | 2.0, 1.0 | Hill coefficient and half-activation input |
 
 Dead cells are kept (only the runner compacts). Limits: with `K > 0` the step is not a no-op even with zero weights (sigmoid(0) = 0.5 is
-added); weight matrices of the wrong shape are silently replaced by zeros; the sigmoid has no Hill coefficient. The
+added); weight matrices of the wrong shape are silently replaced by zeros (the Hill activation is 0 for zero input). The
 cost is O(N K²) (plus the cell-list query when `radius > 0`) and uses a `Gene`'s upper bound for `K`.
 
 **`differentiate` (C7).** Applies a rule table `types`: for each entry, in order, cells matching `condition` get the
@@ -116,14 +135,13 @@ listed properties (later entries override earlier ones).
 | Entry key | Meaning |
 |---|---|
 | `type_id` | cell type set on matching cells (default 0) |
-| `condition` | expression over `expr` (K × N, so `expr[k]`), `N`, `lineage` (cell ids), `parent`, `clone`, `field_<name>` (each Project field at the cell positions; geometries give 0/1) and `geom_<name>`; absent = all cells |
+| `condition` | expression over `expr` (K × N, so `expr[k]`), `N`, `lineage` (cell ids), `parent`, `clone`, `cell_type`, `generation`, `birth_stage` (birth order), `region`, positions `x`, `y`, `z`, `field_<name>` (each Project field at the cell positions; geometries give 0/1) and `geom_<name>`; absent = all cells |
 | `sign`, `base_weight` | sign and weight magnitude; `base_weight` keeps the sign (Dale's principle) |
 | `mode`, `shift_v`, `shift_s`, `conn_radius`, `conn_prob`, `burst_period`, `burst_duty`, `poisson_hz`, `refractory`, `role`, `compartment`, `threshold`, `region`  | neuron parameters set on the matching cells |
 
 Every value in an entry (`sign`, `base_weight` and the neuron parameters) may be a `Param`; a `Field` value
-is applied per cell. An empty or absent `types` is a no-op. Limits: `type_id` and `condition` are plain values;
-`birth_stage` and positions are not available in conditions (use a field); a condition must give one value per cell;
-`collect_genes` does not find `Gene`s nested inside `types`.
+is applied per cell. An empty or absent `types` is a no-op. Limits: `type_id` and `condition` are plain values; a
+condition must give one value per cell.
 
 ## Connectivity (C8–C9, `neurogenesis/stages/connectivity.py`)
 
@@ -153,35 +171,57 @@ cell). No positions = no-op.
 
 **`connect_by_hand` (C9).** Appends synapses `pre[i] → post[i]` (current cell indices, not cell ids) with `weight`
 (1.0, truncated to an integer) and `delay` (1 tick). Indices outside [0, N) and delays outside [1, 31] raise
-`ValueError`. Empty lists = no-op. **Not implemented:** connection matrices and connection rules from the GUI.
+`ValueError`. Empty lists = no-op. Two more supervised inputs (run before the index lists):
+- `matrix`: a dense N × N weight matrix (row = pre, column = post, 0 = no synapse), allowed up to N = 2048 cells,
+  with `delay_matrix` (N × N) or a scalar `delay`.
+- `rules`: a list of connection rules, each `{pre, post, prob, weight, delay | velocity, max_distance, sigma, dale,
+  allow_autapse}`. `pre` / `post` select living cells by a dict of `region` / `cell_type` values or a boolean
+  expression over `cell_type`, `region`, `birth_stage`, `generation`, `sign`, `x`, `y`, `z`. Without `max_distance`
+  the number of synapses is drawn from Binomial(N_pre · N_post, prob) and distinct pairs are drawn without building
+  an N_pre × N_post array (O(E)); with `max_distance` candidates come from the cell list, each kept with `prob`
+  (times exp(−d²/2σ²) with `sigma`). `velocity` sets delay = round(distance / velocity) clipped to [1, 31] with a
+  warning; `dale` gives each synapse the presynaptic sign; autapses are dropped unless `allow_autapse`. Values may be
+  `Param`s.
 
 ## Maturation (C10–C12, `neurogenesis/stages/refinement.py`)
 
-**`prune` (C10).** Removes synapses with `|w| < threshold` (default 0, neutral). **Not implemented:** the activity
-criterion.
+**`prune` (C10).** Removes synapses with `|w| < threshold` (default 0, neutral). With `min_coactivity`, it also
+removes synapses whose presynaptic spikes, arriving after the synapse delay, were followed by a postsynaptic spike
+within `window` ticks (default 5) fewer than `min_coactivity` times ("use it or lose it", Katz & Shatz 1996, Science).
+Activity comes from `spikes` (a (T, N) raster) or a `lif_int` simulation of `ticks` (100) with optional
+`ext_current`; dead cells are compacted first. Cost O(T · E).
 
 **`scale` (C10).** Multiplies each cell's incoming weights so that their absolute sum equals `target`, then rounds to
-integers. Without `target` it is a no-op. Limits: small weights can round to 0; all inputs are scaled, without a time
-constant.
+integers. Without `target` it is a no-op. `rate` (default 1) moves only that fraction of the way per call
+(1 + rate · (factor − 1)), a discrete time constant (Turrigiano et al. 1998, Nature). Limits: small weights can round
+to 0.
 
 **`refine_by_activity` (C11).** Simulates the tissue with the JAX `lif_int` kernel for `ticks`, then applies a plasticity
 rule of `neurogenesis.spiking.plasticity` once to the weights. Dead cells are compacted first.
 | Param | Default | Meaning |
 |---|---|---|
 | `ticks` | 100 | simulated ticks (ms) |
-| `rule` | none (no-op) | `"stdp"` (`A_plus` 1.0, `A_minus` 1.0, `tau_plus` 20, `tau_minus` 20 ticks, `w_min` 0, `w_max` 1000) or `"hebbian"` (`eta` 0.01, `norm_target` 1000, `norm_type` `"l1_subtractive"`) |
+| `rule` | none (no-op) | `"three_factor"` (`eta` 0.01, `tau_e` 20 ticks; `modulator`: constant, (ticks,) or (ticks, N), or `modulator_cells` whose spike count per tick × `modulator_gain` is the modulator) or `"stdp"` (`A_plus` 1.0, `A_minus` 1.0, `tau_plus` 20, `tau_minus` 20 ticks, `w_min` 0, `w_max` 1000) or `"hebbian"` (`eta` 0.01, `norm_target` 1000, `norm_type` `"l1_subtractive"`) |
 | `sources` (or `driver_cells`) | none | cell ids (or indices) made Poisson drivers (`mode = 1`) at `poisson_hz` (1000 Hz); this change stays in the tissue |
 | `ext_current` | none | external current per cell (array, or `{cell id: current}`) |
 | `spikes` | none | a (ticks, N) spike raster used instead of simulating |
+| `waves` | none | spontaneous waves: `sources` (cell ids or points), `speed` (space units per tick), `interval`, `duration` (ticks), `amplitude` (current) |
+| `twitches` | none | motor twitches with sensory feedback: `motor_cells`, `sensory_cells`, `interval`, `duration`, `amplitude`, feedback `delay` and `gain` |
 
 Without `rule` the stage is a no-op . Limits: plasticity acts on magnitudes and keeps synapse signs; weights
-are cast to integers. **Not implemented:** spontaneous waves (sources and speed), motor twitches with sensory
-feedback, the three-factor rule, pruning inside the stage (follow with `prune`), other neuron models.
+are cast to integers. The three-factor eligibility counts arrivals that coincide with a postsynaptic spike in the same tick. **Not implemented:** pruning inside the stage (follow with `prune`), other neuron models.
 
-**`myelinate` (C12).** Multiplies every delay by `factor` (alias `delay_factor`; absent = no-op; 1.0 is neutral), rounds and clips to [1, 31] ticks with a warning when clipped. **Not implemented:** selecting active or long
-projections (all synapses are scaled).
+**`myelinate` (C12).** Multiplies delays by `factor` (alias `delay_factor`; absent = no-op; 1.0 is neutral), rounds
+and clips to [1, 31] ticks with a warning when clipped. By default every synapse is scaled; given criteria select
+synapses passing all of them: `min_delay` (long projections, ticks), `pre_region` / `post_region` (lists of region
+ids), `min_rate` (presynaptic rate in Hz, from `spikes` or a simulation of `ticks`; activity-dependent myelination,
+Gibson et al. 2014, Science; needs a compacted tissue).
 
-**`freeze` (C13).** **Not implemented** as a stage; `Tissue.to_network()` compiles a tissue to an `SNNNetwork`.
+**`freeze` (C13, `neurogenesis/stages/freeze.py`).** Validates the tissue (finite positions, synapse indices in
+range, delays in [1, 31], |weight| <= 32767 and, with `dale`, outgoing signs equal to the presynaptic sign) and raises
+`FreezeError` listing every problem; the tissue is unchanged. With `path` it writes the compiled network (NGB1 for a
+`.ngb` suffix, else JSON). The functions `freeze(tissue)` → `SNNNetwork` and `develop(project, genome, seed)` (run the
+schedule, then freeze) do the same from Python.
 
 ## Geometry (B2, `neurogenesis/geometry/mesh.py`, `voxel.py`)
 - **`mesh`** (`MeshGeometry(vertices, faces, resolution=32)`, `from_obj`, `from_stl` for ASCII and binary STL).

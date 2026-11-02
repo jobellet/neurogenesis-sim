@@ -86,7 +86,7 @@ GUI (viz/): geometry and field editor, schedule editor, step-by-step development
 | Area | Present | Missing |
 |---|---|---|
 | Spiking | integer LIF kernel, bit-identical in Python, JAX and the browser; `two_compartment` and `hh` models; batched runs; cost estimator with machine calibration | plasticity during simulation as a reusable component (STDP, three-factor); per-region choice of model |
-| Development | `BodyPlan` (regions, projections), one fixed growth order (placement → sign → differentiation → identity → axons), rule registry in 5 phases (placement, shift, target, probability, weight), knockouts, tonic currents; geometry, fields, `Tissue`, stage schedule (A1–A5, B1–B5, C1–C12, D2; see `docs/STAGES.md`) | `freeze` (C13), the development cost model on the command line (D3; per-stage costs and `schedule_cost` exist), chunked growth (D4), and the parts of B4, B5, C1–C12, D1 and D2 marked partial below |
+| Development | `BodyPlan` (regions, projections), one fixed growth order (placement → sign → differentiation → identity → axons), rule registry in 5 phases (placement, shift, target, probability, weight), knockouts, tonic currents; geometry, fields, `Tissue`, stage schedule (A1–A5, B1–B5, C1–C13, D2, D3; see `docs/STAGES.md`) | chunked growth (D4), and the parts of B4, B5, C8, D1 and D2 marked partial below |
 | Genome / evolution | gene paths, [0, 1] coding, gene groups, JSON; island model, robust fitness, audits; `Param` sources (A3) | supervised fitting (`Fit` params resolve to their initial value); multi-objective |
 | Modules | save / load, composition, plugins, neuron model recorded | module registry and versioning; validation harness |
 | GUI | 3D viewer and per-neuron editing of a finished network | geometry and field editor, schedule editor, development preview, Project import / export |
@@ -211,21 +211,22 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 | C12 | `myelinate` | Shorten delays of active or long projections (a `Param` factor). |
 | C13 | `freeze` | Validate and compile the tissue to an `SNNNetwork` (end of development, or a checkpoint). |
 
-**Status of C1–C12** (details and limits in `docs/STAGES.md`):
+**Status of C1–C13** (details and limits in `docs/STAGES.md`):
 | Task | Status |
 |---|---|
-| C1 | partial: count in a geometry or at one position; no density `Param` or field |
+| C1 | done: count in a geometry or at one position, `density` (`Param` or field, thinning), point sets (lists, B4 patterns, `PointSetField`) |
 | C2 | done: probability, displacement, lineage and `generation`, daughter type, asymmetric division, expression noise, `max_cells` bound |
 | C3 | done: probability, density (cell list above N = 2048), neurotrophic in / out degree |
-| C4 | done except a tangential mode: steps along a direction (or a per-cell vector `Param`), radial, chemotaxis up / down a scalar field, stop field, boundary, target layer, `min_distance` collisions through the cell list |
-| C5 | partial: `sort` ranks positions along an axis by a key, and differential adhesion (types × types matrix, negative entries repel) through the cell list; no `mosaic` stage |
-| C6 | partial: sigmoid step with morphogen and contact (cell-list) inputs; no Hill function |
-| C7 | done for expression, field and lineage conditions (values as `Param`s after #40); birth order not available |
+| C4 | done: steps along a direction (or a per-cell vector `Param`), radial, tangential, chemotaxis up / down a scalar field, stop field, boundary, target layer, `min_distance` collisions through the cell list |
+| C5 | done: `sort` ranks positions along an axis by a key, differential adhesion (types × types matrix) through the cell list, and the `mosaic` stage (homotypic exclusion zones) |
+| C6 | done: sigmoid or Hill step with morphogen and contact (cell-list) inputs |
+| C7 | done for expression, field, lineage, birth order and position conditions (values as `Param`s) |
 | C8 | partial: guidance rules as a stage; dense only up to 2048 cells per side, sparse cell-list search above (only three probability rules there, see D2); errors on missing guidance |
-| C9 | partial: `place_by_hand`, `connect_by_hand` (index lists); no connection matrices or rules |
-| C10 | partial: `prune` by weight, `scale` to a target sum; no activity criterion |
-| C11 | partial: `lif_int` run with Poisson drivers or injected spikes, then STDP / Hebbian; no waves or twitches |
-| C12 | partial: one factor for all delays; no selection of active or long projections |
+| C9 | done: `place_by_hand`, `connect_by_hand` (index lists, dense matrices up to 2048 cells, connection rules by region / type / expression with probability, distance and velocity) |
+| C10 | done: `prune` by weight and by coactivity (activity criterion), `scale` to a target sum with a `rate` |
+| C11 | done: `lif_int` run with Poisson drivers, injected spikes, spontaneous waves or motor twitches with sensory feedback, then STDP, Hebbian or three-factor plasticity (follow with `prune`) |
+| C12 | done: one factor for all delays, or for synapses selected by length, regions or presynaptic activity |
+| C13 | done: `freeze` validates and compiles (optionally writes JSON / NGB1); `develop(project, genome, seed)` |
 
 **Acceptance tests for every stage:**
 - determinism;
@@ -256,6 +257,10 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 - Per-stage cost declarations summed by `neurogenesis.cost`, with machine calibration as for simulations.
 - **Command line:** `python -m neurogenesis estimate --project p.json`.
 - **Dependencies:** A4.
+- **Status:** done: `neurogenesis.devcost` walks the schedule without running it, predicts cells and synapses per stage
+  (worst case for `Gene` / `Fit` params), sums the declared costs, calibrates seconds per declared op once per machine,
+  and `check_development` refuses schedules whose peak memory does not fit. Synapse predictions of rules and guidance
+  are upper estimates.
 
 **D4. Chunked and streaming growth.**
 - Tissues larger than memory processed in spatial chunks, writing synapses to disk (`.npz` shards).
