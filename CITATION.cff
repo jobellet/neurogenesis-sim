@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use neurogenesis-sim, please cite it as below, and cite the methods and datasets you use (docs/THIRD_PARTY.md)."
+title: "neurogenesis-sim: growing spiking neural networks through development"
+type: software
+authors:
+  - family-names: Bellet
+    given-names: Joachim
+license: MIT
+repository-code: "https://github.com/jobellet/neurogenesis-sim"
+url: "https://jobellet.github.io/neurogenesis-sim/"
+keywords:
+  - computational neuroscience
+  - neural development
+  - spiking neural networks
+  - neuroevolution
+  - simulation
