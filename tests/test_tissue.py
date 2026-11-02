@@ -212,3 +212,39 @@ def test_generation_optional_and_carried_through_operations():
     # Constructed without the field (as before it existed): defaults to zeros.
     kwargs = {k: getattr(t, k) for k in t.__dataclass_fields__ if k != "generation"}
     assert Tissue(**kwargs).generation.tolist() == [0, 0, 0]
+
+
+def test_add_cells_keeps_int32_base_weight():
+    t = Tissue.empty()
+    t.add_cells(3, base_weight=np.array([2, -3, 4]), sign=np.array([1, -1, 1]))
+    t.add_cells(2)
+    assert t.base_weight.dtype == np.int32 and list(t.base_weight) == [2, -3, 4, 1, 1]
+    net = SNNNetwork(neurons=[NeuronData(id=i, x=0.0, y=0.0, z=0.0, dir_x=1.0, dir_y=0.0, dir_z=0.0, mode=0, shift_v=5,
+                                         shift_s=4, base_weight=w, conn_radius=0.0, conn_prob=0.0, refractory=3)
+                              for i, w in enumerate((5, -7))], synapses=[])
+    assert Tissue.from_network(net).base_weight.dtype == np.int32
+
+
+def test_add_cells_clone_id_matches_python_lookup():
+    def old_clone_ids(cell_id, clone_id, par_id, c_id):  # the per-cell dict lookup it replaces
+        out = np.zeros(len(par_id), dtype=np.int32)
+        id_to_clone = dict(zip(cell_id, clone_id)) if len(cell_id) > 0 else {}
+        for idx in range(len(par_id)):
+            pid = par_id[idx]
+            out[idx] = c_id[idx] if pid == -1 or pid not in id_to_clone else id_to_clone[pid]
+        return out
+
+    rng = np.random.default_rng(0)
+    for trial in range(20):
+        t = Tissue.empty()
+        n0 = int(rng.integers(0, 30))
+        if n0:  # existing cells with duplicated ids and arbitrary clones
+            t.add_cells(n0, cell_id=rng.integers(0, 40, n0), clone_id=rng.integers(0, 100, n0))
+        before = (t.cell_id.copy(), t.clone_id.copy())
+        n = int(rng.integers(1, 30))
+        par = rng.integers(-1, 50, n).astype(np.int32)
+        par[rng.random(n) < 0.3] = -1
+        t.add_cells(n, parent_ids=par)
+        expected = old_clone_ids(*before, par, t.cell_id[n0:])
+        assert np.array_equal(t.clone_id[n0:], expected)
+        assert t.clone_id.dtype == np.int32
