@@ -721,6 +721,10 @@ into the morphology store of N1, in the frames of I3.
 in-situ hybridisation over developmental ages) imported as `GridField`s, registered to a Project's geometry, to drive
 `express` / `differentiate` from measured expression (semi-supervised). Dataset manifests in `datasets/` (I1), with
 licence and citation.
+- **Status:** partial: annotation atlases as geometries (`neurogenesis.data.atlas`: NRRD / MetaImage volumes,
+  structure ontologies with descendants, `structure_geometry` → `VoxelMaskGeometry`, `fit_to_box`), used by
+  `examples/atlas_relay_mask.py` for the retina → relay example. Gene-expression grids as fields and registration
+  between ages are not done.
 
 **J9. Recordings as fit targets.** Spike data from NWB (pynwb units tables) and neo spike trains, reduced to target
 statistics (rates, CV, correlations, PSTHs) for `Fit` Params (E2) and validation (E4).
