@@ -14,13 +14,15 @@ field) → `differentiate` (types from layer and expression) → `grow_axons` (l
 python examples/layered_sheet.py --cpu --out example_out
 ```
 ```text
-Layered sheet grown: 111 cells, 736 synapses.
-Cells per layer: [37, 30, 44]
+Layered sheet grown: 120 cells, 618 synapses (580 exc, 38 inh).
+Cells per type (0: VZ/deep exc, 1: mid exc, 2: superficial exc, 3: superficial inh): [44, 35, 33, 8]
+Birth order vs laminar depth rank correlation: 0.865 (p=4.55e-37)
 Connection matrix (pre \ post):
-  [172, 55, 1]
-  [37, 125, 31]
-  [2, 71, 242]
-Delay distribution: min=1, max=18, mean=6.14
+  [153, 59, 7, 2]
+  [46, 121, 39, 3]
+  [2, 44, 86, 18]
+  [1, 16, 17, 4]
+Delay distribution: min=1, max=22, mean=7.31
 ```
 This produces `project.json` (Project schema), `network.json` (for the 3D viewer), and `stats.json`.
 

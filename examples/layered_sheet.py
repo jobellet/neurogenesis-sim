@@ -1,13 +1,16 @@
 """A layered sheet grown from progenitors: developmental pipeline example.
 
 Pipeline:
-  1. seed_cells in a Sheet2D (ventricular zone)
-  2. proliferate (asymmetric divisions, max_cells)
-  3. migrate to target layers defined by LayerStackField
-  4. differentiate by layer (assigning cell types and intrinsic weights)
-  5. grow_axons with laminar targeting (chemoaffinity)
-  6. refine_by_activity (STDP plasticity)
-  7. prune (threshold weak synapses)
+  1. seed_cells in a Sheet2D (ventricular zone scaffold)
+  2. proliferate (asymmetric divisions producing deep-layer daughters)
+  3. proliferate (asymmetric divisions producing superficial-layer daughters)
+  4. migrate to target layers defined by LayerStackField, where target layer
+     emerges from development (daughter type / generation modulated by a gene)
+     reproducing inside-out cortical neurogenesis (Rakic 1974 Science; Angevine & Sidman 1961 Nature)
+  5. differentiate by layer (assigning excitatory and inhibitory phenotypes)
+  6. grow_axons with laminar targeting (chemoaffinity)
+  7. refine_by_activity (STDP plasticity)
+  8. prune (threshold weak synapses)
 
 Usage:
     python examples/layered_sheet.py [--out example_out] [--cpu] [--seed 42]
@@ -18,18 +21,10 @@ import os
 import sys
 from pathlib import Path
 
-ap = argparse.ArgumentParser(description="Grow a layered sheet from progenitors.")
-ap.add_argument("--out", default="example_out", help="Output directory for network.json and project.json")
-ap.add_argument("--cpu", action="store_true", help="Force JAX CPU execution")
-ap.add_argument("--seed", type=int, default=42, help="Random seed for development and simulation")
-args = ap.parse_args()
-
-if args.cpu:
-    os.environ["JAX_PLATFORMS"] = "cpu"
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np  # noqa: E402
+from scipy.stats import spearmanr  # noqa: E402
 from neurogenesis.project.io import Project  # noqa: E402
 from neurogenesis.stages.base import run_schedule  # noqa: E402
 
@@ -56,10 +51,10 @@ def build_project() -> Project:
             "thicknesses": [8.0, 8.0, 8.0],
             "labels": [0, 1, 2],
         },
-        "target_dest": {
-            "type": "AnalyticField",
-            "expr": "(x < 14.0) * 0.0 + ((x >= 14.0) & (x < 27.0)) * 1.0 + (x >= 27.0) * 2.0",
-        },
+    }
+
+    genome = {
+        "layer_scale": 1.0,
     }
 
     schedule = [
@@ -67,7 +62,7 @@ def build_project() -> Project:
             "operator": "seed_cells",
             "params": {
                 "geometry": "sheet",
-                "N": 60,
+                "N": 40,
                 "region": 0,
                 "cell_type": 0,
             },
@@ -76,20 +71,30 @@ def build_project() -> Project:
             "operator": "proliferate",
             "params": {
                 "prob": 0.8,
-                "max_cells": 120,
-                "asymmetric_prob": 0.7,
+                "max_cells": 75,
+                "asymmetric_prob": 0.85,
                 "daughter_type": 1,
+                "jitter": 0.1,
+            },
+        },
+        {
+            "operator": "proliferate",
+            "params": {
+                "prob": 0.8,
+                "max_cells": 120,
+                "asymmetric_prob": 0.85,
+                "daughter_type": 2,
                 "jitter": 0.1,
             },
         },
         {
             "operator": "migrate",
             "params": {
-                "steps": 25,
+                "steps": 30,
                 "speed": 1.0,
                 "direction": [0.0, 0.0, 1.0],
                 "layer_field": "layers",
-                "target_layer": {"type": "Field", "name": "target_dest"},
+                "target_layer": {"type": "Expr", "formula": "cell_type * layer_scale"},
             },
         },
         {
@@ -98,7 +103,8 @@ def build_project() -> Project:
                 "types": [
                     {"type_id": 0, "condition": "field_layers[:, 0] == 0", "sign": 1, "base_weight": 300},
                     {"type_id": 1, "condition": "field_layers[:, 0] == 1", "sign": 1, "base_weight": 500},
-                    {"type_id": 2, "condition": "field_layers[:, 0] == 2", "sign": 1, "base_weight": 700},
+                    {"type_id": 2, "condition": "(field_layers[:, 0] == 2) & (cell_id % 4 != 0)", "sign": 1, "base_weight": 600},
+                    {"type_id": 3, "condition": "(field_layers[:, 0] == 2) & (cell_id % 4 == 0)", "sign": -1, "base_weight": 400},
                 ]
             },
         },
@@ -142,50 +148,72 @@ def build_project() -> Project:
     return Project(
         geometry=geometry,
         fields=fields,
+        genome=genome,
         schedule=schedule,
-        metadata={"name": "Layered Sheet", "description": "Layered sheet grown from progenitors"},
+        metadata={"name": "Layered Sheet", "description": "Layered sheet grown from progenitors with inside-out neurogenesis"},
     )
 
 
 def analyze_circuit(tissue):
-    """Compute cells per layer, layer connection matrix, and delay distribution."""
-    num_layers = 3
-    cells_per_layer = np.bincount(tissue.cell_type, minlength=num_layers)
+    """Compute cells per layer, layer connection matrix, delay distribution, and birth-order rank correlation."""
+    num_types = 4
+    cells_per_type = np.bincount(tissue.cell_type, minlength=num_types)
 
-    conn_matrix = np.zeros((num_layers, num_layers), dtype=int)
+    conn_matrix = np.zeros((num_types, num_types), dtype=int)
     if tissue.connectivity is not None and len(tissue.connectivity.pre) > 0:
         pre_types = tissue.cell_type[tissue.connectivity.pre]
         post_types = tissue.cell_type[tissue.connectivity.post]
         for src, dst in zip(pre_types, post_types):
-            if 0 <= src < num_layers and 0 <= dst < num_layers:
+            if 0 <= src < num_types and 0 <= dst < num_types:
                 conn_matrix[src, dst] += 1
 
         delays = np.asarray(tissue.connectivity.delay, dtype=int)
         delay_min = int(np.min(delays))
         delay_max = int(np.max(delays))
         delay_mean = float(np.mean(delays))
+        inhibitory_synapses = int(np.sum(tissue.connectivity.weight < 0))
+        excitatory_synapses = int(np.sum(tissue.connectivity.weight > 0))
     else:
         delays = np.array([], dtype=int)
         delay_min, delay_max, delay_mean = 0, 0, 0.0
+        inhibitory_synapses = 0
+        excitatory_synapses = 0
+
+    corr, pval = spearmanr(tissue.birth_stage, tissue.positions[:, 2])
 
     return {
-        "cells_per_layer": cells_per_layer.tolist(),
+        "cells_per_type": cells_per_type.tolist(),
         "connection_matrix": conn_matrix.tolist(),
         "delay_min": delay_min,
         "delay_max": delay_max,
         "delay_mean": delay_mean,
+        "inhibitory_synapses": inhibitory_synapses,
+        "excitatory_synapses": excitatory_synapses,
+        "birth_order_rank_corr": float(corr),
+        "birth_order_p_value": float(pval),
         "total_cells": int(np.sum(tissue.alive)),
         "total_synapses": int(len(tissue.connectivity.pre)) if tissue.connectivity else 0,
     }
 
 
 def main():
+    ap = argparse.ArgumentParser(description="Grow a layered sheet from progenitors.")
+    ap.add_argument("--out", default="example_out", help="Output directory for network.json and project.json")
+    ap.add_argument("--cpu", action="store_true", help="Force JAX CPU execution")
+    ap.add_argument("--seed", type=int, default=42, help="Random seed for development and simulation")
+    args = ap.parse_args()
+
+    if args.cpu:
+        os.environ["JAX_PLATFORMS"] = "cpu"
+
     proj = build_project()
-    tissue = run_schedule(proj.to_dict(), genome={}, seed=args.seed)
+    tissue = run_schedule(proj.to_dict(), genome=proj.genome, seed=args.seed)
     stats = analyze_circuit(tissue)
 
-    print(f"Layered sheet grown: {stats['total_cells']} cells, {stats['total_synapses']} synapses.")
-    print(f"Cells per layer: {stats['cells_per_layer']}")
+    print(f"Layered sheet grown: {stats['total_cells']} cells, {stats['total_synapses']} synapses "
+          f"({stats['excitatory_synapses']} exc, {stats['inhibitory_synapses']} inh).")
+    print(f"Cells per type (0: VZ/deep exc, 1: mid exc, 2: superficial exc, 3: superficial inh): {stats['cells_per_type']}")
+    print(f"Birth order vs laminar depth rank correlation: {stats['birth_order_rank_corr']:.3f} (p={stats['birth_order_p_value']:.2e})")
     print("Connection matrix (pre \\ post):")
     for row in stats["connection_matrix"]:
         print(f"  {row}")
@@ -206,4 +234,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
