@@ -4,7 +4,7 @@ import numpy as np
 
 from neurogenesis.tissue import Tissue
 from neurogenesis.stages.base import register_stage
-from neurogenesis.params import resolve
+from neurogenesis.params import resolve, param_from_dict, Const, Gene, Fit
 
 @register_stage("prune")
 class PruneStage:
@@ -39,7 +39,9 @@ class ScaleStage:
         if tissue.connectivity is None or len(tissue.connectivity.pre) == 0:
             return tissue
 
-        target = resolve(params.get("target", 1000), genome, fields)
+        if "target" not in params:
+            return tissue
+        target = resolve(params["target"], genome, fields)
         N = len(tissue.alive)
 
         # Sum absolute incoming weights per neuron
@@ -48,7 +50,7 @@ class ScaleStage:
         np.add.at(in_degrees, tissue.connectivity.post, abs_weights)
 
         # Compute scale factor per post-synaptic neuron
-        scale_factors = np.where(in_degrees > 0, target / in_degrees, 1.0)
+        scale_factors = np.divide(target, in_degrees, out=np.ones(N, dtype=np.float32), where=in_degrees > 0)
 
         # Apply scaling, maintaining the original sign
         new_weights = tissue.connectivity.weight * scale_factors[tissue.connectivity.post]
@@ -73,7 +75,10 @@ class MyelinateStage:
         if tissue.connectivity is None or len(tissue.connectivity.pre) == 0:
             return tissue
 
-        factor = resolve(params.get("factor", params.get("delay_factor", 0.5)), genome, fields)
+        factor_param = params.get("factor", params.get("delay_factor"))
+        if factor_param is None:
+            return tissue
+        factor = resolve(factor_param, genome, fields)
         
         # Scale delays down, clipping to [1, 31]
         raw_delays = np.round(tissue.connectivity.delay * factor).astype(np.int32)
@@ -100,16 +105,22 @@ class RefineByActivityStage:
     @classmethod
     def cost(cls, N: int, E: int, params: Dict[str, Any]) -> Tuple[int, int]:
         ticks = params.get("ticks", 100)
-        ticks = ticks.value if hasattr(ticks, 'value') else ticks
         if isinstance(ticks, dict):
-            ticks = ticks.get("value", 100)
-            
+            ticks = param_from_dict(ticks)
+        if isinstance(ticks, (Gene, Fit)):
+            ticks = ticks.hi
+        elif isinstance(ticks, Const):
+            ticks = ticks.value
+        elif not isinstance(ticks, (int, float, np.integer, np.floating)):
+            ticks = 100
+        ticks = int(ticks)
         bytes_cost = E * 8 + N * 40
         ops_cost = E * ticks * 20
         return bytes_cost, ops_cost
 
     def run(self, tissue: Tissue, params: Dict[str, Any], genome: Dict[str, Any], fields: Dict[str, Any], rng: np.random.Generator) -> Tissue:
-        if tissue.connectivity is None or len(tissue.connectivity.pre) == 0:
+        rule_param = params.get("rule")
+        if rule_param is None or tissue.connectivity is None or len(tissue.connectivity.pre) == 0:
             return tissue
 
         # 1. Compact / index by id: if there are dead cells, compact first so cell indices and connectivity align
@@ -117,8 +128,7 @@ class RefineByActivityStage:
             tissue.compact()
 
         ticks = int(resolve(params.get("ticks", 100), genome, fields))
-        rule_type = params.get("rule", "stdp")
-        rule_type = resolve(rule_type, genome, fields)
+        rule_type = resolve(rule_param, genome, fields)
         
         # Configure sources / driver cells by ID if specified
         sources = resolve(params.get("sources", params.get("driver_cells", None)), genome, fields)
