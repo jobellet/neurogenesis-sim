@@ -126,7 +126,7 @@ nearest-neighbour regularity index of each type (Galli-Resta et al. 1997, J Neur
 |---|---|---|
 | `radius` | 0.0 | exclusion radius (space units); <= 0 is the no-op |
 | `steps`, `rate`, `jitter` | 1, 1.0, 0.0 | iterations, fraction of the overlap removed, motility std |
-| `types`, `boundary` | all, none | cell types that interact; geometry that cells may not leave |
+| `types`, `boundary` | all, none | cell types that interact; geometry that cells may not leave (cells already outside it move freely) |
 
 ## Expression and differentiation (C6–C7, C15, `neurogenesis/stages/differentiation.py`)
 
@@ -190,7 +190,7 @@ Reference neocortical birth-order windows: `examples/profiles/temporal_competenc
 | `exact` | unset | unset: dense Ns × Nd when max(Ns, Nd) <= 2048, else sparse guidance (D2, cell list); `True`: always dense, error above 2²⁴ pairs; `False`: sparse when `sigma <= 1` |
 | `region_map`, `bounds_min`, `bounds_size`, `identities` | {} | region names → ids; region boxes for local coordinates (default: the bounding box of the region's cells); per-region identities |
 
-Weights are `w · (1 or −inh) · U(0.9, 1.1)`, rounded and clipped. The stage does not read
+Guidance values are resolved at any depth, so a `Gene` may be one entry of `B`. Weights are `w · (1 or −inh) · U(0.9, 1.1)`, rounded and clipped. The stage does not read
 `genome["guidance"]` (use `Gene` values inside `guidance`), and raises `ValueError` when neither `projections` nor
 `guidance` is given, when a listed projection has no guidance entry, or when a region name is not in `region_map`; a
 region without alive cells is a no-op for that projection. Limits: the dense path uses O(Ns·Nd) memory (only up to 2048 cells per side by default); no probability rule (not even `no_autapse`) applies unless listed; the sparse path supports only the
@@ -240,10 +240,11 @@ rule of `neurogenesis.spiking.plasticity` once to the weights. Dead cells are co
 |---|---|---|
 | `ticks` | 100 | simulated ticks (ms) |
 | `rule` | none (no-op) | `"three_factor"` (`eta` 0.01, `tau_e` 20 ticks; `modulator`: constant, (ticks,) or (ticks, N), or `modulator_cells` whose spike count per tick × `modulator_gain` is the modulator) or `"stdp"` (`A_plus` 1.0, `A_minus` 1.0, `tau_plus` 20, `tau_minus` 20 ticks, `w_min` 0, `w_max` 1000) or `"hebbian"` (`eta` 0.01, `norm_target` 1000, `norm_type` `"l1_subtractive"`) |
-| `sources` (or `driver_cells`) | none | cell ids (or indices) made Poisson drivers (`mode = 1`) at `poisson_hz` (1000 Hz); this change stays in the tissue |
+| `sources` (or `driver_cells`) | none | cell ids (or indices) made Poisson drivers (`mode = 1`) at `poisson_hz` (1000 Hz); this change stays in the tissue unless `restore_modes` |
+| `restore_modes` | False | restore every cell's `mode` and `poisson_hz` after the stage, so drivers act only during it |
 | `ext_current` | none | external current per cell (array, or `{cell id: current}`) |
 | `spikes` | none | a (ticks, N) spike raster used instead of simulating |
-| `waves` | none | spontaneous waves: `sources` (cell ids or points), `speed` (space units per tick), `interval`, `duration` (ticks), `amplitude` (current) |
+| `waves` | none | spontaneous waves: `sources` (cell ids or points), `speed` (space units per tick), `interval`, `duration` (ticks), `amplitude` (current), `cells` (`{region, cell_type}`: the cells the waves reach; default all) |
 | `twitches` | none | motor twitches with sensory feedback: `motor_cells`, `sensory_cells`, `interval`, `duration`, `amplitude`, feedback `delay` and `gain` |
 | `record` | false | keep the (ticks, N) spike raster on the tissue (`_activity_spikes`, in memory only) for `competitive_elimination` |
 

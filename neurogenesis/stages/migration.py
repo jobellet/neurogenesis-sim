@@ -333,7 +333,8 @@ class MosaicStage:
 
     For `steps` iterations, each same-type pair of living cells closer than `radius` (cell list, O(N k)) moves apart by
     `rate` x half their overlap, plus optional Gaussian motility of std `jitter` (space units, from the stage rng),
-    staying inside the geometry named by `boundary`. `types` restricts the interaction to a list of cell types. This
+    staying inside the geometry named by `boundary` (a move that would leave it is cancelled; cells already outside
+    move freely). `types` restricts the interaction to a list of cell types. This
     produces regular mosaics (high nearest-neighbour regularity index), as in models of exclusion zones between cells of
     the same type (Galli-Resta et al. 1997, J Neurosci). Generalises the legacy `mosaic` placement rule. No `radius`
     (or radius <= 0) is a no-op.
@@ -375,7 +376,9 @@ class MosaicStage:
                 move = move + rng.standard_normal(pos.shape) * jitter
             new_pos = pos + move
             if hasattr(geom, "contains"):
-                new_pos = np.where(geom.contains(new_pos)[:, None], new_pos, pos)
+                # a move may not leave the geometry; cells already outside it move freely (they cannot get trapped)
+                stay = geom.contains(new_pos) | ~geom.contains(pos)
+                new_pos = np.where(stay[:, None], new_pos, pos)
             pos = new_pos
         tissue.positions[idx] = pos
         return tissue
