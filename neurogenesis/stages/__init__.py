@@ -11,3 +11,6 @@ __all__ = ["Stage", "register_stage", "run_schedule"]
 
 for _, module_name, _ in pkgutil.iter_modules(__path__):
     importlib.import_module(f".{module_name}", package=__name__)
+
+import neurogenesis.dendritic  # noqa: F401, E402
+import neurogenesis.neuromodulation  # noqa: F401, E402

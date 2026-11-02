@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Neurogenesis.Core.Bridge;
 using Neurogenesis.Core.Ngb;
@@ -46,6 +47,10 @@ public sealed partial class MainViewModel : ObservableObject
             if (!string.IsNullOrEmpty(py))
             {
                 Bridge = new BridgeClient(py);
+                Bridge.StatusChanged += status =>
+                {
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() => Status = status);
+                };
                 _ = Task.Run(async () =>
                 {
                     try
@@ -53,16 +58,19 @@ public sealed partial class MainViewModel : ObservableObject
                         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
                         await Bridge.StartAsync(cts.Token);
                     }
-                    catch
+                    catch (Exception ex)
                     {
-                        // Bridge startup is optional during initial launch
+                        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                        {
+                            Status = $"Bridge error: {ex.Message}";
+                        });
                     }
                 });
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Python runtime not configured yet
+            Status = $"Python runtime error: {ex.Message}";
         }
     }
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 import jax
 import jax.numpy as jnp
-from typing import Tuple, Dict, Any, Optional, Union
+from typing import Tuple, Optional, Union
 
 def _decay_integer(x: jnp.ndarray, shift: int) -> jnp.ndarray:
     """Integer exponential decay for bit-shift kernel (like `_decay` in jax_backend.py).
@@ -220,7 +220,6 @@ class HebbianRule:
     def apply(self, weights: jnp.ndarray, pre: jnp.ndarray, post: jnp.ndarray, delays: jnp.ndarray,
               spikes: jnp.ndarray, original_weights: jnp.ndarray) -> jnp.ndarray:
         T, N = spikes.shape
-        E = weights.shape[0]
 
         def step(w, t):
             idx_t_minus_d = t - delays

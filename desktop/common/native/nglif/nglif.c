@@ -7,28 +7,19 @@
 
 /* ------------------------------------------------------------------------------------------------- spike history */
 
-/* Each neuron keeps its last 32 x NGLIF_HISTORY_WORDS spikes (bit d of the history: fired d ticks ago), which bounds
- * axonal delays to NGLIF_MAX_DELAY; longer delays never arrive. Everything about the history is in this block:
- * NGLIF_HISTORY_WORDS 1 is the 32-bit spike register of the reference kernels (delays 0-31), and a larger width
- * (longer delays, a later roadmap task) changes only this number. */
-#ifndef NGLIF_HISTORY_WORDS
-#define NGLIF_HISTORY_WORDS 1
-#endif
-#define NGLIF_MAX_DELAY (32 * NGLIF_HISTORY_WORDS - 1)
-
 /* Shifts a history by one tick and records whether the neuron fired now. */
-static void hist_push(uint32_t *h, uint32_t fired) {
-    for (int w = NGLIF_HISTORY_WORDS - 1; w > 0; w--) h[w] = (h[w] << 1) | (h[w - 1] >> 31);
+static void hist_push(uint32_t *h, int32_t W, uint32_t fired) {
+    for (int w = W - 1; w > 0; w--) h[w] = (h[w] << 1) | (h[w - 1] >> 31);
     h[0] = (h[0] << 1) | fired;
 }
 
-/* Whether the neuron fired in the last 32 x NGLIF_HISTORY_WORDS ticks. */
-static int hist_any(const uint32_t *h) {
-    for (int w = 0; w < NGLIF_HISTORY_WORDS; w++) if (h[w]) return 1;
+/* Whether the neuron fired in the last 32 x W ticks. */
+static int hist_any(const uint32_t *h, int32_t W) {
+    for (int w = 0; w < W; w++) if (h[w]) return 1;
     return 0;
 }
 
-/* Whether the neuron fired exactly d ticks ago (0 <= d <= NGLIF_MAX_DELAY). */
+/* Whether the neuron fired exactly d ticks ago. */
 static int hist_bit(const uint32_t *h, uint32_t d) { return (int)((h[d >> 5] >> (d & 31u)) & 1u); }
 
 /* ------------------------------------------------------------------------------------------------ integer helpers */
@@ -177,6 +168,7 @@ int nglif_network_write(const nglif_network *net, const char *path) {
 
 struct nglif_sim {
     int32_t n;
+    int32_t W;
     int64_t tick;
     uint32_t rng;
     /* parameters */
@@ -206,12 +198,20 @@ nglif_sim *nglif_create(const nglif_network *net, uint32_t seed) {
     int32_t n = net->n;
     size_t N = (size_t)n + 1;
     s->n = n; s->rng = seed;
+    int32_t max_delay = 0;
+    for (int32_t k = 0; k < net->e; k++) {
+        if (net->pre[k] >= 0 && net->pre[k] < n && net->post[k] >= 0 && net->post[k] < n && net->delay[k] > max_delay) {
+            max_delay = net->delay[k];
+        }
+    }
+    s->W = max_delay > 0 ? (max_delay + 32) / 32 : 1;
+
     int32_t **i32[] = {&s->shift_v, &s->shift_s, &s->mode, &s->period, &s->duty, &s->refractory, &s->threshold,
                        &s->v, &s->isyn, &s->phase, &s->refr, &s->last, &s->ext, &s->pulse, &s->row};
     int ok = 1;
     for (size_t k = 0; k < sizeof i32 / sizeof *i32; k++) ok = ok && (*i32[k] = (int32_t *)calloc(N + 1, sizeof(int32_t)));
     ok = ok && (s->poisson = (uint32_t *)calloc(N, sizeof(uint32_t))) &&
-         (s->bits = (uint32_t *)calloc(N * NGLIF_HISTORY_WORDS, sizeof(uint32_t)));
+         (s->bits = (uint32_t *)calloc(N * s->W, sizeof(uint32_t)));
     if (!ok) { nglif_free(s); return NULL; }
     for (int32_t i = 0; i < n; i++) {
         s->shift_v[i] = net->shift_v[i]; s->shift_s[i] = net->shift_s[i]; s->mode[i] = net->mode[i];
@@ -231,13 +231,14 @@ nglif_sim *nglif_create(const nglif_network *net, uint32_t seed) {
     int32_t *fill = (int32_t *)calloc(N, sizeof(int32_t));
     if (!s->col || !s->weight || !s->delay || !fill) { free(fill); nglif_free(s); return NULL; }
     memcpy(fill, s->row, (size_t)n * sizeof(int32_t));
+    uint32_t max_delay_u = (uint32_t)(s->W * 32 - 1);
     for (int32_t k = 0; k < net->e; k++) {
         int32_t a = net->pre[k], b = net->post[k];
         if (a < 0 || a >= n || b < 0 || b >= n) continue;
         int32_t j = fill[a]++;
         s->col[j] = b; s->weight[j] = net->weight[k];
-        s->delay[j] = (net->delay[k] < 0 || net->delay[k] > NGLIF_MAX_DELAY) ? (uint32_t)NGLIF_MAX_DELAY + 1u
-                                                                               : (uint32_t)net->delay[k];   /* never arrives */
+        s->delay[j] = (net->delay[k] < 0 || net->delay[k] > (int32_t)max_delay_u) ? max_delay_u + 1u
+                                                                                  : (uint32_t)net->delay[k];   /* never arrives */
     }
     free(fill);
     return s;
@@ -298,14 +299,15 @@ int32_t nglif_step(nglif_sim *s, int32_t *spikes, int32_t cap) {
         } else {
             s->v[i] = v;
         }
-        hist_push(s->bits + (size_t)i * NGLIF_HISTORY_WORDS, fired);
+        hist_push(s->bits + (size_t)i * s->W, s->W, fired);
     }
     s->has_pulse = 0;
+    uint32_t max_delay_u = (uint32_t)(s->W * 32 - 1);
     for (int32_t i = 0; i < n; i++) {
-        const uint32_t *h = s->bits + (size_t)i * NGLIF_HISTORY_WORDS;
-        if (!hist_any(h)) continue;
+        const uint32_t *h = s->bits + (size_t)i * s->W;
+        if (!hist_any(h, s->W)) continue;
         for (int32_t k = s->row[i]; k < s->row[i + 1]; k++)
-            if (s->delay[k] <= (uint32_t)NGLIF_MAX_DELAY && hist_bit(h, s->delay[k]))
+            if (s->delay[k] <= max_delay_u && hist_bit(h, s->delay[k]))
                 s->isyn[s->col[k]] = wadd(s->isyn[s->col[k]], s->weight[k]);
     }
     s->tick++;

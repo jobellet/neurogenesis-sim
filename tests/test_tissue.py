@@ -212,3 +212,167 @@ def test_generation_optional_and_carried_through_operations():
     # Constructed without the field (as before it existed): defaults to zeros.
     kwargs = {k: getattr(t, k) for k in t.__dataclass_fields__ if k != "generation"}
     assert Tissue(**kwargs).generation.tolist() == [0, 0, 0]
+
+
+def test_add_cells_keeps_int32_base_weight():
+    t = Tissue.empty()
+    t.add_cells(3, base_weight=np.array([2, -3, 4]), sign=np.array([1, -1, 1]))
+    t.add_cells(2)
+    assert t.base_weight.dtype == np.int32 and list(t.base_weight) == [2, -3, 4, 1, 1]
+    net = SNNNetwork(neurons=[NeuronData(id=i, x=0.0, y=0.0, z=0.0, dir_x=1.0, dir_y=0.0, dir_z=0.0, mode=0, shift_v=5,
+                                         shift_s=4, base_weight=w, conn_radius=0.0, conn_prob=0.0, refractory=3)
+                              for i, w in enumerate((5, -7))], synapses=[])
+    assert Tissue.from_network(net).base_weight.dtype == np.int32
+
+
+def test_add_cells_clone_id_matches_python_lookup():
+    def old_clone_ids(cell_id, clone_id, par_id, c_id):  # the per-cell dict lookup it replaces
+        out = np.zeros(len(par_id), dtype=np.int32)
+        id_to_clone = dict(zip(cell_id, clone_id)) if len(cell_id) > 0 else {}
+        for idx in range(len(par_id)):
+            pid = par_id[idx]
+            out[idx] = c_id[idx] if pid == -1 or pid not in id_to_clone else id_to_clone[pid]
+        return out
+
+    rng = np.random.default_rng(0)
+    for trial in range(20):
+        t = Tissue.empty()
+        n0 = int(rng.integers(0, 30))
+        if n0:  # existing cells with duplicated ids and arbitrary clones
+            t.add_cells(n0, cell_id=rng.integers(0, 40, n0), clone_id=rng.integers(0, 100, n0))
+        before = (t.cell_id.copy(), t.clone_id.copy())
+        n = int(rng.integers(1, 30))
+        par = rng.integers(-1, 50, n).astype(np.int32)
+        par[rng.random(n) < 0.3] = -1
+        t.add_cells(n, parent_ids=par)
+        expected = old_clone_ids(*before, par, t.cell_id[n0:])
+        assert np.array_equal(t.clone_id[n0:], expected)
+        assert t.clone_id.dtype == np.int32
+
+
+# K2: transmitter, receptor expression, receptor class and morphology arrays -----------------------------------------
+def _k2_tissue():
+    from neurogenesis.tissue import SparseConnectivity
+    t = Tissue.empty()
+    t.add_cells(4, positions=np.zeros((4, 3)), transmitter=np.array([1, 2, 3, 0]),
+                receptor_expression=np.arange(8, dtype=np.float32).reshape(4, 2))
+    t.connectivity = SparseConnectivity(np.array([0, 1, 2, 3], np.int32), np.array([1, 2, 3, 0], np.int32),
+                                        np.array([5, 6, 7, 8], np.int32), np.array([1, 2, 3, 4], np.int32),
+                                        receptor_class=np.array([1, 2, 3, 4], np.uint8),
+                                        path_length=np.array([0.1, 0.2, 0.3, 0.4], np.float32))
+    return t
+
+
+def test_k2_defaults_are_neutral():
+    t = Tissue.empty()
+    t.add_cells(3, positions=np.zeros((3, 3)))
+    assert t.transmitter.tolist() == [0, 0, 0] and t.receptor_expression.shape == (3, 0) and t.morphology is None
+    assert t.connectivity.receptor_class.dtype == np.uint8 and t.connectivity.pre_node is None
+
+
+def test_k2_arrays_follow_compact_subset_and_concatenate():
+    t = _k2_tissue()
+    t.alive[1] = False
+    t.compact()
+    assert t.transmitter.tolist() == [1, 3, 0]
+    np.testing.assert_array_equal(t.receptor_expression, [[0, 1], [4, 5], [6, 7]])
+    c = t.connectivity
+    assert list(zip(c.pre, c.post)) == [(1, 2), (2, 0)]                  # synapses 2->3 and 3->0 survive
+    assert c.receptor_class.tolist() == [3, 4] and np.allclose(c.path_length, [0.3, 0.4])
+    s = _k2_tissue().subset(np.array([2, 3]))
+    assert s.connectivity.receptor_class.tolist() == [3] and s.transmitter.tolist() == [3, 0]
+    plain = Tissue.empty()
+    plain.add_cells(2, positions=np.zeros((2, 3)))
+    j = Tissue.concatenate([_k2_tissue(), plain])
+    assert j.receptor_expression.shape == (6, 2) and j.transmitter.tolist() == [1, 2, 3, 0, 0, 0]
+    assert len(j.connectivity.path_length) == 4 and j.memory_bytes() > _k2_tissue().memory_bytes()
+
+
+def test_k2_synapse_stages_keep_arrays_aligned():
+    from neurogenesis.stages.base import STAGE_REGISTRY
+    import neurogenesis.stages  # noqa: F401
+    t = _k2_tissue()
+    t = STAGE_REGISTRY["prune"]().run(t, {"threshold": 7}, {}, {}, np.random.default_rng(0))
+    assert t.connectivity.receptor_class.tolist() == [3, 4]
+    t = STAGE_REGISTRY["connect_by_hand"]().run(t, {"pre": [0], "post": [1]}, {}, {}, np.random.default_rng(0))
+    c = t.connectivity
+    assert c.receptor_class.tolist() == [3, 4, 0] and np.isnan(c.path_length[-1])
+    c.receptor_class = np.array([1], np.uint8)                       # a real mismatch is reported, never guessed
+    with pytest.raises(ValueError, match="receptor_class"):
+        c.take(np.ones(3, bool))
+
+
+def test_k2_direct_array_edits_keep_a_default_receptor_class():
+    t = Tissue.empty()
+    t.add_cells(2, positions=np.zeros((2, 3)))
+    t.connectivity.pre = np.array([0], np.int32)
+    t.connectivity.post = np.array([1], np.int32)
+    t.connectivity.weight = np.array([1], np.int32)
+    t.connectivity.delay = np.array([1], np.int32)
+    assert len(t.subset(np.arange(2)).connectivity.receptor_class) == 1
+
+
+def test_k6_cycling_defaults_and_carried_through_operations():
+    from neurogenesis.stages.base import STAGE_REGISTRY
+    import neurogenesis.stages  # noqa: F401
+
+    t = Tissue.empty()
+    t = STAGE_REGISTRY["seed_cells"]().run(t, {"N": 3, "position": [0.0, 0.0, 0.0]}, {}, {}, np.random.default_rng(0))
+    assert t.cycling.dtype == bool and t.cycling.tolist() == [True, True, True]
+
+    t = STAGE_REGISTRY["place_by_hand"]().run(t, {"positions": [[1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]}, {}, {}, np.random.default_rng(0))
+    assert t.cycling.tolist() == [True, True, True, False, False]
+
+    t.add_cells(1, cycling=np.array([False]))
+    assert t.cycling.tolist() == [True, True, True, False, False, False]
+
+    sub = t.subset(np.array([4, 0, 5]))
+    assert sub.cycling.tolist() == [False, True, False]
+
+    cat = Tissue.concatenate([sub, t.subset(np.array([1, 3]))])
+    assert cat.cycling.tolist() == [False, True, False, True, False]
+
+    t.kill(np.array([True, False, False, True, False, False]))
+    t.compact()
+    assert t.cycling.tolist() == [True, True, False, False]
+
+    back = Tissue.from_network(t.to_network())
+    assert back.cycling.tolist() == [True, True, False, False]
+
+    # Constructed without cycling field: defaults to True for all cells.
+    kwargs = {k: getattr(t, k) for k in t.__dataclass_fields__ if k != "cycling"}
+    assert Tissue(**kwargs).cycling.tolist() == [True, True, True, True]
+
+
+
+def test_k6_plastic_mask_defaults_and_carried_through_operations():
+    t = Tissue.empty()
+    t.add_cells(4)
+    c = SparseConnectivity(np.array([0, 1, 2, 3], np.int32), np.array([1, 2, 3, 0], np.int32),
+                           np.array([5, 6, 7, 8], np.int32), np.array([1, 1, 1, 1], np.int32))
+    t.connectivity = c
+    # Default: no array stored (memory unchanged), every synapse plastic.
+    assert c.plastic is None and c.plastic_mask().tolist() == [True] * 4
+    nbytes = t.memory_bytes()
+    assert Tissue.from_network(t.to_network()).connectivity.plastic is None
+    assert t.memory_bytes() == nbytes
+
+    t.connectivity.plastic = np.array([True, False, True, False])
+    # Appended synapses (as connectivity stages add them) are plastic.
+    app = t.connectivity.append([0], [2], [1], [1])
+    assert app.plastic.tolist() == [True, False, True, False, True]
+    assert SparseConnectivity.concat([c.take(slice(None)), SparseConnectivity.empty().append([0], [1], [1], [1])]
+                                     ).plastic.tolist() == [True, False, True, False, True]
+
+    sub = t.subset(np.array([1, 2, 3]))                          # keeps synapses 1->2, 2->3
+    assert sub.connectivity.plastic.tolist() == [False, True]
+    cat = Tissue.concatenate([sub, t])
+    assert cat.connectivity.plastic.tolist() == [False, True, True, False, True, False]
+
+    back = Tissue.from_network(t.to_network())
+    assert back.connectivity.plastic.tolist() == [True, False, True, False]
+
+    t.kill(np.array([True, False, False, False]))                 # drops synapses 0->1 and 3->0
+    t.compact()
+    assert t.connectivity.plastic.tolist() == [False, True]
+    assert t.connectivity.plastic_mask().tolist() == [False, True]

@@ -4,13 +4,39 @@ from dataclasses import dataclass, field
 from typing import Optional, List
 from neurogenesis.spiking.network import SNNNetwork, NeuronData, SynapseData
 
+# Optional per-synapse morphology and conductance arrays (K2, P4) and the value of a synapse that has none.
+_SYNAPSE_OPTIONAL = {"pre_node": (np.int32, -1), "post_node": (np.int32, -1),
+                     "path_length": (np.float32, np.nan), "dendritic_distance": (np.float32, np.nan),
+                     "e_rev": (np.float32, np.nan), "tau_decay": (np.float32, np.nan),
+                     "plastic": (np.bool_, True)}
+
+
 @dataclass
 class SparseConnectivity:
+    """Synapses as struct of arrays. `receptor_class` (E,) uint8 (0 = the classic signed synapse) always exists; the
+    morphology arrays `pre_node`, `post_node` (arbor node indices, -1 = soma / none), `path_length` and
+    `dendritic_distance` (space units, NaN = unknown), conductance arrays `e_rev` (mV), `tau_decay` (ms) and the
+    plasticity mask `plastic` (bool; None = every synapse plastic, see `plastic_mask`) are None until a stage sets them.
+    Use `take` and `concat` to filter or join synapses so that every array stays aligned."""
     pre: np.ndarray
     post: np.ndarray
     weight: np.ndarray
     delay: np.ndarray
-    
+    receptor_class: Optional[np.ndarray] = None
+    pre_node: Optional[np.ndarray] = None
+    post_node: Optional[np.ndarray] = None
+    path_length: Optional[np.ndarray] = None
+    dendritic_distance: Optional[np.ndarray] = None
+    e_rev: Optional[np.ndarray] = None
+    tau_decay: Optional[np.ndarray] = None
+    plastic: Optional[np.ndarray] = None
+
+    def __post_init__(self) -> None:
+        if self.receptor_class is None or len(self.receptor_class) != len(self.pre):
+            if self.receptor_class is not None and len(self.receptor_class):
+                raise ValueError("receptor_class must have one entry per synapse")
+            self.receptor_class = np.zeros(len(self.pre), dtype=np.uint8)
+
     @classmethod
     def empty(cls) -> SparseConnectivity:
         return cls(
@@ -19,6 +45,81 @@ class SparseConnectivity:
             weight=np.zeros(0, dtype=np.int32),
             delay=np.zeros(0, dtype=np.int32)
         )
+
+    def _sync(self) -> None:
+        """A default (all-zero) receptor_class follows the core arrays when code replaced them directly; any other
+        length mismatch is an error."""
+        E = len(self.pre)
+        if len(self.receptor_class) != E:
+            if np.any(self.receptor_class):
+                raise ValueError(f"receptor_class has {len(self.receptor_class)} entries for {E} synapses")
+            self.receptor_class = np.zeros(E, dtype=np.uint8)
+        for k in _SYNAPSE_OPTIONAL:
+            v = getattr(self, k)
+            if v is not None and len(v) != E:
+                raise ValueError(f"{k} has {len(v)} entries for {E} synapses")
+
+    def _arrays(self):
+        self._sync()
+        out = {k: getattr(self, k) for k in ("pre", "post", "weight", "delay", "receptor_class")}
+        out.update({k: getattr(self, k) for k in _SYNAPSE_OPTIONAL if getattr(self, k) is not None})
+        return out
+
+    def take(self, sel: np.ndarray, pre: Optional[np.ndarray] = None, post: Optional[np.ndarray] = None) -> SparseConnectivity:
+        """Synapses selected by a boolean mask or index array (every array kept aligned); `pre` / `post` replace the
+        selected indices (e.g. after re-indexing cells)."""
+        d = {k: v[sel] for k, v in self._arrays().items()}
+        if pre is not None:
+            d["pre"] = pre
+        if post is not None:
+            d["post"] = post
+        return SparseConnectivity(**d)
+
+    @classmethod
+    def concat(cls, parts: List[SparseConnectivity]) -> SparseConnectivity:
+        """Synapses of several stores; optional arrays present in any part are filled with their default elsewhere."""
+        parts = [p for p in parts if p is not None]
+        if not parts:
+            return cls.empty()
+        for p in parts:
+            p._sync()
+        d = {k: np.concatenate([getattr(p, k) for p in parts]) for k in ("pre", "post", "weight", "delay", "receptor_class")}
+        for k, (dt, fill) in _SYNAPSE_OPTIONAL.items():
+            if any(getattr(p, k) is not None for p in parts):
+                d[k] = np.concatenate([getattr(p, k) if getattr(p, k) is not None else np.full(len(p.pre), fill, dt)
+                                       for p in parts]).astype(dt)
+        return cls(**d)
+
+    def append(self, pre, post, weight, delay, **extra) -> SparseConnectivity:
+        """This store plus new synapses (int32 core arrays; `extra` per-synapse arrays such as receptor_class)."""
+        new = SparseConnectivity(np.asarray(pre, np.int32), np.asarray(post, np.int32), np.asarray(weight, np.int32),
+                                 np.asarray(delay, np.int32), **extra)
+        out = SparseConnectivity.concat([self, new])
+        for k in ("pre", "post", "weight", "delay"):
+            setattr(out, k, getattr(out, k).astype(np.int32))
+        return out
+
+    def nbytes(self) -> int:
+        return int(sum(v.nbytes for v in self._arrays().values()))
+
+    def plastic_mask(self) -> np.ndarray:
+        """(E,) bool: True where activity-dependent stages (`refine_by_activity`, `prune`, `scale`, `neuromodulate`)
+        may change or remove the synapse; all True when `plastic` is None (the default)."""
+        self._sync()
+        return np.ones(len(self.pre), dtype=bool) if self.plastic is None else self.plastic.astype(bool, copy=False)
+
+def _concat_morphology(tissues, offsets):
+    """Arbors of concatenated tissues, cell indices shifted by each tissue's offset (None if no tissue has arbors)."""
+    if all(t.morphology is None for t in tissues):
+        return None
+    from neurogenesis.arbors import ArborStore
+    parts = []
+    for t, off in zip(tissues, offsets):
+        if t.morphology is not None:
+            m = t.morphology
+            parts.append(ArborStore(m.xyz, m.radius, m.parent, m.compartment, m.cell + int(off), dict(m.labels)))
+    return ArborStore.concatenate(parts)
+
 
 @dataclass
 class Tissue:
@@ -50,10 +151,23 @@ class Tissue:
     expression_names: List[str] = field(default_factory=list)
     _next_cell_id: int = 0
     generation: Optional[np.ndarray] = None  # (N,) int32 divisions since the founder; zeros when omitted
+    cycling: Optional[np.ndarray] = None  # (N,) bool progenitor cycling state; True when omitted
+    birth_time: Optional[np.ndarray] = None  # (N,) float32 cumulative cycle time at birth; zeros when omitted
+    transmitter: Optional[np.ndarray] = None  # (N,) int8 bitmask of transmitters released (0 = classic sign only)
+    receptor_expression: Optional[np.ndarray] = None  # (N, R) float32 receptor levels; (N, 0) when omitted
+    morphology: Optional[object] = None  # optional ArborStore (neurogenesis.morphology), arbors of the cells
 
     def __post_init__(self) -> None:
         if self.generation is None:
             self.generation = np.zeros(len(self.alive), dtype=np.int32)
+        if self.cycling is None:
+            self.cycling = np.ones(len(self.alive), dtype=bool)
+        if self.birth_time is None:
+            self.birth_time = np.zeros(len(self.alive), dtype=np.float32)
+        if self.transmitter is None:
+            self.transmitter = np.zeros(len(self.alive), dtype=np.int8)
+        if self.receptor_expression is None:
+            self.receptor_expression = np.zeros((len(self.alive), 0), dtype=np.float32)
 
     @property
     def lineage_id(self) -> np.ndarray:
@@ -128,20 +242,22 @@ class Tissue:
         if "clone_id" in kwargs:
             c_clone_id = np.asarray(kwargs["clone_id"], dtype=np.int32)
         else:
-            c_clone_id = np.zeros(N, dtype=np.int32)
-            # Map existing cells by cell_id to clone_id
-            id_to_clone = {}
+            c_clone_id = np.array(c_id, dtype=np.int32)
             if len(self.cell_id) > 0:
-                id_to_clone = dict(zip(self.cell_id, self.clone_id))
-            for idx in range(N):
-                pid = par_id[idx]
-                if pid == -1 or pid not in id_to_clone:
-                    c_clone_id[idx] = c_id[idx]
-                else:
-                    c_clone_id[idx] = id_to_clone[pid]
+                # Parent's clone_id among existing cells (the last cell with that cell_id), by binary search
+                order = np.argsort(self.cell_id, kind="stable")
+                ids = self.cell_id[order]
+                pid = np.asarray(par_id)
+                at = np.searchsorted(ids, pid, side="right") - 1
+                found = (at >= 0) & (ids[np.maximum(at, 0)] == pid) & (pid != -1)
+                c_clone_id[found] = self.clone_id[order[at[found]]]
 
         birth = kwargs.get("birth_stage", np.zeros(N, dtype=np.int32))
         gen = np.asarray(kwargs.get("generation", np.zeros(N, dtype=np.int32)), dtype=np.int32)
+        cyc_arg = kwargs.get("cycling")
+        cyc = np.ones(N, dtype=bool) if cyc_arg is None else np.broadcast_to(np.asarray(cyc_arg, dtype=bool), (N,)).copy()
+        btime_arg = kwargs.get("birth_time")
+        btime = np.zeros(N, dtype=np.float32) if btime_arg is None else np.broadcast_to(np.asarray(btime_arg, dtype=np.float32), (N,)).copy()
         ctype = kwargs.get("cell_type", np.zeros(N, dtype=np.int32))
         reg = kwargs.get("region", np.zeros(N, dtype=np.int32))
         expr = kwargs.get("expression", np.zeros((N, K), dtype=np.float32))
@@ -160,7 +276,7 @@ class Tissue:
         # base_weight: magnitude is 1 by default (or abs of provided base_weight), signed by sgn
         if "base_weight" in kwargs:
             raw_bw = np.asarray(kwargs["base_weight"], dtype=np.int32)
-            base_weight = np.abs(raw_bw) * np.where(sgn >= 0, 1, -1)
+            base_weight = (np.abs(raw_bw) * np.where(sgn >= 0, 1, -1)).astype(np.int32)
         else:
             base_weight = np.where(sgn >= 0, 1, -1).astype(np.int32)
 
@@ -184,6 +300,8 @@ class Tissue:
         self.clone_id = np.concatenate([self.clone_id, c_clone_id])
         self.birth_stage = np.concatenate([self.birth_stage, birth])
         self.generation = np.concatenate([self.generation, gen])
+        self.cycling = np.concatenate([self.cycling, cyc])
+        self.birth_time = np.concatenate([self.birth_time, btime])
         self.cell_type = np.concatenate([self.cell_type, ctype])
         self.region = np.concatenate([self.region, reg])
         self.expression = np.concatenate([self.expression, expr])
@@ -203,6 +321,17 @@ class Tissue:
         self.role = np.concatenate([self.role, role])
         self.compartment = np.concatenate([self.compartment, compartment])
         self.threshold = np.concatenate([self.threshold, threshold])
+        self.transmitter = np.concatenate([self.transmitter, np.asarray(kwargs.get("transmitter", np.zeros(N)), dtype=np.int8)])
+        R = self.receptor_expression.shape[1]
+        rex = kwargs.get("receptor_expression")
+        if rex is None:
+            rex = np.zeros((N, R), dtype=np.float32)
+        rex = np.asarray(rex, dtype=np.float32).reshape(N, -1)
+        if R and rex.shape[1] != R:
+            raise ValueError(f"receptor_expression has {rex.shape[1]} receptors, the tissue has {R}")
+        if R == 0 and rex.shape[1] > 0:
+            self.receptor_expression = np.zeros((len(self.alive) - N, rex.shape[1]), dtype=np.float32)
+        self.receptor_expression = np.concatenate([self.receptor_expression, rex])
 
     def kill(self, mask: np.ndarray) -> None:
         """Sets alive=False for cells where mask is True."""
@@ -226,6 +355,10 @@ class Tissue:
         self.clone_id = self.clone_id[alive_mask]
         self.birth_stage = self.birth_stage[alive_mask]
         self.generation = self.generation[alive_mask]
+        self.cycling = self.cycling[alive_mask]
+        self.birth_time = self.birth_time[alive_mask]
+        if getattr(self, "_clock_cycle_mask", None) is not None and len(self._clock_cycle_mask) == N:
+            self._clock_cycle_mask = self._clock_cycle_mask[alive_mask]
         self.cell_type = self.cell_type[alive_mask]
         self.region = self.region[alive_mask]
         self.expression = self.expression[alive_mask]
@@ -245,6 +378,10 @@ class Tissue:
         self.role = self.role[alive_mask]
         self.compartment = self.compartment[alive_mask]
         self.threshold = self.threshold[alive_mask]
+        self.transmitter = self.transmitter[alive_mask]
+        self.receptor_expression = self.receptor_expression[alive_mask]
+        if self.morphology is not None:
+            self.morphology = self.morphology.select_cells(np.flatnonzero(alive_mask), renumber=new_indices)
         
         # Remap synapses
         if len(self.connectivity.pre) > 0:
@@ -259,10 +396,9 @@ class Tissue:
             
             valid_synapses = syn_mask & pre_alive & post_alive
             
-            self.connectivity.pre = new_indices[self.connectivity.pre[valid_synapses]]
-            self.connectivity.post = new_indices[self.connectivity.post[valid_synapses]]
-            self.connectivity.weight = self.connectivity.weight[valid_synapses]
-            self.connectivity.delay = self.connectivity.delay[valid_synapses]
+            c = self.connectivity
+            self.connectivity = c.take(valid_synapses, pre=new_indices[c.pre[valid_synapses]],
+                                       post=new_indices[c.post[valid_synapses]])
 
     def subset(self, indices: np.ndarray) -> Tissue:
         """Returns a new Tissue with only the given cell indices (assumes connectivity only between subset)."""
@@ -294,8 +430,16 @@ class Tissue:
             connectivity=SparseConnectivity.empty(),
             expression_names=list(self.expression_names),
             _next_cell_id=self._next_cell_id,
-            generation=self.generation[indices].copy()
+            generation=self.generation[indices].copy(),
+            cycling=self.cycling[indices].copy(),
+            birth_time=self.birth_time[indices].copy(),
+            transmitter=self.transmitter[indices].copy(),
+            receptor_expression=self.receptor_expression[indices].copy(),
         )
+        if self.morphology is not None:
+            renumber = np.full(len(self.alive), -1, dtype=np.int32)
+            renumber[indices] = np.arange(len(indices), dtype=np.int32)
+            t.morphology = self.morphology.select_cells(indices, renumber=renumber)
         
         if len(self.connectivity.pre) > 0:
             N = len(self.alive)
@@ -311,12 +455,7 @@ class Tissue:
             
             valid = (mapped_pre >= 0) & (mapped_post >= 0)
             
-            t.connectivity = SparseConnectivity(
-                pre=mapped_pre[valid],
-                post=mapped_post[valid],
-                weight=self.connectivity.weight[valid].copy(),
-                delay=self.connectivity.delay[valid].copy()
-            )
+            t.connectivity = self.connectivity.take(valid, pre=mapped_pre[valid], post=mapped_post[valid])
         
         return t
 
@@ -360,10 +499,14 @@ class Tissue:
             shifted_parent_ids.append(np.where(t.parent_id >= 0, t.parent_id + id_off, -1))
             shifted_clone_ids.append(t.clone_id + id_off)
 
-        pre = np.concatenate([t.connectivity.pre + offset for t, offset in zip(tissues, offsets) if len(t.connectivity.pre) > 0] or [np.zeros(0, dtype=np.int32)])
-        post = np.concatenate([t.connectivity.post + offset for t, offset in zip(tissues, offsets) if len(t.connectivity.post) > 0] or [np.zeros(0, dtype=np.int32)])
-        weight = np.concatenate([t.connectivity.weight for t in tissues if len(t.connectivity.weight) > 0] or [np.zeros(0, dtype=np.int32)])
-        delay = np.concatenate([t.connectivity.delay for t in tissues if len(t.connectivity.delay) > 0] or [np.zeros(0, dtype=np.int32)])
+        conn = SparseConnectivity.concat([t.connectivity.take(slice(None), pre=t.connectivity.pre + off,
+                                                              post=t.connectivity.post + off)
+                                          for t, off in zip(tissues, offsets)])
+        R = max(t.receptor_expression.shape[1] for t in tissues)
+        if any(t.receptor_expression.shape[1] not in (0, R) for t in tissues):
+            raise ValueError("Cannot concatenate Tissues with different receptor dimensions")
+        rex = np.concatenate([t.receptor_expression if t.receptor_expression.shape[1] == R
+                              else np.zeros((len(t.alive), R), np.float32) for t in tissues])
         
         total_next_id = cur_id_offset + max(
             tissues[-1]._next_cell_id,
@@ -395,13 +538,21 @@ class Tissue:
             role=np.concatenate([t.role for t in tissues]),
             compartment=np.concatenate([t.compartment for t in tissues]),
             threshold=np.concatenate([t.threshold for t in tissues]),
-            connectivity=SparseConnectivity(pre, post, weight, delay),
+            connectivity=conn,
             expression_names=expr_names,
             _next_cell_id=total_next_id,
-            generation=np.concatenate([t.generation for t in tissues])
+            generation=np.concatenate([t.generation for t in tissues]),
+            cycling=np.concatenate([t.cycling for t in tissues]),
+            birth_time=np.concatenate([t.birth_time for t in tissues]),
+            transmitter=np.concatenate([t.transmitter for t in tissues]),
+            receptor_expression=rex,
+            morphology=_concat_morphology(tissues, offsets),
         )
 
     def to_network(self) -> SNNNetwork:
+        """Network of the live cells and their synapses. `cycling` and the synapse `plastic` mask (when set) ride along
+        as the in-memory attributes `_cycling` / `_plastic` read back by `from_network`; network files do not store
+        them (the kernels ignore them)."""
         net = SNNNetwork()
         N = len(self.alive)
         
@@ -455,17 +606,26 @@ class Tissue:
         weight = self.connectivity.weight[valid_synapses]
         delay = self.connectivity.delay[valid_synapses]
         
-        net.synapses = [
-            SynapseData(
-                pre=int(pre[i]),
-                post=int(post[i]),
-                weight=int(weight[i]),
-                delay=int(delay[i])
-            )
-            for i in range(len(pre))
-        ]
-        
-        return net
+        syn_arrays = {
+            "pre": pre.astype(np.uint32),
+            "post": post.astype(np.uint32),
+            "weight": weight.astype(np.int16),
+            "delay": delay.astype(np.uint8),
+        }
+        for key in ("e_rev", "tau_decay"):
+            val = getattr(self.connectivity, key, None)
+            if val is not None:
+                syn_arrays[key] = np.asarray(val[valid_synapses], dtype=np.float32)
+        out = SNNNetwork.from_arrays(
+            version="1.0.0",
+            morphology="Custom",
+            neurons=net.neurons,
+            synapse_arrays=syn_arrays,
+        )
+        out._cycling = self.cycling[self.alive].copy()
+        if self.connectivity.plastic is not None:
+            out._plastic = self.connectivity.plastic[valid_synapses].copy()
+        return out
 
     @classmethod
     def from_network(cls, net: SNNNetwork) -> Tissue:
@@ -496,6 +656,7 @@ class Tissue:
         sign = np.where(base_weight >= 0, np.ones(N, dtype=np.int8), np.full(N, -1, dtype=np.int8))
         
         cell_id = np.array([n.id for n in net.neurons], dtype=np.int32)
+        cycling = getattr(net, "_cycling", None)
         t.add_cells(
             N, 
             positions=positions, 
@@ -514,16 +675,30 @@ class Tissue:
             role=role,
             compartment=compartment,
             threshold=threshold,
-            sign=sign
+            sign=sign,
+            cycling=cycling,
         )
         
         M = net.num_synapses
         if M > 0:
-            pre = np.array([s.pre for s in net.synapses], dtype=np.int32)
-            post = np.array([s.post for s in net.synapses], dtype=np.int32)
-            weight = np.array([s.weight for s in net.synapses], dtype=np.int32)
-            delay = np.array([s.delay for s in net.synapses], dtype=np.int32)
-            t.connectivity = SparseConnectivity(pre, post, weight, delay)
+            extra = {}
+            if net.synapse_arrays is not None:
+                pre = net.synapse_arrays["pre"].astype(np.int32)
+                post = net.synapse_arrays["post"].astype(np.int32)
+                weight = net.synapse_arrays["weight"].astype(np.int32)
+                delay = net.synapse_arrays["delay"].astype(np.int32)
+                for key in ("e_rev", "tau_decay"):
+                    if key in net.synapse_arrays:
+                        extra[key] = np.asarray(net.synapse_arrays[key], dtype=np.float32)
+            else:
+                pre = np.array([s.pre for s in net.synapses], dtype=np.int32)
+                post = np.array([s.post for s in net.synapses], dtype=np.int32)
+                weight = np.array([s.weight for s in net.synapses], dtype=np.int32)
+                delay = np.array([s.delay for s in net.synapses], dtype=np.int32)
+            plastic = getattr(net, "_plastic", None)
+            if plastic is not None and len(plastic) == M:
+                extra["plastic"] = np.asarray(plastic, dtype=bool).copy()
+            t.connectivity = SparseConnectivity(pre, post, weight, delay, **extra)
             
         return t
 
@@ -532,11 +707,11 @@ class Tissue:
         total = 0
         arrays = [
             self.positions, self.directions, self.cell_id, self.parent_id, self.clone_id,
-            self.birth_stage, self.generation, self.cell_type, self.region, self.expression,
+            self.birth_stage, self.generation, self.cycling, self.birth_time, self.cell_type, self.region, self.expression,
             self.sign, self.alive, self.mode, self.shift_v, self.shift_s,
             self.base_weight, self.conn_radius, self.conn_prob, self.burst_period,
             self.burst_duty, self.poisson_hz, self.refractory, self.role,
-            self.compartment, self.threshold
+            self.compartment, self.threshold, self.transmitter, self.receptor_expression
         ]
         
         for arr in arrays:
@@ -544,9 +719,8 @@ class Tissue:
                 total += arr.nbytes
                 
         if self.connectivity is not None:
-            total += self.connectivity.pre.nbytes
-            total += self.connectivity.post.nbytes
-            total += self.connectivity.weight.nbytes
-            total += self.connectivity.delay.nbytes
-            
+            total += self.connectivity.nbytes()
+        if self.morphology is not None:
+            total += self.morphology.nbytes()
+
         return total

@@ -6,7 +6,7 @@ Every grown network runs with any registered model:
 from neurogenesis.spiking.batch import simulate_counts
 counts = simulate_counts(nets, currents, ticks=300, model="hh")      # "lif_int" (default), "two_compartment", "hh"
 ```
-All models share the same transmission layer: the same synapses, axonal delays (up to 31 ticks of 1 ms) and driver
+All models share the same transmission layer: the same synapses, axonal delays (ticks of 1 ms, any length) and driver
 neurons. The Poisson drivers and intrinsic bursters fire at exactly the same ticks in every model (tested). Models
 differ in how a neuron integrates its inputs between spikes.
 
