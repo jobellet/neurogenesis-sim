@@ -68,7 +68,7 @@ else
   tarball="actions-runner-$ARCH-$version.tar.gz"
 
   mkdir -p "$DIR" && cd "$DIR"
-  echo "Downloading $tarball…"
+  echo "Downloading ${tarball}…"
   curl -fsSL -o "$tarball" "https://github.com/actions/runner/releases/download/v$version/$tarball"
   echo "$sha  $tarball" | shasum -a 256 -c - || die "checksum mismatch for $tarball"
   tar xzf "$tarball" && rm "$tarball"
