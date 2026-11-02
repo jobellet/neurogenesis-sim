@@ -27,7 +27,7 @@ myst_heading_anchors = 3
 source_suffix = {".md": "markdown", ".rst": "restructuredtext"}
 exclude_patterns = ["_build", "_scripts", "_templates", "**/__pycache__", "JULES_SWARM_PROMPTS.md", "ROADMAP.md",
                     "EXTENDING.md", "NEURON_MODELS.md", "PROJECT_FORMAT.md", "THIRD_PARTY.md",
-                    "DEVELOPMENTAL_NEUROSCIENCE_QUESTIONS.md"]
+                    "DEVELOPMENTAL_NEUROSCIENCE_QUESTIONS.md", "STAGES.md"]
 suppress_warnings = ["myst.xref_missing", "myst.header", "autosummary", "misc.highlighting_failure"]
 
 autodoc_member_order = "bysource"

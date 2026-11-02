@@ -79,6 +79,7 @@ integration/index
 :caption: Reference
 
 reference/cli
+reference/stages
 reference/api
 reference/project-format
 reference/neuron-models

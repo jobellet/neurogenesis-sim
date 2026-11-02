@@ -4,8 +4,8 @@
 :class: warning
 The stage library (roadmap phase C) is new and its API may still change. Every stage is a no-op with empty
 parameters, stages that write delays clip them to the kernel limit (31 ticks) with a warning, and `grow_axons`
-raises an error when a projection has no guidance. A per-stage reference with parameters and known limits is in
-`docs/STAGES.md` of the repository.
+raises an error when a projection has no guidance. Every stage's parameters and known limits are listed in
+{doc}`../reference/stages`.
 ```
 
 ## A schedule is data
@@ -124,7 +124,7 @@ print(schedule_cost(project, N=10_000, E=1_000_000))    # (bytes, operations), d
 | `refine_by_activity` | C11 | simulate inside development and apply a plasticity rule |
 | `legacy_grow_stage` | A5 | the original `grow` procedure as one stage |
 
-Every stage's parameters can be listed through the bridge (`stages` method) or in the {doc}`../reference/api`.
+Every stage's parameters, defaults and limits: {doc}`../reference/stages` (also through the bridge `stages` method).
 
 ## Legacy plans as schedules
 Any `BodyPlan` can be compiled into a Project whose schedule reproduces `grow()` bit for bit:
