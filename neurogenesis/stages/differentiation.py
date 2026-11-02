@@ -159,6 +159,10 @@ class Differentiate:
             "np": np, 
             "N": N,
             "lineage": tissue.cell_id, # Can use cell_id for lineage matching for simplicity if needed
+            "cell_id": tissue.cell_id,
+            "cell_type": tissue.cell_type,
+            "generation": tissue.generation,
+            "birth_stage": tissue.birth_stage,
             "parent": tissue.parent_id,
             "clone": tissue.clone_id
         }

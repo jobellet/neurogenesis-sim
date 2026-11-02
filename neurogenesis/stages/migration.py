@@ -102,17 +102,31 @@ class MigrateStage:
 
     def _move(self, tissue, params, genome, fields, chemo_name, h, layer_name):
         N = len(tissue.alive)
+        ctx_vars = {
+            "generation": tissue.generation,
+            "birth_stage": tissue.birth_stage,
+            "cell_type": tissue.cell_type,
+            "alive": tissue.alive,
+            "parent_id": tissue.parent_id,
+            "clone_id": tissue.clone_id,
+            "cell_id": tissue.cell_id,
+            "x": tissue.positions[:, 0],
+            "y": tissue.positions[:, 1],
+            "z": tissue.positions[:, 2],
+            "np": np,
+            **(genome if isinstance(genome, dict) else {}),
+        }
         speed_param = params.get("speed", Const(0.0))
-        speed = resolve(speed_param, genome, fields, tissue.positions)
+        speed = resolve(speed_param, genome, fields, tissue.positions, context_vars=ctx_vars)
 
         radial = params.get("radial", Const(False))
-        is_radial = resolve(radial, genome, fields, tissue.positions)
+        is_radial = resolve(radial, genome, fields, tissue.positions, context_vars=ctx_vars)
 
         target_param = params.get("target", Const(np.array([0.0, 0.0, 0.0])))
-        target = resolve(target_param, genome, fields, tissue.positions)
+        target = resolve(target_param, genome, fields, tissue.positions, context_vars=ctx_vars)
 
         dir_param = params.get("direction", Const(np.array([1.0, 0.0, 0.0])))
-        base_directions = np.asarray(resolve(dir_param, genome, fields, tissue.positions), dtype=np.float64)
+        base_directions = np.asarray(resolve(dir_param, genome, fields, tissue.positions, context_vars=ctx_vars), dtype=np.float64)
         if base_directions.shape == (3,):
             base_directions = np.tile(base_directions, (N, 1))
 
@@ -143,7 +157,7 @@ class MigrateStage:
             step = speed * directions
 
         if chemo_name is not None:
-            gain = resolve(params.get("chemotaxis", Const(0.0)), genome, fields, tissue.positions)
+            gain = resolve(params.get("chemotaxis", Const(0.0)), genome, fields, tissue.positions, context_vars=ctx_vars)
             if np.any(np.asarray(gain) != 0):
                 grad = _unit_rows(_field_gradient(fields[chemo_name], tissue.positions, h))
                 step = step + np.reshape(gain, (-1, 1)) * grad
@@ -156,7 +170,7 @@ class MigrateStage:
         mask = tissue.alive.astype(bool)
 
         if stop_field_param is not None:
-            stop_condition = resolve(stop_field_param, genome, fields, new_positions)
+            stop_condition = resolve(stop_field_param, genome, fields, new_positions, context_vars=ctx_vars)
             if np.isscalar(stop_condition):
                 if stop_condition:
                     mask[:] = False
@@ -167,14 +181,14 @@ class MigrateStage:
                     mask &= (stop_condition <= 0)
 
         if boundary_param is not None:
-            boundary_name = resolve(boundary_param, genome, fields, tissue.positions)
+            boundary_name = resolve(boundary_param, genome, fields, tissue.positions, context_vars=ctx_vars)
             if isinstance(boundary_name, str) and boundary_name in fields:
                 geom = fields[boundary_name]
                 if hasattr(geom, "contains"):
                     mask &= geom.contains(new_positions)
 
         if layer_name is not None:
-            target_layer = resolve(params.get("target_layer", Const(0)), genome, fields, tissue.positions)
+            target_layer = resolve(params.get("target_layer", Const(0)), genome, fields, tissue.positions, context_vars=ctx_vars)
             mask &= _sample_field(fields[layer_name], tissue.positions) != target_layer
 
         tissue.positions = np.where(mask[:, np.newaxis], new_positions, tissue.positions)
