@@ -179,7 +179,8 @@ import neurogenesis.development.legacy_compiler  # noqa: F401
 from neurogenesis.tissue import SparseConnectivity
 
 # Toolbox stages for which empty params cannot be a no-op: they must raise this error instead.
-_NOT_NEUTRAL = {"legacy_grow_stage": KeyError}  # needs its "plan"
+_NOT_NEUTRAL = {"legacy_grow_stage": (KeyError, "plan"),                  # needs its "plan"
+                "grow_axons": (ValueError, "no projections given")}       # needs projections ([] is the no-op)
 _TOOLBOX_STAGES = sorted(k for k, c in STAGE_REGISTRY.items() if c.__module__.startswith("neurogenesis."))
 
 
@@ -206,7 +207,8 @@ def test_every_stage_with_empty_params_is_a_no_op(operator):
     before = _snapshot(t)
     stage = Stage(name=operator, operator=operator, params={})
     if operator in _NOT_NEUTRAL:
-        with pytest.raises(_NOT_NEUTRAL[operator], match="plan"):
+        error, message = _NOT_NEUTRAL[operator]
+        with pytest.raises(error, match=message):
             stage.run(t, {}, {}, np.random.default_rng(0))
         return
     out = stage.run(t, {}, {}, np.random.default_rng(0))
