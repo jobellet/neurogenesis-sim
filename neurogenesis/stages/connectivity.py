@@ -349,7 +349,6 @@ class GrowAxons:
                 p_ij = ctx.p
                 edges_pre, edges_post = np.nonzero(rng.random(p_ij.shape) < p_ij)
             else:
-                ctx.gd = {**gd, "sigma": sigma, "p0": p0}
                 edges_pre, edges_post, _ = sparse_guidance(
                     ctx, _PlanRulesAdapter(p_prob_rules), rng, c=5.0, exact=False
                 )

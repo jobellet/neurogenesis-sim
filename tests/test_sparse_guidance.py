@@ -90,3 +90,17 @@ def test_sparse_guidance_memory_and_function():
     # Check that inhibitory neurons didn't form synapses (due to source_sign="exc")
     assert not np.any(ctx.inhibitory_src[pre])
 
+
+
+def test_sparse_guidance_defaults_match_grow_axons():
+    rng = np.random.default_rng(0)
+    pos_src, pos_dst = rng.random((40, 3)), rng.random((60, 3))
+
+    def run(gd, exact):
+        ctx = GuidanceContext("A", "B", pos_src, pos_dst, np.zeros(40, bool), None, gd, target=pos_src.copy())
+        return sparse_guidance(ctx, MockPlan(), np.random.default_rng(1), exact=exact)
+
+    for exact in (True, False):
+        assert len(run({}, exact)[0]) == 0  # p0 defaults to 0: no synapses
+        a, b = run({"p0": 0.5}, exact), run({"p0": 0.5, "sigma": 0.1}, exact)  # sigma defaults to 0.1
+        assert len(a[0]) > 0 and all(np.array_equal(x, y) for x, y in zip(a, b))
