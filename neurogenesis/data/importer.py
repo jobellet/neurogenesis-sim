@@ -97,7 +97,9 @@ def read_batches(path: Union[str, Path], fmt: str, columns: Dict[str, str], chun
     else:
         raise DataError(f"unknown table format {fmt!r} (csv, parquet, feather)")
     for b in batches:
-        yield convert({k: b.column(b.schema.get_field_index(t)).to_numpy(zero_copy_only=False) for k, t in zip(ours, theirs)})
+        for start in range(0, b.num_rows, chunk_rows):
+            sb = b.slice(start, chunk_rows)
+            yield convert({k: sb.column(sb.schema.get_field_index(t)).to_numpy(zero_copy_only=False) for k, t in zip(ours, theirs)})
 
 
 def _has_pyarrow() -> bool:
