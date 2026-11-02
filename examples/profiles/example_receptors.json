@@ -1,0 +1,24 @@
+{
+  "id": "example_receptors",
+  "description": "Example transmitter-receptor profile: the sign of a synapse depends on its receptor and on developmental context, not on the transmitter alone.",
+  "transmitters": ["glutamate", "gaba", "glycine", "histamine", "acetylcholine"],
+  "receptors": [
+    {"name": "classic", "sign": "pre", "citation": "legacy behaviour: the presynaptic sign"},
+    {"name": "ionotropic_glutamate", "transmitter": "glutamate", "sign": 1, "reversal_mV": 0.0, "tau_ms": 5.0,
+     "citation": "AMPA-type cation channels; Traynelis et al. 2010, Pharmacol Rev"},
+    {"name": "glutamate_gated_chloride", "transmitter": "glutamate", "sign": -1, "reversal_mV": -70.0, "tau_ms": 10.0,
+     "citation": "GluCl, an inhibitory glutamate receptor of invertebrates; Cully et al. 1994, Nature"},
+    {"name": "sign_inverting_metabotropic_glutamate", "transmitter": "glutamate", "sign": -1, "tau_ms": 50.0,
+     "citation": "mGluR6-like: glutamate closes a cation channel (hyperpolarisation); Nakajima et al. 1993, J Biol Chem"},
+    {"name": "gaba_a", "transmitter": "gaba", "sign": -1, "reversal_mV": -70.0, "tau_ms": 10.0,
+     "contexts": {"immature": {"sign": 1}},
+     "citation": "chloride channel; depolarising in immature neurons (high internal chloride); Ben-Ari 2002, Nat Rev Neurosci"},
+    {"name": "glycine", "transmitter": "glycine", "sign": -1, "reversal_mV": -70.0, "tau_ms": 8.0,
+     "contexts": {"immature": {"sign": 1}},
+     "citation": "chloride channel with the same developmental switch; Ben-Ari 2002, Nat Rev Neurosci"},
+    {"name": "histamine_gated_chloride", "transmitter": "histamine", "sign": -1, "reversal_mV": -70.0,
+     "citation": "histamine-gated chloride channel; Hardie 1989, Nature"},
+    {"name": "nicotinic", "transmitter": "acetylcholine", "sign": 1, "reversal_mV": 0.0, "tau_ms": 5.0,
+     "citation": "nicotinic acetylcholine receptor (cation channel); Albuquerque et al. 2009, Physiol Rev"}
+  ]
+}

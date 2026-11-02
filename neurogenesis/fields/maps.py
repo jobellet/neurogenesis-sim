@@ -111,9 +111,31 @@ def pinwheel_map(bounds: Tuple[np.ndarray, np.ndarray], spacing: float, singular
     
     return points_grid, angles_grid, singularities
 
-def bandpass_pinwheels(bounds: Tuple[np.ndarray, np.ndarray], spacing: float, k0: float, sigma: float, rng: np.random.Generator) -> Tuple[np.ndarray, np.ndarray]:
+def find_pinwheels(angles: np.ndarray, origin: Union[np.ndarray, list], spacing: Union[float, list]) -> Tuple[np.ndarray, np.ndarray]:
+    """Pinwheels of an orientation grid (angles in [0, pi) on a regular 2D grid, axis 0 = x): (positions (K, 2), charges).
+
+    For each grid square, the steps of 2 theta around its four corners are wrapped to (-pi, pi] and summed; a winding of
+    +-2 pi is a pinwheel of charge +-1/2 placed at the square's centre. O(grid size), no loops.
+    """
+    a = 2.0 * np.asarray(angles, dtype=float)
+    if a.ndim != 2:
+        raise ValueError("find_pinwheels needs a 2D angle grid")
+    sp = np.broadcast_to(np.asarray(spacing, dtype=float), (2,))
+    o = np.asarray(origin, dtype=float)[:2]
+    corners = [a[:-1, :-1], a[1:, :-1], a[1:, 1:], a[:-1, 1:]]
+    wrap = lambda d: (d + np.pi) % (2 * np.pi) - np.pi
+    winding = sum(wrap(corners[(k + 1) % 4] - corners[k]) for k in range(4))
+    q = np.round(winding / (2 * np.pi)).astype(int)
+    ii, jj = np.nonzero(q)
+    pos = o + (np.stack([ii, jj], axis=1) + 0.5) * sp
+    return pos.reshape(-1, 2), q[ii, jj] * 0.5
+
+
+def bandpass_pinwheels(bounds: Tuple[np.ndarray, np.ndarray], spacing: float, k0: float, sigma: float, rng: np.random.Generator,
+                       return_pinwheels: bool = False):
     """Generates an orientation map using bandpass filtered noise.
-    Returns points grid and angle field.
+    Returns points grid and angle field; with return_pinwheels (2D bounds only) also the pinwheel positions and
+    charges found by `find_pinwheels`.
     """
     min_b = bounds[0]
     grid_shape = [len(a) for a in _regular_axes(bounds, spacing)]
@@ -148,7 +170,9 @@ def bandpass_pinwheels(bounds: Tuple[np.ndarray, np.ndarray], spacing: float, k0
     
     points = regular_points(bounds, spacing)
     points_grid = points.reshape(*grid_shape, len(min_b))
-    
+    if return_pinwheels:
+        pos, q = find_pinwheels(angles, min_b, spacing)
+        return points_grid, angles, pos, q
     return points_grid, angles
 
 
@@ -200,3 +224,68 @@ def pinwheel_charges(field: Field, centres: np.ndarray, radius: float, n_samples
     steps = np.diff(np.concatenate([two_theta, two_theta[:, :1]], axis=1), axis=1)
     steps = (steps + np.pi) % (2 * np.pi) - np.pi
     return steps.sum(axis=1) / (4 * np.pi)
+
+
+@register_field('PointSetField')
+class PointSetField(Field):
+    """A point set (B4) as a field: `values` is the distance from each query point to the nearest point of the set.
+
+    Points are given (`points`, (M, d) with d <= 3, missing coordinates 0) or generated deterministically from a
+    pattern: `pattern` "regular", "jittered" or "poisson_disc" with `bounds`, `spacing` / `jitter` / `radius` and
+    `seed`. `seed_cells` accepts it as `points`; e.g. blob centres or pinwheel centres. Nearest-point search through
+    the cell list (O(M + queries)).
+    """
+
+    def __init__(self, points: Any = None, pattern: str = None, bounds: Any = None, spacing: Any = None,
+                 jitter: float = 0.0, radius: float = None, seed: int = 0):
+        self.pattern, self.bounds, self.spacing, self.jitter, self.radius, self.seed = pattern, bounds, spacing, jitter, radius, seed
+        if points is None:
+            if pattern is None:
+                raise ValueError("PointSetField needs points or a pattern")
+            rng = np.random.default_rng(seed)
+            b = (np.asarray(bounds[0], dtype=float), np.asarray(bounds[1], dtype=float))
+            if pattern == "regular":
+                points = regular_points(b, spacing)
+            elif pattern == "jittered":
+                points = jittered_points(b, spacing, jitter, rng)
+            elif pattern == "poisson_disc":
+                points = poisson_disc_points(b, radius, rng)
+            else:
+                raise ValueError(f"unknown point pattern {pattern!r}")
+            self._generated = True
+        else:
+            self._generated = False
+        pts = np.atleast_2d(np.asarray(points, dtype=float))
+        if pts.size and pts.shape[1] < 3:
+            pts = np.concatenate([pts, np.zeros((len(pts), 3 - pts.shape[1]))], axis=1)
+        self.points = pts.reshape(-1, 3)
+
+    def values(self, points: np.ndarray) -> np.ndarray:
+        from neurogenesis.spatial import CellList
+        q = np.asarray(points, dtype=float)
+        shape = q.shape[:-1]
+        q = q.reshape(-1, q.shape[-1])
+        if q.shape[1] < 3:
+            q = np.concatenate([q, np.zeros((len(q), 3 - q.shape[1]))], axis=1)
+        if len(self.points) == 0:
+            return np.full(shape, np.inf)
+        lo, hi = self.points.min(0), self.points.max(0)
+        cutoff = max(float(np.max(hi - lo)) / max(1.0, len(self.points) ** (1 / 3)), 1e-6)
+        _, d = CellList(self.points, cutoff).query_knn(q, 1)
+        return d[:, 0].reshape(shape)
+
+    def to_dict(self) -> Dict[str, Any]:
+        if self._generated:
+            d = {'type': 'PointSetField', 'pattern': self.pattern, 'bounds': np.asarray(self.bounds, dtype=float).tolist(),
+                 'seed': self.seed}
+            for k in ('spacing', 'jitter', 'radius'):
+                v = getattr(self, k)
+                if v is not None:
+                    d[k] = v
+            return d
+        return {'type': 'PointSetField', 'points': self.points.tolist()}
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> 'Field':
+        return cls(points=d.get('points'), pattern=d.get('pattern'), bounds=d.get('bounds'), spacing=d.get('spacing'),
+                   jitter=d.get('jitter', 0.0), radius=d.get('radius'), seed=d.get('seed', 0))

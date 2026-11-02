@@ -85,10 +85,10 @@ GUI (viz/): geometry and field editor, schedule editor, step-by-step development
 ## 3. Current state (2026-11-01)
 | Area | Present | Missing |
 |---|---|---|
-| Spiking | integer LIF kernel, bit-identical in Python, JAX and the browser; `two_compartment` and `hh` models; batched runs; cost estimator with machine calibration | plasticity during simulation as a reusable component (STDP, three-factor); per-region choice of model |
-| Development | `BodyPlan` (regions, projections), one fixed growth order (placement → sign → differentiation → identity → axons), rule registry in 5 phases (placement, shift, target, probability, weight), knockouts, tonic currents; geometry, fields, `Tissue`, stage schedule (A1–A5, B1–B5, C1–C12, D2; see `docs/STAGES.md`) | `freeze` (C13), the development cost model on the command line (D3; per-stage costs and `schedule_cost` exist), chunked growth (D4), and the parts of B4, B5, C1–C12, D1 and D2 marked partial below |
-| Genome / evolution | gene paths, [0, 1] coding, gene groups, JSON; island model, robust fitness, audits; `Param` sources (A3) | supervised fitting (`Fit` params resolve to their initial value); multi-objective |
-| Modules | save / load, composition, plugins, neuron model recorded | module registry and versioning; validation harness |
+| Spiking | integer LIF kernel, bit-identical in Python, JAX and the browser; `two_compartment` and `hh` models; batched runs; cost estimator with machine calibration; STDP, Hebbian and three-factor plasticity (E1) | per-region choice of model |
+| Development | `BodyPlan` (regions, projections), one fixed growth order (placement → sign → differentiation → identity → axons), rule registry in 5 phases (placement, shift, target, probability, weight), knockouts, tonic currents; geometry, fields, `Tissue`, stage schedule (A1–A5, B1–B5, C1–C13, D2, D3; see `docs/STAGES.md`) | chunked growth (D4), and the parts of C8, D1 and D2 marked partial below |
+| Genome / evolution | gene paths, [0, 1] coding, gene groups, JSON; island model, robust fitness, audits; `Param` sources (A3); fitting of `Fit` params (E2), inner-loop fitting and Pareto evolution (E3) | gradient-based fitting |
+| Modules | save / load, composition, plugins, neuron model recorded; versions, local registry (G1); validation assays (E4) | a shared online catalogue |
 | GUI | 3D viewer and per-neuron editing of a finished network | geometry and field editor, schedule editor, development preview, Project import / export |
 | CI | GitHub Actions: tests on Python 3.10 and 3.12, browser-kernel equivalence, viewer build, cost command line, fixed CPU performance benchmarks (report only, regressions above 30% flagged) | coverage |
 
@@ -180,18 +180,18 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 - **Orientation maps:** pinwheel maps from hand-placed singularities with given charges (±1/2), or from band-pass noise. Output: a vector or angle field and the pinwheel positions.
 - **Tests:** pinwheel charges recovered; minimum distances respected.
 - **Dependencies:** B3.
-- **Status:** partial: regular, jittered and Poisson-disc point patterns are functions returning arrays (not field
-  types); `PinwheelField` (hand-placed singularities) and `pinwheel_charges`; band-pass maps do not return their
-  pinwheel positions.
+- **Status:** done: regular, jittered and Poisson-disc point patterns (functions and the registered `PointSetField`);
+  `PinwheelField` (hand-placed singularities), `pinwheel_charges`, `find_pinwheels`; band-pass maps return their
+  pinwheel positions and charges.
 
 **B5. Field operations.**
 - Arithmetic, thresholding, smoothing, distance transforms (distance to a boundary or a point set), gradients.
 - Everything must be usable as a `Field` param.
 - **Tests:** against analytic results.
 - **Dependencies:** B3.
-- **Status:** partial: `Add`, `Threshold`, `GaussianSmooth`, `DistanceTransform` (distance to a point set),
-  `Gradient` and `DistanceToBoundary`, in NumPy (no SciPy); composite fields pass `bind(genome)` to their sub-fields.
-  Missing: subtraction / multiplication fields.
+- **Status:** done: `Add`, `Subtract`, `Multiply`, `Threshold`, `GaussianSmooth`, `DistanceTransform` (distance to a
+  point set), `Gradient` and `DistanceToBoundary`, in NumPy (no SciPy); composite fields pass `bind(genome)` to their
+  sub-fields.
 
 ### Phase C: developmental stages (parallel after A4; each a registered stage with tests and cost declaration)
 
@@ -211,21 +211,22 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 | C12 | `myelinate` | Shorten delays of active or long projections (a `Param` factor). |
 | C13 | `freeze` | Validate and compile the tissue to an `SNNNetwork` (end of development, or a checkpoint). |
 
-**Status of C1–C12** (details and limits in `docs/STAGES.md`):
+**Status of C1–C13** (details and limits in `docs/STAGES.md`):
 | Task | Status |
 |---|---|
-| C1 | partial: count in a geometry or at one position; no density `Param` or field |
+| C1 | done: count in a geometry or at one position, `density` (`Param` or field, thinning), point sets (lists, B4 patterns, `PointSetField`) |
 | C2 | done: probability, displacement, lineage and `generation`, daughter type, asymmetric division, expression noise, `max_cells` bound |
 | C3 | done: probability, density (cell list above N = 2048), neurotrophic in / out degree |
-| C4 | done except a tangential mode: steps along a direction (or a per-cell vector `Param`), radial, chemotaxis up / down a scalar field, stop field, boundary, target layer, `min_distance` collisions through the cell list |
-| C5 | partial: `sort` ranks positions along an axis by a key, and differential adhesion (types × types matrix, negative entries repel) through the cell list; no `mosaic` stage |
-| C6 | partial: sigmoid step with morphogen and contact (cell-list) inputs; no Hill function |
-| C7 | done for expression, field and lineage conditions (values as `Param`s after #40); birth order not available |
+| C4 | done: steps along a direction (or a per-cell vector `Param`), radial, tangential, chemotaxis up / down a scalar field, stop field, boundary, target layer, `min_distance` collisions through the cell list |
+| C5 | done: `sort` ranks positions along an axis by a key, differential adhesion (types × types matrix) through the cell list, and the `mosaic` stage (homotypic exclusion zones) |
+| C6 | done: sigmoid or Hill step with morphogen and contact (cell-list) inputs |
+| C7 | done for expression, field, lineage, birth order and position conditions (values as `Param`s) |
 | C8 | partial: guidance rules as a stage; dense only up to 2048 cells per side, sparse cell-list search above (only three probability rules there, see D2); errors on missing guidance |
-| C9 | partial: `place_by_hand`, `connect_by_hand` (index lists); no connection matrices or rules |
-| C10 | partial: `prune` by weight, `scale` to a target sum; no activity criterion |
-| C11 | partial: `lif_int` run with Poisson drivers or injected spikes, then STDP / Hebbian; no waves or twitches |
-| C12 | partial: one factor for all delays; no selection of active or long projections |
+| C9 | done: `place_by_hand`, `connect_by_hand` (index lists, dense matrices up to 2048 cells, connection rules by region / type / expression with probability, distance and velocity) |
+| C10 | done: `prune` by weight and by coactivity (activity criterion), `scale` to a target sum with a `rate` |
+| C11 | done: `lif_int` run with Poisson drivers, injected spikes, spontaneous waves or motor twitches with sensory feedback, then STDP, Hebbian or three-factor plasticity (follow with `prune`) |
+| C12 | done: one factor for all delays, or for synapses selected by length, regions or presynaptic activity |
+| C13 | done: `freeze` validates and compiles (optionally writes JSON / NGB1); `develop(project, genome, seed)` |
 
 **Acceptance tests for every stage:**
 - determinism;
@@ -256,6 +257,10 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 - Per-stage cost declarations summed by `neurogenesis.cost`, with machine calibration as for simulations.
 - **Command line:** `python -m neurogenesis estimate --project p.json`.
 - **Dependencies:** A4.
+- **Status:** done: `neurogenesis.devcost` walks the schedule without running it, predicts cells and synapses per stage
+  (worst case for `Gene` / `Fit` params), sums the declared costs, calibrates seconds per declared op once per machine,
+  and `check_development` refuses schedules whose peak memory does not fit. Synapse predictions of rules and guidance
+  are upper estimates.
 
 **D4. Chunked and streaming growth.**
 - Tissues larger than memory processed in spatial chunks, writing synapses to disk (`.npz` shards).
@@ -279,21 +284,29 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 - STDP, Hebbian with normalisation, and three-factor (eligibility × modulator) rules, usable during simulation and in C11.
 - Integer-friendly versions for `lif_int`.
 - **Tests:** classic STDP window shape; weight bounds; determinism.
+- **Status:** done: `STDPRule`, `HebbianRule` (normalised) and `ThreeFactorRule` in `neurogenesis.spiking.plasticity`,
+  with integer traces for `lif_int`; used by `refine_by_activity` (C11).
 
 **E2. Supervised fitting of `Fit` params.**
 - Targets: cell density per region, layer thickness, connection probability vs distance, receptive-field metrics, firing rates.
 - Optimisers: CMA-ES or another gradient-free method (default, robust to stochastic development); JAX gradients where a stage is differentiable.
 - Multiple development seeds per evaluation (robustness).
 - **Dependencies:** A3, A4.
+- **Status:** done: `neurogenesis.fitting` (fitted values in `genome["__fit__"]`, metric registry, CMA-ES, multi-seed
+  loss, `python -m neurogenesis fit`). Not done: JAX gradients, receptive-field metrics (add them as registered metrics).
 
 **E3. Semi-supervised workflows.**
 - Evolution of `Gene` params with `Fit` params refitted in an inner loop, or fixed.
 - Multi-objective (Pareto) option.
 - **Dependencies:** E2.
+- **Status:** done: `neurogenesis.evolution.semi_supervised` (`inner_fit_evaluator` with refit or fixed `Fit` params,
+  `evolve_pareto`, `pareto_front`).
 
 **E4. Validation harness.**
 - A declarative assay description (stimuli, readout, metric, gate), stored in modules and rerun by `neurogenesis validate module.json`.
 - Knockout assays included.
+- **Status:** done: `neurogenesis.validation` and `python -m neurogenesis validate module.json` (stimuli per region,
+  rate or fraction-active readout, metrics, gates, pass fraction, knockouts).
 
 ### Phase F: Browser Viewer & Web Demo (viz/, TypeScript + three.js)
 
@@ -320,7 +333,7 @@ Native desktop applications with zero developer setup required for end users:
 - **Tasks:**
   - **H1. Bridge in the package [contract].** (`neurogenesis/bridge/`, protocol spec `desktop/common/PROTOCOL.md`, automated tests) — *by the Mac agent*.
   - **H2. Portable C kernel `nglif` + NGB1 I/O [contract].** (`desktop/common/native/nglif/`, golden fixtures `fixtures/`, 3-OS CI matrix) — *by the Mac agent*.
-  - **H3. UI schema export from Python [contract].** Versioned JSON export from Python (`python -m neurogenesis ui-schema`): stage registry (Params, kinds, bounds, docs), models with cost estimates, guidance/placement rules, genes of a schedule (`collect_genes`), Project schema. Jules task once H1/PR #5 is merged.
+  - **H3. UI schema export from Python [contract, done].** Versioned JSON export from Python (`python -m neurogenesis ui-schema` and bridge `ui_schema` via `neurogenesis.project.ui_schema.export_ui_schema`): stage registry (Params, kinds, bounds, docs, cost samples), models with cost estimates, guidance/placement rules, genes of a schedule (`collect_genes`), Project schema.
   - **H4. Embedded Python runtime scripts.** Automated packaging scripts using `python-build-standalone` on all three OSes (macOS, Windows, and Linux, x86-64 and arm64).
   - **H5. Windows + Linux application (Avalonia).** (`desktop/avalonia/`, C# / .NET 8 cross-platform UI), consuming `nglif` through P/Invoke C ABI and the Python bridge via JSON-RPC/stdio protocol, dynamic panels generated from UI schema, colors from `visual_spec.json`. Packaging: Windows setup `.exe` + `.zip`, Linux AppImage. Built by the Avalonia agent.
   - **H6. Linux packaging extras (optional / later).** Flatpak manifest and distribution testing.
@@ -334,6 +347,8 @@ Before implementing Phase I, P, and N, core contracts are updated in dedicated, 
 - Add optional top-level sections to Project schema: `data_sources` (dataset id, files, filters), `pharmacology` (profile reference, channel properties), and `morphology` (compartment models, dendritic arbor settings).
 - Backward compatibility: schema version bump to `1.1.0` with explicit migration function `migrate_100_to_110()` in `neurogenesis/project/schema.py` ensuring all 1.0.0 projects load and execute identically without modification.
 - Dedicated files: `neurogenesis/project/schema.py`, `neurogenesis/project/io.py`, `tests/test_project.py`.
+- **Status:** done: `SCHEMA_VERSION = "1.1.0"`, optional sections validated, `migrate_100_to_110`, chained migrations,
+  tests in `tests/test_project_schema.py`.
 
 **K2. Tissue struct-of-arrays extensions (contract).**
 - Extend `Tissue` with optional/defaulted arrays:
@@ -344,6 +359,8 @@ Before implementing Phase I, P, and N, core contracts are updated in dedicated, 
     - `receptor_class`: `(E,)` `uint8`;
     - optional morphology fields: `pre_node` `(E,)` `int32`, `post_node` `(E,)` `int32`, `path_length` `(E,)` `float32`, `dendritic_distance` `(E,)` `float32`.
 - Preserves float64 positions, `clone_id` lineage tracking, and exact bit-for-bit output on existing stages and legacy plans.
+- **Status:** done: `Tissue.transmitter`, `receptor_expression`, `morphology`; `SparseConnectivity.receptor_class` and
+  the optional morphology arrays, kept aligned by `take` / `concat` / `append` in every stage; fingerprints unchanged.
 
 **K3. Array-backed synapse store & uint32 neuron limit (scale invariant).**
 - Lift neuron indexing from `uint16` to `uint32` across all network representations, CSR indices, NGB1 binary format, and spiking kernels (Python, JAX, browser TypeScript, and portable C `nglif`).
@@ -366,6 +383,7 @@ Enable importing public connectome datasets (supervised) and using them as stati
 - CLI command: `python -m neurogenesis data fetch <dataset_id> --target <dir>`.
 - Prints dataset size and license before download; caches in `~/.cache/neurogenesis/data` outside repository tree. Resumable, verified against SHA256 checksums.
 - Unit tests run against tiny synthetic fixtures created in-memory, never downloading over the network.
+- **Status:** done: `neurogenesis.data.catalogue` (manifests, `fetch` with Range resume and SHA-256) and `python -m neurogenesis data info|fetch`.
 
 **I2. Streaming connectome importer.**
 - Memory-efficient streaming import via lazy `pyarrow`:
@@ -374,17 +392,20 @@ Enable importing public connectome datasets (supervised) and using them as stati
   - Filter criteria: cell type (list / regex), class / superclass, region / ROI, side, explicit ID list, bounding box, minimum synapse count.
   - Print cost estimate before allocating network.
   - Record license and citation metadata in the provenance of created `Tissue` / network.
+- **Status:** done: `neurogenesis.data.import_connectome` (CSV with NumPy, Parquet / Feather / CSV with optional pyarrow; filters by type (list or regex), class, superclass, region, side, ids, bounding box, minimum synapses; provenance in `info`).
 
 **I3. Coordinate frames & spatial registration.**
 - Map raw voxel coordinates to physical units ($\mu\text{m}$) via affine transform declared in manifest (voxel size, origin offset, optional mirroring).
 - Space units set conduction delays; region-local $[0, 1]^3$ coordinates are derived only inside regions.
 - Neuropil ROI masks and column coordinates interfaced via `Geometry` and `Field` adapters.
 - Clip delays $>31\text{ ms}$ with a counted warning until K4 merges.
+- **Status:** partial: affine registration (voxel size, origin, mirroring) and clipped delays; ROI masks and column coordinates through `Geometry` / `Field` adapters are not done (use `VoxelMaskGeometry` and fields directly).
 
 **I4. Synapse count to synaptic weight mapping.**
 - Configurable mapping from anatomical synapse counts to functional weights (linear, Hill/saturating, or `Param`).
 - Weight mapping fits into target int16 weight range (`w_clip` 512–2047).
 - Depends on P1: sign and channel determination compiled through pharmacology profile. (Before P1 exists, accepts an explicit caller-provided transmitter $\to$ sign map).
+- **Status:** done: `map_weights` (linear, Hill, log; `Param` values; `w_clip` 512–2047), signs from a transmitter map, transmitter bits from a profile.
 
 **I5. Cell-type statistical targets for fitting.**
 - Extract cell-type-level statistical targets for Phase E (`E2` / `E3` fitting):
@@ -409,15 +430,18 @@ Transmitter action depends on receptors and developmental context, never a stati
 - Profile entries parameterizable via `Param` (const, gene, field, expr).
 - Example documented profile entries with biological citations (e.g. GluCl, mGluR6-like, histamine-gated Cl-, GABA-A/glycine chloride equilibrium switches; Ben-Ari 2002 Nat Rev Neurosci).
 - Support co-transmission: presynaptic neuron emits multiple transmitters. Dale's principle is optional.
+- **Status:** done: `neurogenesis.pharmacology` (profiles, default profile bit-for-bit, `compile_weights`), example profile in `examples/profiles/`. Not done: re-expressing the legacy `receptor_sign` rule.
 
 **P2. Receptor expression & assignment.**
 - Cell-type-specific or field-dependent receptor expression profiles (`Tissue.receptor_expression`).
 - Post-synaptic receptor type assignment during synaptogenesis based on transmitter-receptor compatibility rules.
+- **Status:** done: `set_transmitters`, `express_receptors`, `assign_receptors` stages.
 
 **P3. Developmental switches & context compilation.**
 - Model developmental shifts in reversal potentials (e.g. GABA depolarizing early $\to$ hyperpolarizing later).
 - Compile step maps (transmitter, receptor class, developmental context) into signed integer weight and channel assignment for `lif_int`, or conductance reversal potential for float models.
 - Operates both during development (inside C11 `refine_by_activity`) and during network compilation.
+- **Status:** partial: `pharmacology` stage compiles signed integer weights per context (run before and after `refine_by_activity`); reversal potentials for float models wait for P4.
 
 **P4. Multi-channel & conductance-based spiking kernels (post H2, K3, K4).**
 - Integer LIF: $k$ synaptic current channels with distinct decay shifts, bit-for-bit equivalent across all four kernels.
@@ -434,17 +458,20 @@ Grow realistic arbor morphologies and calculate conduction delays based on neuri
 - Low-memory struct-of-arrays representation of tree morphologies (`ArborStore`): node coordinates, radii, parent indices, compartment types.
 - Generic compartment labels: soma, axon, dendrite, neurite + user labels (supporting unipolar invertebrate architectures without enforcing apical/basal).
 - SWC format reader, downsampler, and writer.
+- **Status:** done: `neurogenesis.arbors` (`ArborStore`, `read_swc`, `write_swc`, `downsample`, `to_budget`, path lengths).
 
 **N2. `grow_arbors` developmental stage.**
 - Stochastic branching stage: branching probability, elongation, branching angle, stop/target field rules, retraction.
 - Every parameter is a `Param`; draws randomness strictly from stage `rng`.
 - Cost declared and verified within factor 3.
+- **Status:** done: `grow_arbors` stage (`docs/STAGES.md`).
 
 **N3. Arbor synaptogenesis & path-length conduction delays.**
 - Geometric proximity search between axons and dendrites using D1 `CellList` in $O(\text{nodes})$.
 - Conduction delay calculated from path length along neurites + axonal velocity.
 - Clips delays $>31\text{ ms}$ with counted warning until K4 merges.
 - Populates per-synapse morphology fields (`pre_node`, `post_node`, `path_length`, `dendritic_distance`).
+- **Status:** done: `arbor_synapses` stage (cell list over nodes, delays from path length, clipped with a counted warning).
 
 **N4. Connectome SWC skeleton import & simplification.**
 - Import reconstructed arbor skeletons from connectome datasets into `ArborStore` format with automatic downsampling/simplification to target compartment budgets.
@@ -537,12 +564,17 @@ repository is public.
 ### Phase G: modules, docs and examples
 
 **G1. Module registry.** Versioned modules (semantic version, toolbox version range), a local catalogue file, `neurogenesis install module.json`, compatibility checks.
+- **Status:** done: `neurogenesis.modules.registry` (`version` and `toolbox` range on `Module`, catalogue with
+  checksums, `install`, `modules`, `get` of the latest compatible version).
 
 **G2. Worked examples**, each runnable on a laptop in minutes, each with a test:
 1. a hand-built cortical column, with layers drawn by hand and genes deciding cell types within layers (semi-supervised);
 2. a sheet with hand-placed orientation pinwheels, where proliferation and migration produce cell densities that follow the map (semi-supervised);
 3. a fully genetic development with proliferation → migration → differentiation → proliferation of differentiated cells → axon growth (unsupervised, evolved on a toy objective);
 4. a fully hand-built network (supervised), compiled and simulated.
+- **Status:** done: `examples/hand_drawn_column.py` (1), `examples/pinwheel_sheet.py` (2),
+  `examples/evolved_development.py` and `examples/layered_sheet.py` (3), `examples/hand_built_network.py` (4), each
+  tested in `tests/test_examples.py`.
 
 **G3. Documentation.** A tutorial per workflow (supervised / unsupervised / semi-supervised), the stage reference generated from the registry, and the cost guide.
 

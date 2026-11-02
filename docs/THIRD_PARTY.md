@@ -15,7 +15,15 @@ sandbox has no attribution or licence header from another project.
 | matplotlib | Matplotlib licence (PSF-based) | rasters in the reference simulator |
 | three (viewer) | MIT | 3D rendering (WebGL) |
 | vite, typescript, esbuild, rollup and their small dependencies (build only) | MIT / Apache-2.0 / ISC / BSD-3-Clause | building the viewer |
-| pytest (tests) | MIT | tests |
+| pytest, jsonschema (tests) | MIT | tests |
+| sphinx, sphinx-rtd-theme, myst-parser, sphinx-copybutton (documentation build only) | BSD-2-Clause / MIT | the documentation site |
+| GitHub Actions: actions/* (checkout, setup-python, setup-node, upload/download-artifact, upload-pages-artifact, deploy-pages), dorny/paths-filter, dawidd6/action-download-artifact | MIT | CI only, not distributed |
+
+**Desktop app releases.** The embedded runtime (`desktop/common/runtime`, task H4) bundles a CPython build from
+python-build-standalone (CPython: PSF License; its bundled libraries such as OpenSSL, SQLite, libffi and zlib keep
+their own licences) and the Python packages above. Release bundles must ship those licence files (checked in H7).
+The Windows / Linux app (Avalonia, CommunityToolkit.Mvvm, Silk.NET; MIT) lists its NuGet dependencies in
+`desktop/avalonia/`.
 
 The viewer loads the Inter and JetBrains Mono fonts from Google Fonts (SIL Open Font License 1.1); opening it sends a
 request to Google's servers.

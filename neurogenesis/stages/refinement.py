@@ -1,16 +1,80 @@
 import warnings
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Optional, Tuple
 import numpy as np
 
 from neurogenesis.tissue import Tissue
 from neurogenesis.stages.base import register_stage
-from neurogenesis.params import resolve, param_from_dict, Const, Gene, Fit
+from neurogenesis.params import resolve, param_from_dict, Const, Gene, Fit, worst_case
+
+
+# Largest (ticks x synapses) block evaluated at once by `coactivity`.
+_COACT_CHUNK = 1 << 22
+
+
+def simulate_tissue(tissue: Tissue, ticks: int, seed: int, ext_current: Optional[np.ndarray] = None) -> np.ndarray:
+    """(ticks, N) uint8 spike raster of a compacted tissue run with the JAX `lif_int` kernel; ext_current (N,) int32 is
+    added every tick. The kernel seed is mapped to [1, 2^32 - 1] (xorshift32 never leaves the state 0)."""
+    seed = int(seed) % 0xFFFFFFFF + 1
+    from neurogenesis.spiking.jax_backend import tick, init_state, pack
+    import jax
+    import jax.numpy as jnp
+    packed = pack(tissue.to_network())
+    ext = None if ext_current is None else jnp.asarray(ext_current, dtype=jnp.int32)
+
+    def f(s, _):
+        s, spk, _ = tick(packed, s, ext_current=ext)
+        return s, spk
+    _, spikes = jax.lax.scan(f, init_state(packed, seed=seed), None, length=int(ticks))
+    return np.asarray(spikes)[:, :len(tissue.alive)]
+
+
+def coactivity(spikes: np.ndarray, pre: np.ndarray, post: np.ndarray, delay: np.ndarray, window: int) -> np.ndarray:
+    """Per synapse: number of pre spikes, arriving after `delay` ticks, followed by a post spike within `window` ticks
+    (arrival tick included). O(T x E) operations in blocks of at most 2^22 (tick, synapse) pairs."""
+    spikes = np.asarray(spikes, dtype=np.int32)
+    T = spikes.shape[0]
+    E = len(pre)
+    out = np.zeros(E, dtype=np.int64)
+    if T == 0 or E == 0:
+        return out
+    c = np.concatenate([np.zeros((1, spikes.shape[1]), np.int32), np.cumsum(spikes, axis=0)])
+    hi = np.minimum(np.arange(T) + max(1, int(window)), T)
+    post_window = (c[hi] - c[np.arange(T)]) > 0                                 # (T, N): post spikes in [t, t + window)
+    t = np.arange(T)[:, None]
+    step = max(1, _COACT_CHUNK // T)
+    for a in range(0, E, step):
+        b = min(E, a + step)
+        src_t = t - delay[None, a:b]
+        arr = np.where(src_t >= 0, spikes[np.maximum(src_t, 0), pre[None, a:b]], 0)
+        out[a:b] = np.sum(arr * post_window[:, post[a:b]], axis=0)
+    return out
+
+
+def _activity(tissue: Tissue, params: Dict[str, Any], genome: Dict[str, Any], fields: Dict[str, Any],
+              rng: np.random.Generator) -> np.ndarray:
+    """Spike raster for an activity criterion: `spikes` (a given (T, N) raster) or a simulation of `ticks` (default
+    100) with an optional constant `ext_current` per cell."""
+    if params.get("spikes") is not None:
+        return np.asarray(resolve(params["spikes"], genome, fields))
+    ticks = int(resolve(params.get("ticks", 100), genome, fields))
+    ext = params.get("ext_current")
+    ext = None if ext is None else np.broadcast_to(np.asarray(resolve(ext, genome, fields), dtype=np.int32), (len(tissue.alive),))
+    return simulate_tissue(tissue, ticks, int(rng.integers(0, 1_000_000)), ext)
+
+
+def _activity_cost(N: int, E: int, params: Dict[str, Any]) -> Tuple[int, int]:
+    ticks = int(worst_case(params.get("ticks"), 100))
+    return N * 40 + E * 24 + ticks * N * 5, ticks * (E * 20 + N * 30)
 
 @register_stage("prune")
 class PruneStage:
     @classmethod
     def cost(cls, N: int, E: int, params: Dict[str, Any]) -> Tuple[int, int]:
-        return E * 4, E * 4
+        b, ops = E * 4, E * 4
+        if params.get("min_coactivity") is not None:
+            ab, aops = _activity_cost(N, E, params)
+            b, ops = b + ab, ops + aops
+        return b, ops
 
     def run(self, tissue: Tissue, params: Dict[str, Any], genome: Dict[str, Any], fields: Dict[str, Any], rng: np.random.Generator) -> Tissue:
         if tissue.connectivity is None or len(tissue.connectivity.pre) == 0:
@@ -22,10 +86,19 @@ class PruneStage:
         abs_weights = np.abs(tissue.connectivity.weight)
         keep_mask = abs_weights >= threshold
 
-        tissue.connectivity.pre = tissue.connectivity.pre[keep_mask]
-        tissue.connectivity.post = tissue.connectivity.post[keep_mask]
-        tissue.connectivity.weight = tissue.connectivity.weight[keep_mask]
-        tissue.connectivity.delay = tissue.connectivity.delay[keep_mask]
+        if params.get("min_coactivity") is not None:
+            # Activity criterion ("use it or lose it"): keep synapses whose arriving pre spikes were followed by a post
+            # spike within `window` ticks at least `min_coactivity` times (Katz & Shatz 1996, Science).
+            if not tissue.alive.all():
+                tissue.compact()
+                abs_weights = np.abs(tissue.connectivity.weight)
+                keep_mask = abs_weights >= threshold
+            spikes = _activity(tissue, params, genome, fields, rng)
+            window = int(resolve(params.get("window", 5), genome, fields))
+            coact = coactivity(spikes, tissue.connectivity.pre, tissue.connectivity.post, tissue.connectivity.delay, window)
+            keep_mask &= coact >= float(resolve(params["min_coactivity"], genome, fields))
+
+        tissue.connectivity = tissue.connectivity.take(keep_mask)
 
         return tissue
 
@@ -51,6 +124,10 @@ class ScaleStage:
 
         # Compute scale factor per post-synaptic neuron
         scale_factors = np.divide(target, in_degrees, out=np.ones(N, dtype=np.float32), where=in_degrees > 0)
+        if params.get("rate") is not None:
+            # Partial step towards the target (synaptic scaling with a time constant: Turrigiano et al. 1998, Nature)
+            rate = float(resolve(params["rate"], genome, fields))
+            scale_factors = 1.0 + rate * (scale_factors - 1.0)
 
         # Apply scaling, maintaining the original sign
         new_weights = tissue.connectivity.weight * scale_factors[tissue.connectivity.post]
@@ -62,7 +139,11 @@ class ScaleStage:
 class MyelinateStage:
     @classmethod
     def cost(cls, N: int, E: int, params: Dict[str, Any]) -> Tuple[int, int]:
-        return E * 4, E * 4
+        b, ops = E * 4, E * 4
+        if params.get("min_rate") is not None:
+            ab, aops = _activity_cost(N, E, params)
+            b, ops = b + ab, ops + aops
+        return b, ops
 
     def run(self, tissue: Tissue, params: Dict[str, Any], genome: Dict[str, Any], fields: Dict[str, Any], rng: np.random.Generator) -> Tissue:
         if tissue.connectivity is None or len(tissue.connectivity.pre) == 0:
@@ -72,9 +153,10 @@ class MyelinateStage:
         if factor_param is None:
             return tissue
         factor = resolve(factor_param, genome, fields)
-        
+        sel = self._selected(tissue, params, genome, fields, rng)
+
         # Scale delays down, clipping to [1, 31]
-        raw_delays = np.round(tissue.connectivity.delay * factor).astype(np.int32)
+        raw_delays = np.where(sel, np.round(tissue.connectivity.delay * factor), tissue.connectivity.delay).astype(np.int32)
         n_clipped = int(np.sum(raw_delays > 31))
         if n_clipped > 0:
             warnings.warn(
@@ -87,8 +169,28 @@ class MyelinateStage:
 
         return tissue
 
+    @staticmethod
+    def _selected(tissue, params, genome, fields, rng) -> np.ndarray:
+        """Synapses to myelinate: all, or those passing every given criterion: `min_delay` (long projections, ticks),
+        `pre_region` / `post_region` (lists of region ids), `min_rate` (active presynaptic cells, Hz, measured by a
+        simulation of `ticks`; activity-dependent myelination: Gibson et al. 2014, Science)."""
+        c = tissue.connectivity
+        sel = np.ones(len(c.pre), dtype=bool)
+        if params.get("min_delay") is not None:
+            sel &= c.delay >= float(resolve(params["min_delay"], genome, fields))
+        for key, idx in (("pre_region", c.pre), ("post_region", c.post)):
+            if params.get(key) is not None:
+                sel &= np.isin(tissue.region[idx], np.asarray(resolve(params[key], genome, fields)).ravel())
+        if params.get("min_rate") is not None:
+            if not tissue.alive.all():
+                raise ValueError("myelinate: 'min_rate' needs a compacted tissue (run apoptosis / refine first)")
+            spikes = _activity(tissue, params, genome, fields, rng)
+            rate_hz = spikes.sum(0) * 1000.0 / max(1, spikes.shape[0])
+            sel &= rate_hz[c.pre] >= float(resolve(params["min_rate"], genome, fields))
+        return sel
 
-from neurogenesis.spiking.plasticity import STDPRule, HebbianRule
+
+from neurogenesis.spiking.plasticity import STDPRule, HebbianRule, ThreeFactorRule
 from neurogenesis.spiking.jax_backend import tick, init_state, pack
 import jax.numpy as jnp
 import jax
@@ -182,13 +284,12 @@ class RefineByActivityStage:
             for t_init in init_times:
                 for pt in src_points:
                     dists = np.linalg.norm(tissue.positions - pt, axis=1)
-                    t_arrivals = t_init + dists / w_speed
-                    for i in range(N_cells):
-                        t_arr = int(np.round(t_arrivals[i]))
-                        t_start = max(0, t_arr)
-                        t_end = min(ticks, t_arr + w_duration)
-                        if t_start < t_end:
-                            wave_currents[t_start:t_end, i] = np.maximum(wave_currents[t_start:t_end, i], w_amp)
+                    t_arr = np.round(t_init + dists / w_speed).astype(np.int64)
+                    cols = np.arange(N_cells)
+                    for k in range(max(0, w_duration)):              # vectorised over cells
+                        rows = t_arr + k
+                        ok = (rows >= 0) & (rows < ticks)
+                        wave_currents[rows[ok], cols[ok]] = np.maximum(wave_currents[rows[ok], cols[ok]], w_amp)
 
         # C) Motor twitches with sensory feedback
         twitch_cfg = params.get("twitches")
@@ -353,6 +454,29 @@ class RefineByActivityStage:
             rule = HebbianRule(eta=eta, norm_target=norm_target, norm_type=norm_type)
             new_weights = rule.apply(weight.astype(jnp.float32), pre, post, delay, spikes_out, weight.astype(jnp.float32))
             
+        elif rule_type == "three_factor":
+            # Eligibility trace x neuromodulator (Izhikevich 2007, Cereb Cortex; Fremaux & Gerstner 2016, Front Neural
+            # Circuits): `modulator` is a constant, a (ticks,) series or a (ticks, N) per-cell array; with
+            # `modulator_cells` it is the number of spikes of those cells at each tick times `modulator_gain`.
+            eta = float(resolve(params.get("eta", 0.01), genome, fields))
+            tau_e = float(resolve(params.get("tau_e", 20.0), genome, fields))
+            T = int(np.shape(spikes_out)[0])
+            if params.get("modulator_cells") is not None:
+                ids = np.asarray(resolve(params["modulator_cells"], genome, fields)).ravel().astype(int)
+                id_to_idx = {int(cid): idx for idx, cid in enumerate(tissue.cell_id)}
+                idx = np.asarray([id_to_idx[i] for i in ids if i in id_to_idx], dtype=int)
+                gain = float(resolve(params.get("modulator_gain", 1.0), genome, fields))
+                mod = gain * np.asarray(spikes_out)[:, idx].sum(axis=1).astype(np.float32)
+            else:
+                mod = np.asarray(resolve(params.get("modulator", 1.0), genome, fields), dtype=np.float32)
+                if mod.ndim == 0:
+                    mod = np.full(T, float(mod), dtype=np.float32)
+                elif mod.ndim == 2 and mod.shape[1] < packed["mode"].shape[0]:
+                    mod = np.pad(mod, ((0, 0), (0, packed["mode"].shape[0] - mod.shape[1])))
+            rule = ThreeFactorRule(eta=eta, tau_e=tau_e)
+            new_weights = rule.apply(weight.astype(jnp.float32), pre, post, delay, jnp.asarray(spikes_out, jnp.float32),
+                                     jnp.asarray(mod), weight.astype(jnp.float32))
+
         else:
             raise ValueError(f"Unknown plasticity rule: {rule_type}")
             

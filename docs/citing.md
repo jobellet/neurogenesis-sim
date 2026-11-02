@@ -1,7 +1,8 @@
 # Citing neurogenesis-sim
 
 If you use the toolbox in published work, please cite the software and the references of the mechanisms you used
-(listed in {doc}`development/third-party` and in the docstrings).
+(listed in {doc}`development/third-party` and in the docstrings). The repository's `CITATION.cff` gives the software
+citation; GitHub shows it as "Cite this repository".
 
 ```{admonition} PLACEHOLDER
 :class: placeholder

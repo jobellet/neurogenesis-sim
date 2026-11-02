@@ -77,11 +77,11 @@ class Express:
             if isinstance(m, dict):
                 f_val = resolve(m.get("field"), genome, fields, tissue.positions)
                 w_val = m.get("weights")
-                if hasattr(w_val, "type") or hasattr(w_val, "value"):
-                    w = resolve(w_val, genome, fields, None)
+                if isinstance(w_val, (list, tuple)):
+                    w = [resolve(x, genome, fields, None) for x in w_val]   # entries may be Params (e.g. Genes)
                 else:
-                    w = w_val
-                    
+                    w = resolve(w_val, genome, fields, None)
+
                 w = np.array(w, dtype=np.float32)
                 
                 if isinstance(f_val, (float, int)):
@@ -119,7 +119,18 @@ class Express:
         internal_inputs = tissue.expression @ W.T
         total_input = internal_inputs + morphogen_inputs + neighbor_inputs
         
-        activation = 1.0 / (1.0 + np.exp(-np.clip(total_input, -30, 30)))
+        kind = str(resolve(params.get("activation", "sigmoid"), genome, fields, None))
+        if kind == "sigmoid":
+            activation = 1.0 / (1.0 + np.exp(-np.clip(total_input, -30, 30)))
+        elif kind == "hill":
+            # Hill activation x^n / (k^n + x^n) of the positive part of the input (Alon 2006, An Introduction to
+            # Systems Biology); 0 without input, so a Hill step with zero weights only applies decay.
+            n = float(resolve(params.get("hill_n", 2.0), genome, fields, None))
+            k = float(resolve(params.get("hill_k", 1.0), genome, fields, None))
+            xn = np.power(np.maximum(total_input, 0.0), n)
+            activation = xn / (k ** n + xn)
+        else:
+            raise ValueError(f"express: unknown activation {kind!r} (use 'sigmoid' or 'hill')")
         
         tissue.expression = tissue.expression * (1.0 - decay * dt) + activation * dt
         
@@ -164,7 +175,11 @@ class Differentiate:
             "generation": tissue.generation,
             "birth_stage": tissue.birth_stage,
             "parent": tissue.parent_id,
-            "clone": tissue.clone_id
+            "clone": tissue.clone_id,
+            "region": tissue.region,
+            "x": tissue.positions[:, 0],
+            "y": tissue.positions[:, 1],
+            "z": tissue.positions[:, 2],
         }
 
         # Provide fields as arrays inside env
