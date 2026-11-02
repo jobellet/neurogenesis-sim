@@ -1,6 +1,6 @@
 import numpy as np
 import math
-from typing import Tuple, Optional, Union
+from typing import Tuple, Optional
 
 # Memory budget of one distance chunk: at most CHUNK_PAIRS (query, candidate) pairs are held at once,
 # each costing about _BYTES_PER_PAIR bytes of temporaries (indices, coordinates, squared distances).

@@ -72,6 +72,7 @@ Module("demo", plan, genome, inputs=["sensor"], outputs=["map"]).save("demo.modu
   the task list.
 - `AGENTS.md`: rules for contributors and agents (determinism, backward compatibility, low compute, tests).
 - `docs/EXTENDING.md`: rules, plugins, knockouts, tonic currents, module projects.
+- `docs/STAGES.md`: the registered stages, geometries, fields and sparse guidance: parameters, defaults, limits.
 - `docs/NEURON_MODELS.md`: neuron models, units, cost estimates.
 - `CONTRIBUTING.md`: code and module contributions.
 - `docs/THIRD_PARTY.md`: software used and the literature behind each mechanism.

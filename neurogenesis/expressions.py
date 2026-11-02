@@ -6,7 +6,7 @@ traversal, no unrestricted imports or globals).
 """
 import ast
 import operator as op
-from typing import Any, Dict, Optional, Union, Callable
+from typing import Any, Dict, Optional, Callable
 import numpy as np
 
 

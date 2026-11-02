@@ -5,14 +5,13 @@ and the compiled schedule (A5) execute the exact same canonical implementations.
 """
 from __future__ import annotations
 
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Tuple
 import numpy as np
 
 from ..spiking.network import NeuronData, SNNNetwork, SynapseData
 from .differentiation import differentiate, identities, sigmoid
 from .plan import BodyPlan
 from .rules import RULES, GuidanceContext, PlacementContext, WeightContext
-from ..tissue import Tissue, SparseConnectivity
 
 DEFAULT_EXCITABILITY = dict(shift_v=5, shift_s=4)
 

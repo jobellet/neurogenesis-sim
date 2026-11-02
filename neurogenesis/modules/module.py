@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..development.grow import grow
-from ..development.plan import BodyPlan, Count, FixedPlacement, Region
+from ..development.plan import BodyPlan, Count, FixedPlacement
 from ..genome.io import from_json, to_json
 
 REGION_ROOTS = ("count", "migration", "inhibitory", "excitability", "differentiation", "identity", "types", "mosaic", "tonic")
