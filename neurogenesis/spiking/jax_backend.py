@@ -65,6 +65,20 @@ def pack(network: SNNNetwork, n_pad: int | None = None, e_pad: int | None = None
         delay=delay_arr,
         valid=np.concatenate([np.ones(n_syn, bool), np.zeros(pad_e, bool)]) if pad_e else np.ones(n_syn, bool),
     )
+    if network.synapse_arrays and "e_rev" in network.synapse_arrays:
+        s_e_rev = network.synapse_arrays["e_rev"][mask].astype(np.float32)
+        out["e_rev"] = np.concatenate([s_e_rev, np.full(pad_e, np.nan, np.float32)]) if pad_e else s_e_rev
+    if network.synapse_arrays and "tau_decay" in network.synapse_arrays:
+        s_tau_decay = network.synapse_arrays["tau_decay"][mask].astype(np.float32)
+        out["tau_decay"] = np.concatenate([s_tau_decay, np.full(pad_e, np.nan, np.float32)]) if pad_e else s_tau_decay
+    if network.synapse_arrays and "channel" in network.synapse_arrays:
+        s_channel = network.synapse_arrays["channel"][mask].astype(np.int32)
+        out["channel"] = np.concatenate([s_channel, np.zeros(pad_e, np.int32)]) if pad_e else s_channel
+        if n > 0 and hasattr(network.neurons[0], "shift_s_channels"):
+            ch0 = np.asarray(network.neurons[0].shift_s_channels, np.int32)
+            out["shift_s_channels"] = f("shift_s_channels", np.int32, np.full_like(ch0, 4))
+        else:
+            out["shift_s_channels"] = np.stack([out["shift_s"]] * 2, axis=1)
     out["mode"][n:] = 0
     return out
 
@@ -73,7 +87,10 @@ def init_state(net: dict, seed: int = 12345) -> dict:
     N = np.shape(net["mode"])[-1]
     z = jnp.zeros(N, jnp.int32)
     bits = jnp.zeros_like(net["bits0"], dtype=U32) if "bits0" in net else jnp.zeros(N, U32)
-    return dict(v=z, i_syn=z, bits=bits, phase=z, refr=z, rng=jnp.asarray(seed, U32))
+    st = dict(v=z, i_syn=z, bits=bits, phase=z, refr=z, rng=jnp.asarray(seed, U32))
+    if "channel" in net:
+        st["i_syn_channels"] = jnp.zeros_like(net["shift_s_channels"], dtype=jnp.int32)
+    return st
 
 
 def _xorshift(x):
@@ -91,10 +108,19 @@ def _decay(x, k):
 def tick(net: dict, st: dict, ext_current=None):
     """One tick. ext_current (N,) int32 is added to the synaptic current before the tick (0 for the reference)."""
     net = {k: jnp.asarray(x) for k, x in net.items()}
-    i_syn = st["i_syn"] if ext_current is None else st["i_syn"] + ext_current
+    multi_channel = "channel" in net
+    if multi_channel:
+        i_syn_channels = st["i_syn_channels"]
+        i_syn_decayed = _decay(i_syn_channels, net["shift_s_channels"])
+        i_syn_sum_decayed = jnp.sum(i_syn_decayed, axis=-1)
+        if ext_current is not None:
+            i_syn_sum_decayed = i_syn_sum_decayed + _decay(ext_current, net["shift_s"])
+    else:
+        i_syn = st["i_syn"] if ext_current is None else st["i_syn"] + ext_current
+        i_syn_decayed = _decay(i_syn, net["shift_s"])
+        i_syn_sum_decayed = i_syn_decayed
     v = _decay(st["v"], net["shift_v"])
-    i_syn = _decay(i_syn, net["shift_s"])
-    v = jnp.clip(v + jnp.right_shift(i_syn, 2), -2048, 2048)
+    v = jnp.clip(v + jnp.right_shift(i_syn_sum_decayed, 2), -2048, 2048)
     # Poisson drivers: one xorshift draw per Poisson neuron, in index order (padding does not advance the generator)
     P = net["pois_idx"].shape[-1]
 
@@ -132,8 +158,18 @@ def tick(net: dict, st: dict, ext_current=None):
         selected_word = jnp.take_along_axis(pre_bits, delay_word[:, None].astype(jnp.int32), axis=1).squeeze(axis=1)
         arrivals = ((selected_word >> delay_bit.astype(U32)) & U32(1)).astype(jnp.int32) * net["valid"]
 
-    i_syn = i_syn.at[net["post"]].add(arrivals * net["weight"])
-    return dict(v=v, i_syn=i_syn, bits=bits, phase=phase, refr=refr, rng=rng), spiked.astype(jnp.uint8), arrivals
+    q = arrivals * net["weight"]
+    if multi_channel:
+        N = net["mode"].shape[-1]
+        C = net["shift_s_channels"].shape[-1]
+        flat_idx = net["post"] * C + net["channel"]
+        flat_q = jnp.zeros(N * C, dtype=jnp.int32).at[flat_idx].add(q)
+        i_syn_next = i_syn_decayed + flat_q.reshape((N, C))
+        out_st = dict(v=v, i_syn=jnp.sum(i_syn_next, axis=-1), i_syn_channels=i_syn_next, bits=bits, phase=phase, refr=refr, rng=rng)
+    else:
+        i_syn = i_syn_decayed.at[net["post"]].add(q)
+        out_st = dict(v=v, i_syn=i_syn, bits=bits, phase=phase, refr=refr, rng=rng)
+    return out_st, spiked.astype(jnp.uint8), arrivals
 
 
 def run(net: dict, st: dict, ticks: int):

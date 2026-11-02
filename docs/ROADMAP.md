@@ -435,7 +435,7 @@ Transmitter action depends on receptors and developmental context, never a stati
 - Profile entries parameterizable via `Param` (const, gene, field, expr).
 - Example documented profile entries with biological citations (e.g. GluCl, mGluR6-like, histamine-gated Cl-, GABA-A/glycine chloride equilibrium switches; Ben-Ari 2002 Nat Rev Neurosci).
 - Support co-transmission: presynaptic neuron emits multiple transmitters. Dale's principle is optional.
-- **Status:** done: `neurogenesis.pharmacology` (profiles, default profile bit-for-bit, `compile_weights`), example profile in `examples/profiles/`. Not done: re-expressing the legacy `receptor_sign` rule.
+- **Status:** done: `neurogenesis.pharmacology` (profiles, default profile bit-for-bit, `compile_weights`, legacy `receptor_sign` re-expressed), example profile in `examples/profiles/`.
 
 **P2. Receptor expression & assignment.**
 - Cell-type-specific or field-dependent receptor expression profiles (`Tissue.receptor_expression`).
@@ -446,11 +446,12 @@ Transmitter action depends on receptors and developmental context, never a stati
 - Model developmental shifts in reversal potentials (e.g. GABA depolarizing early $\to$ hyperpolarizing later).
 - Compile step maps (transmitter, receptor class, developmental context) into signed integer weight and channel assignment for `lif_int`, or conductance reversal potential for float models.
 - Operates both during development (inside C11 `refine_by_activity`) and during network compilation.
-- **Status:** partial: `pharmacology` stage compiles signed integer weights per context (run before and after `refine_by_activity`); reversal potentials for float models wait for P4.
+- **Status:** done: `pharmacology` stage (`compile_weights` and `compile_conductances`) compiles signed integer weights and conductance reversal potentials / decay time constants per context.
 
 **P4. Multi-channel & conductance-based spiking kernels (post H2, K3, K4).**
 - Integer LIF: $k$ synaptic current channels with distinct decay shifts, bit-for-bit equivalent across all four kernels.
 - Float models (`two_compartment`, `hh`): conductance-based synapses with reversal potentials, equivalent within floating-point tolerance.
+- **Status:** done: multi-channel synaptic currents in `lif_int` and conductance-based reversal potential synapses (`e_rev`, `tau_decay`) in `two_compartment` and `hh`.
 
 **P5. Neuromodulation & volume transmission.**
 - Diffuse neuromodulatory fields acting on plasticity eligibility traces (interfacing Phase E `ThreeFactorRule`).
