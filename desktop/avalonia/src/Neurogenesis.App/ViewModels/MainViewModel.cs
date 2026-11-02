@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Neurogenesis.Core.Bridge;
 using Neurogenesis.Core.Ngb;
 using Neurogenesis.Core.Scene;
 using Neurogenesis.Core.Style;
@@ -9,12 +10,13 @@ namespace Neurogenesis.App.ViewModels;
 
 public sealed record FieldRow(string Name, string Value);
 
-/// <summary>State of the main window in Step 1: the open network, its scene, the colour mode, and the inspector.</summary>
+/// <summary>State of the main window in Step 1/2: open network, scene, colour mode, inspector, and bridge.</summary>
 public sealed partial class MainViewModel : ObservableObject
 {
     public VisualStyle Style { get; } = VisualStyle.Default;
     public IReadOnlyList<ColorMode> ColorModes => Style.ColorModes;
     public ObservableCollection<FieldRow> Inspector { get; } = new();
+    public BridgeClient? Bridge { get; }
 
     [ObservableProperty] private string _status = "Open a network file (.ngb).";
     [ObservableProperty] private string _sceneNote = "";
@@ -30,6 +32,30 @@ public sealed partial class MainViewModel : ObservableObject
     public MainViewModel()
     {
         _colorMode = Style.ColorModes[0];
+        try
+        {
+            string? py = PythonLocator.FindPython();
+            if (!string.IsNullOrEmpty(py))
+            {
+                Bridge = new BridgeClient(py);
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                        await Bridge.StartAsync(cts.Token);
+                    }
+                    catch
+                    {
+                        // Bridge startup is optional during initial launch
+                    }
+                });
+            }
+        }
+        catch
+        {
+            // Python runtime not configured yet
+        }
     }
 
     /// <summary>Reads an NGB1 file and builds its scene off the UI thread.</summary>

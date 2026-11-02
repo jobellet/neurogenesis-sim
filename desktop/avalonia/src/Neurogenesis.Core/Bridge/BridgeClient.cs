@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Neurogenesis.Core.Ngb;
 
 namespace Neurogenesis.Core.Bridge;
 
@@ -20,12 +22,12 @@ public sealed class BridgeException : Exception
 /// <summary>
 /// Child process speaking JSON-lines stdio protocol with `python -m neurogenesis.bridge` (desktop/common/PROTOCOL.md).
 /// </summary>
-public sealed class BridgeClient : IAsyncDisposable
+public sealed class BridgeClient : IAsyncDisposable, IDisposable
 {
     public const string ExpectedProtocolMajor = "1";
 
     public string PythonPath { get; set; }
-    public string RepoRoot { get; set; }
+    public string? RepoRoot { get; set; }
 
     public event Action<string>? LogReceived;
     public event Action<string>? StatusChanged;
@@ -44,72 +46,75 @@ public sealed class BridgeClient : IAsyncDisposable
     public BridgeClient(string? pythonPath = null, string? repoRoot = null)
     {
         PythonPath = !string.IsNullOrWhiteSpace(pythonPath) ? pythonPath : PythonLocator.FindPython();
-        RepoRoot = repoRoot ?? AppContext.BaseDirectory;
+        RepoRoot = repoRoot;
     }
 
     public async Task StartAsync(CancellationToken ct = default)
     {
         lock (_lock)
         {
-            if (_process != null) return;
-
-            StatusChanged?.Invoke("Starting Python bridge…");
-
-            var psi = new ProcessStartInfo(PythonPath)
+            if (_process == null)
             {
-                Arguments = "-u -m neurogenesis.bridge",
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = string.IsNullOrEmpty(RepoRoot) ? Path.GetTempPath() : RepoRoot
-            };
+                StatusChanged?.Invoke("Starting Python bridge…");
 
-            psi.Environment["JAX_PLATFORMS"] = "cpu";
-            psi.Environment["PYTHONUNBUFFERED"] = "1";
-            psi.Environment["PYTHONDONTWRITEBYTECODE"] = "1";
-            if (!string.IsNullOrEmpty(RepoRoot))
-            {
-                string existing = Environment.GetEnvironmentVariable("PYTHONPATH") ?? "";
-                psi.Environment["PYTHONPATH"] = string.IsNullOrEmpty(existing)
-                    ? RepoRoot
-                    : $"{RepoRoot}{Path.PathSeparator}{existing}";
-            }
-
-            _process = new Process { StartInfo = psi, EnableRaisingEvents = true };
-
-            _process.OutputDataReceived += OnOutputData;
-            _process.ErrorDataReceived += (s, e) =>
-            {
-                if (!string.IsNullOrEmpty(e.Data))
+                var psi = new ProcessStartInfo(PythonPath)
                 {
-                    LogReceived?.Invoke(e.Data);
+                    Arguments = "-u -m neurogenesis.bridge",
+                    RedirectStandardInput = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    StandardInputEncoding = new UTF8Encoding(false),
+                    StandardOutputEncoding = new UTF8Encoding(false),
+                    StandardErrorEncoding = new UTF8Encoding(false),
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WorkingDirectory = string.IsNullOrEmpty(RepoRoot) ? Path.GetTempPath() : RepoRoot
+                };
+
+                psi.Environment["JAX_PLATFORMS"] = "cpu";
+                psi.Environment["PYTHONUNBUFFERED"] = "1";
+                psi.Environment["PYTHONDONTWRITEBYTECODE"] = "1";
+                if (!string.IsNullOrEmpty(RepoRoot))
+                {
+                    string existing = Environment.GetEnvironmentVariable("PYTHONPATH") ?? "";
+                    psi.Environment["PYTHONPATH"] = string.IsNullOrEmpty(existing)
+                        ? RepoRoot
+                        : $"{RepoRoot}{Path.PathSeparator}{existing}";
                 }
-            };
-            _process.Exited += (s, e) =>
-            {
-                int exitCode = _process?.ExitCode ?? -1;
-                StatusChanged?.Invoke($"Python bridge exited (code {exitCode})");
-                lock (_lock)
+
+                _process = new Process { StartInfo = psi, EnableRaisingEvents = true };
+
+                _process.OutputDataReceived += OnOutputData;
+                _process.ErrorDataReceived += (s, e) =>
                 {
-                    foreach (var kv in _pending)
+                    if (!string.IsNullOrEmpty(e.Data))
                     {
-                        kv.Value.TrySetException(new BridgeException($"Python bridge exited unexpectedly (code {exitCode})"));
+                        LogReceived?.Invoke(e.Data);
                     }
-                    _pending.Clear();
-                    _readyTcs.TrySetException(new BridgeException($"Python bridge exited before ready (code {exitCode})"));
-                }
-            };
+                };
+                _process.Exited += (s, e) =>
+                {
+                    int exitCode = _process?.ExitCode ?? -1;
+                    StatusChanged?.Invoke($"Python bridge exited (code {exitCode})");
+                    lock (_lock)
+                    {
+                        foreach (var kv in _pending)
+                        {
+                            kv.Value.TrySetException(new BridgeException($"Python bridge exited unexpectedly (code {exitCode})"));
+                        }
+                        _pending.Clear();
+                        _readyTcs.TrySetException(new BridgeException($"Python bridge exited before ready (code {exitCode})"));
+                    }
+                };
 
-            _process.Start();
-            _process.BeginOutputReadLine();
-            _process.BeginErrorReadLine();
-            _stdin = _process.StandardInput;
+                _process.Start();
+                _process.BeginOutputReadLine();
+                _process.BeginErrorReadLine();
+                _stdin = _process.StandardInput;
+            }
         }
 
-        using var reg = ct.Register(() => _readyTcs.TrySetCanceled(ct));
-        await _readyTcs.Task.ConfigureAwait(false);
+        await _readyTcs.Task.WaitAsync(ct).ConfigureAwait(false);
     }
 
     private void OnOutputData(object sender, DataReceivedEventArgs e)
@@ -131,7 +136,16 @@ public sealed class BridgeClient : IAsyncDisposable
                     string major = proto.Split('.')[0];
                     if (major != ExpectedProtocolMajor)
                     {
-                        LogReceived?.Invoke($"Warning: Bridge protocol {proto}, app expects major version {ExpectedProtocolMajor}");
+                        var ex = new BridgeException($"Bridge protocol major mismatch: bridge reported {proto}, app requires {ExpectedProtocolMajor}");
+                        _readyTcs.TrySetException(ex);
+                        return;
+                    }
+                    int ngb = data.TryGetProperty("ngb", out var n) ? n.GetInt32() : -1;
+                    if (ngb != NgbFile.Version)
+                    {
+                        var ex = new BridgeException($"Bridge NGB version mismatch: bridge reported {ngb}, app requires {NgbFile.Version}");
+                        _readyTcs.TrySetException(ex);
+                        return;
                     }
                     StatusChanged?.Invoke("Python bridge ready");
                     ReadyReceived?.Invoke(data);
@@ -159,30 +173,33 @@ public sealed class BridgeClient : IAsyncDisposable
                 {
                     if (root.TryGetProperty("error", out var errProp))
                     {
-                        string err = errProp.GetString()!;
-                        string? trace = root.TryGetProperty("trace", out var t) ? t.GetString() : null;
-                        bool isResource = root.TryGetProperty("kind", out var k) && k.GetString() == "resource";
-                        tcs.TrySetException(new BridgeException(err, trace, isResource));
+                        string message = errProp.TryGetProperty("message", out var m) ? m.GetString() ?? "Unknown error" : "Unknown error";
+                        string? trace = errProp.TryGetProperty("trace", out var t) ? t.GetString() : null;
+                        bool isResource = errProp.TryGetProperty("type", out var typ) && typ.GetString() == "ResourceExhausted";
+                        tcs.TrySetException(new BridgeException(message, trace, isResource));
+                    }
+                    else if (root.TryGetProperty("result", out var resProp))
+                    {
+                        tcs.TrySetResult(resProp);
                     }
                     else
                     {
-                        var res = root.GetProperty("result");
-                        tcs.TrySetResult(res);
+                        tcs.TrySetResult(default);
                     }
                 }
             }
         }
-        catch (Exception ex)
+        catch (JsonException ex)
         {
-            LogReceived?.Invoke($"Failed to parse bridge line: {ex.Message}");
+            LogReceived?.Invoke($"Bridge JSON parse error: {ex.Message} on line: {e.Data}");
         }
     }
 
     public async Task<JsonElement> CallAsync(string method, JsonObject? parameters = null, CancellationToken ct = default)
     {
-        if (!_readyTcs.Task.IsCompletedSuccessfully)
+        if (!IsReady)
         {
-            await _readyTcs.Task.ConfigureAwait(false);
+            throw new InvalidOperationException("Bridge client is not ready. Call StartAsync first.");
         }
 
         int id;
@@ -220,6 +237,8 @@ public sealed class BridgeClient : IAsyncDisposable
 
         return await tcs.Task.ConfigureAwait(false);
     }
+
+    public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
 
     public ValueTask DisposeAsync()
     {
