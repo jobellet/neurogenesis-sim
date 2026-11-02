@@ -162,3 +162,30 @@ def test_retinothalamic_waves_reach_the_stage():
         p["schedule"][-1]["params"]["waves"]["speed"] = speed
         sums.append(int(np.abs(run_schedule(p, p["genome"], 0).connectivity.weight).sum()))
     assert sums[0] != sums[1]
+
+
+def test_retinothalamic_with_an_atlas_shaped_relay(tmp_path):
+    """The relay can take its shape from an annotation atlas (synthetic here): cut a structure, fit it into the
+    model's relay box, grow the example in it; every relay cell lies inside the atlas shape."""
+    import json
+    vol = np.zeros((30, 20, 16), np.uint16)
+    i, j, k = np.meshgrid(np.arange(30), np.arange(20), np.arange(16), indexing="ij")
+    vol[((i - 15) / 12.0) ** 2 + ((j - 10) / 7.0) ** 2 + ((k - 8) / 5.0) ** 2 <= 1] = 7      # toy nucleus
+    np.savez(tmp_path / "atlas.npz", annotation=vol, origin=np.zeros(3), voxel_size=np.full(3, 20.0))
+    (tmp_path / "onto.json").write_text(json.dumps({"msg": [{"id": 1, "acronym": "root", "children": [
+        {"id": 7, "acronym": "TOY", "name": "toy nucleus", "children": []}]}]}))
+    r = subprocess.run([sys.executable, str(ROOT / "examples" / "atlas_relay_mask.py"), "--annotation",
+                        str(tmp_path / "atlas.npz"), "--ontology", str(tmp_path / "onto.json"), "--structure", "TOY",
+                        "--out", str(tmp_path / "mask.npz")], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    sys.path.insert(0, str(ROOT))
+    from examples.retinothalamic import RELAY, build_project, measure
+    from neurogenesis.geometry.voxel import VoxelMaskGeometry
+    from neurogenesis.stages.base import run_schedule
+    mask = tmp_path / "mask.npz"
+    p = build_project("WT", 0, n_prog=45, n_relay=100, n_waves=1, wave_ticks=250, relay_mask=mask)
+    t = run_schedule(p.to_dict(), p.genome, 0)
+    geom = VoxelMaskGeometry.from_npz(str(mask))
+    assert np.all(geom.contains(t.positions[t.cell_type == RELAY]))
+    m = measure(t, relay_mask=mask)
+    assert m["n_retinal_synapses"] > 0 and m["r_x"] > 0.5 and m["r_y"] > 0.5

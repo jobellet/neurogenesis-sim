@@ -85,6 +85,23 @@ EphAKO error +0.164 ± 0.022 (10 of 10), r_x −0.878 ± 0.163. Per-seed values:
 The conclusions of run 1 hold: H2 held, and H3 held in orientation with a **weak** blurring (every difference far
 smaller than one SD).
 
+## Relay shaped by an atlas (P4)
+The relay box can be replaced by the shape of a real nucleus from an annotation atlas, here intended to be the dorsal
+lateral geniculate nucleus at P4 in the Allen Developing Mouse Brain Reference Atlas (Thompson et al. 2014, Neuron):
+at P4 retinal axons have reached the dLGN and waves refine the map. The atlas files are not in the repository (Allen
+Institute terms of use; cite the atlas): download the P4 annotation volume and the structure ontology, then
+
+    python examples/atlas_relay_mask.py --annotation P4_annotation.nrrd --ontology structures.json --find geniculate
+    python examples/atlas_relay_mask.py --annotation P4_annotation.nrrd --ontology structures.json \
+        --structure <acronym> --out relay_mask.npz
+    python examples/retinothalamic.py --relay-mask relay_mask.npz --cpu --seeds 10
+
+`neurogenesis.data.atlas` reads the volume and the ontology and cuts the structure (with its descendants) as a voxel
+geometry; the example scales it, keeping its proportions, into its relay box (largest side 60 space units), so the atlas
+sets the nucleus's **shape**, not the model's size or units. The retina stays a hand-made sheet: the eye is not part of
+the brain atlas. Tested on a synthetic atlas (`tests/test_examples.py`); results with the real P4 atlas are not reported
+yet.
+
 ## Limits and toolbox findings
 Found while writing this example (run 1), fixed afterwards:
 - `refine_by_activity` ignored its `waves` (and `twitches`) settings when run from a schedule (`run_schedule` wraps a

@@ -60,8 +60,19 @@ def condition_genome(cond, wave_ticks=300):
     return g
 
 
-def build_project(cond="WT", seed=0, n_prog=60, n_relay=200, n_waves=4, wave_ticks=300):
-    """Project dict of one condition. Wave origins are drawn from `seed` here (example-level, deterministic)."""
+def relay_frame(relay_mask=None):
+    """(lower corner, size) of the relay's local box: the default box, or the bounding box of an atlas mask."""
+    if relay_mask is None:
+        return REL_C - REL_S / 2, REL_S
+    from neurogenesis.geometry.voxel import VoxelMaskGeometry
+    lo, hi = VoxelMaskGeometry.from_npz(str(relay_mask)).bounding_box()
+    return np.asarray(lo, float), np.asarray(hi, float) - np.asarray(lo, float)
+
+
+def build_project(cond="WT", seed=0, n_prog=60, n_relay=200, n_waves=4, wave_ticks=300, relay_mask=None):
+    """Project dict of one condition. Wave origins are drawn from `seed` here (example-level, deterministic).
+    `relay_mask`: an .npz voxel geometry (examples/atlas_relay_mask.py) used as the relay's shape instead of the box."""
+    rel_lo, rel_size = relay_frame(relay_mask)
     from neurogenesis.project.io import Project
     g = condition_genome(cond, wave_ticks)
     gene = lambda name, hi: {"type": "Gene", "path": name, "lo": 0.0, "hi": hi}
@@ -91,8 +102,8 @@ def build_project(cond="WT", seed=0, n_prog=60, n_relay=200, n_waves=4, wave_tic
         dict(name="mosaic", operator="mosaic", params=dict(radius=12.0, steps=60, rate=0.5, types=[RGC])),
         dict(name="grow_axons", operator="grow_axons", params=dict(
             projections=["0->1", "1->1"], conduction_velocity=8.0, w_clip=2047, exact=True,
-            bounds_min={"0": (RET_C - RET_S / 2).tolist(), "1": (REL_C - REL_S / 2).tolist()},
-            bounds_size={"0": RET_S.tolist(), "1": REL_S.tolist()},
+            bounds_min={"0": (RET_C - RET_S / 2).tolist(), "1": rel_lo.tolist()},
+            bounds_size={"0": RET_S.tolist(), "1": rel_size.tolist()},
             rules_probability=["no_autapse"],
             guidance={
                 "0->1": dict(B=np.diag([2.0 * g["epha_gain"], 2.0 * g["ephb_gain"], 0.0]).tolist(),
@@ -135,7 +146,8 @@ def build_project(cond="WT", seed=0, n_prog=60, n_relay=200, n_waves=4, wave_tic
         "trophic_need": {"type": "AnalyticField", "expr": "3.0 * (z > 20.0)"},
     }
     geometry = {"retina": {"type": "Box", "center": RET_C.tolist(), "size": RET_S.tolist()},
-                "relay": {"type": "Box", "center": REL_C.tolist(), "size": REL_S.tolist()}}
+                "relay": ({"type": "Box", "center": REL_C.tolist(), "size": REL_S.tolist()} if relay_mask is None
+                          else {"type": "voxel_mask", "npz": str(relay_mask)})}
     return Project(geometry=geometry, fields=fields, genome=g, schedule=sched, pharmacology=PROFILE,
                    metadata=dict(name=f"retinothalamic {cond}", description="toy retina -> relay development"))
 
@@ -146,7 +158,7 @@ def _pearson(a, b):
     return float((a * b).sum() / d) if d > 0 else 0.0
 
 
-def measure(tissue, n_stim_ticks=50):
+def measure(tissue, n_stim_ticks=50, relay_mask=None):
     """Metrics of one grown tissue (vectorised over synapses): mosaic regularity, map correlations and error, and the
     evoked separation of two opposite retinal corners in the relay (1 - cosine similarity of relay spike counts)."""
     from neurogenesis.analysis import nearest_neighbour_regularity
@@ -154,7 +166,8 @@ def measure(tissue, n_stim_ticks=50):
     ct, pos = tissue.cell_type, tissue.positions
     rgc, relay = np.flatnonzero(ct == RGC), np.flatnonzero(ct == RELAY)
     u_ret = (pos[:, :2] - (RET_C - RET_S / 2)[:2]) / RET_S[:2]
-    u_rel = (pos[:, :2] - (REL_C - REL_S / 2)[:2]) / REL_S[:2]
+    rel_lo, rel_size = relay_frame(relay_mask)
+    u_rel = (pos[:, :2] - rel_lo[:2]) / rel_size[:2]
     c = tissue.connectivity
     m = (ct[c.pre] == RGC) & (ct[c.post] == RELAY) & (c.weight != 0)
     pre, post, w = c.pre[m], c.post[m], np.abs(c.weight[m]).astype(float)
@@ -178,15 +191,15 @@ def measure(tissue, n_stim_ticks=50):
                 n_relay=int(len(relay)), n_retinal_synapses=int(m.sum()), relay_spikes=counts.sum(1).tolist())
 
 
-def run(seeds, small=False, conditions=CONDITIONS):
+def run(seeds, small=False, conditions=CONDITIONS, relay_mask=None):
     from neurogenesis.stages.base import run_schedule
     kw = dict(n_prog=45, n_relay=100, n_waves=2, wave_ticks=250) if small else {}
     out = {}
     for cond in conditions:
         rows = []
         for s in seeds:
-            p = build_project(cond, s, **kw)
-            rows.append(measure(run_schedule(p.to_dict(), p.genome, s)))
+            p = build_project(cond, s, relay_mask=relay_mask, **kw)
+            rows.append(measure(run_schedule(p.to_dict(), p.genome, s), relay_mask=relay_mask))
         out[cond] = rows
     return out
 
@@ -203,17 +216,18 @@ def main():
     ap.add_argument("--out", default="example_out")
     ap.add_argument("--cpu", action="store_true")
     ap.add_argument("--small", action="store_true", help="small tissue for tests")
+    ap.add_argument("--relay-mask", help="relay shape from an atlas (.npz from examples/atlas_relay_mask.py)")
     args = ap.parse_args()
     if args.cpu:
         os.environ["JAX_PLATFORMS"] = "cpu"
-    res = run(range(args.seeds), small=args.small)
+    res = run(range(args.seeds), small=args.small, relay_mask=args.relay_mask)
     summ = summary(res)
     print(f"{'condition':9s} " + " ".join(f"{k:>18s}" for k in next(iter(summ.values()))))
     for c, row in summ.items():
         print(f"{c:9s} " + " ".join(f"{m:8.3f} +- {s:6.3f}" for m, s in row.values()))
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    p = build_project("WT", 0)
+    p = build_project("WT", 0, relay_mask=args.relay_mask)
     p.save(out / "project.json")
     (out / "stats.json").write_text(json.dumps(dict(seeds=args.seeds, small=args.small, summary=summ, per_seed=res),
                                                indent=1))
