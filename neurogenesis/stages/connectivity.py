@@ -393,11 +393,12 @@ class GrowAxons:
             )
 
         if new_pre_list:
-            final_pre = np.concatenate([tissue.connectivity.pre] + new_pre_list)
-            final_post = np.concatenate([tissue.connectivity.post] + new_post_list)
-            final_w = np.concatenate([tissue.connectivity.weight] + new_weight_list)
-            final_delay = np.concatenate([tissue.connectivity.delay] + new_delay_list)
-            tissue.connectivity = SparseConnectivity(final_pre, final_post, final_w, final_delay)
+            c = tissue.connectivity
+            tissue.connectivity = SparseConnectivity.concat([c, SparseConnectivity(
+                np.concatenate(new_pre_list), np.concatenate(new_post_list), np.concatenate(new_weight_list),
+                np.concatenate(new_delay_list))])
+            for k, ref in (("pre", c.pre), ("post", c.post), ("weight", c.weight), ("delay", c.delay)):
+                setattr(tissue.connectivity, k, getattr(tissue.connectivity, k).astype(ref.dtype, copy=False))
 
         return tissue
 
@@ -554,11 +555,7 @@ class ConnectByHand:
 
     @staticmethod
     def _append(tissue: Tissue, pre, post, weight, delay) -> None:
-        c = tissue.connectivity
-        tissue.connectivity = SparseConnectivity(np.concatenate([c.pre, pre]).astype(np.int32),
-                                                 np.concatenate([c.post, post]).astype(np.int32),
-                                                 np.concatenate([c.weight, weight]).astype(np.int32),
-                                                 np.concatenate([c.delay, delay]).astype(np.int32))
+        tissue.connectivity = tissue.connectivity.append(pre, post, weight, delay)
 
     def _add_matrix(self, tissue, params, genome, fields) -> None:
         """Synapses from a dense N x N weight matrix (row = pre, column = post; 0 = no synapse), N <= 2048."""

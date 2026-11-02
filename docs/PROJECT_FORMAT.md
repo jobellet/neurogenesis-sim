@@ -18,9 +18,9 @@ During `Project.load()`, the JSON file is read first. Then, if the sidecar `.npz
 
 ## Schema Fields
 
-A valid version 1.0.0 Project dictionary must contain the following keys:
+A valid version 1.1.0 Project dictionary must contain the following keys:
 
-- **`version`** (`str`): The schema version. Currently `"1.0.0"`.
+- **`version`** (`str`): The schema version. Currently `"1.1.0"`.
 - **`geometry`** (`dict`): Defines the shapes in 2D or 3D, such as primitives, meshes, or voxel masks.
 - **`fields`** (`dict`): Hand-made or generated data on the geometry (scalar fields like morphogen gradients, vector fields like orientation, or point sets).
 - **`schedule`** (`list`): An ordered list of Stage configuration dictionaries, possibly repeated or looped.
@@ -32,6 +32,15 @@ A valid version 1.0.0 Project dictionary must contain the following keys:
 - **`neuron_model`** (`str`): The neuron model used. Defaults to `"lif_int"`.
 - **`metadata`** (`dict`): Any additional user or application metadata.
 
+Optional sections, added in 1.1.0 (task K1); each is absent (or `null`) or a dict:
+- **`data_sources`**: connectome datasets and their filters, `{name: {"dataset": id, "files": [...], "filters": {...}}}`
+  (every entry needs a `dataset` id; Phase I).
+- **`pharmacology`**: a transmitter / receptor profile reference and its parameters (Phase P).
+- **`morphology`**: arbor and compartment settings (Phase N).
+
 ## Backward Compatibility
 
 The schema includes a migration system. Older project formats (e.g., `"0.1.0"`) which consisted only of a `BodyPlan` will be automatically migrated to `"1.0.0"` by wrapping the old dictionary inside the `"plan"` field and applying defaults to the remaining required fields.
+
+`migrate_100_to_110` changes only the version of a 1.0.0 project (the new sections are optional), so every 1.0.0 project
+loads and develops exactly as before. `schema.migrate` chains single-step migrations (0.1.0 → 1.0.0 → 1.1.0).

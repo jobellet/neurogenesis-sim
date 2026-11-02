@@ -98,10 +98,7 @@ class PruneStage:
             coact = coactivity(spikes, tissue.connectivity.pre, tissue.connectivity.post, tissue.connectivity.delay, window)
             keep_mask &= coact >= float(resolve(params["min_coactivity"], genome, fields))
 
-        tissue.connectivity.pre = tissue.connectivity.pre[keep_mask]
-        tissue.connectivity.post = tissue.connectivity.post[keep_mask]
-        tissue.connectivity.weight = tissue.connectivity.weight[keep_mask]
-        tissue.connectivity.delay = tissue.connectivity.delay[keep_mask]
+        tissue.connectivity = tissue.connectivity.take(keep_mask)
 
         return tissue
 

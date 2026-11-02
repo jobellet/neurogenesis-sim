@@ -31,6 +31,10 @@ def validate(tissue: Tissue, dale: bool = False) -> List[str]:
     lengths = {len(c.pre), len(c.post), len(c.weight), len(c.delay)}
     if len(lengths) != 1:
         return problems + [f"connectivity arrays have different lengths {sorted(lengths)}"]
+    try:
+        c._sync()
+    except ValueError as e:
+        return problems + [str(e)]
     bad = (c.pre < 0) | (c.pre >= N) | (c.post < 0) | (c.post >= N)
     if bad.any():
         problems.append(f"{int(bad.sum())} synapses have indices outside [0, {N})")

@@ -347,6 +347,8 @@ Before implementing Phase I, P, and N, core contracts are updated in dedicated, 
 - Add optional top-level sections to Project schema: `data_sources` (dataset id, files, filters), `pharmacology` (profile reference, channel properties), and `morphology` (compartment models, dendritic arbor settings).
 - Backward compatibility: schema version bump to `1.1.0` with explicit migration function `migrate_100_to_110()` in `neurogenesis/project/schema.py` ensuring all 1.0.0 projects load and execute identically without modification.
 - Dedicated files: `neurogenesis/project/schema.py`, `neurogenesis/project/io.py`, `tests/test_project.py`.
+- **Status:** done: `SCHEMA_VERSION = "1.1.0"`, optional sections validated, `migrate_100_to_110`, chained migrations,
+  tests in `tests/test_project_schema.py`.
 
 **K2. Tissue struct-of-arrays extensions (contract).**
 - Extend `Tissue` with optional/defaulted arrays:
@@ -357,6 +359,8 @@ Before implementing Phase I, P, and N, core contracts are updated in dedicated, 
     - `receptor_class`: `(E,)` `uint8`;
     - optional morphology fields: `pre_node` `(E,)` `int32`, `post_node` `(E,)` `int32`, `path_length` `(E,)` `float32`, `dendritic_distance` `(E,)` `float32`.
 - Preserves float64 positions, `clone_id` lineage tracking, and exact bit-for-bit output on existing stages and legacy plans.
+- **Status:** done: `Tissue.transmitter`, `receptor_expression`, `morphology`; `SparseConnectivity.receptor_class` and
+  the optional morphology arrays, kept aligned by `take` / `concat` / `append` in every stage; fingerprints unchanged.
 
 **K3. Array-backed synapse store & uint32 neuron limit (scale invariant).**
 - Lift neuron indexing from `uint16` to `uint32` across all network representations, CSR indices, NGB1 binary format, and spiking kernels (Python, JAX, browser TypeScript, and portable C `nglif`).
