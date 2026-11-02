@@ -10,8 +10,8 @@ the number of synapses between pairs of neurons. The toolbox will use them in tw
    targets that grown circuits are fitted to. Matching is statistical, at the cell-type level, never neuron by
    neuron; when several individuals exist, their spread sets the tolerance.
 
-**What it needs** (roadmap phases K, I, P, N):
-- larger networks (array-backed synapse store, more than 65,535 neurons, delays beyond 31 ms);
+**What it builds on** (roadmap phases K, I, P, N, now implemented; see the tutorial on connectome data):
+- larger networks (array-backed synapse store, 32-bit neuron indices, multi-word spike history for long delays);
 - a dataset catalogue and streaming importer;
 - transmitter → effect as data that depends on the receptor, the organism and the developmental stage
   (e.g. glutamate acting through inhibitory glutamate-gated chloride channels in invertebrates; GABA depolarising

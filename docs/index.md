@@ -46,8 +46,9 @@ tokens), or the short [neurogenesis-sim-brief.md](https://jobellet.github.io/neu
 ```{admonition} Project status (November 2026)
 :class: warning
 The spiking kernels, neuron models, cost estimates, body plans with the fixed growth procedure, genomes, evolution,
-modules, the browser viewer and the bridge are tested and usable. Configurable developmental stages, fields and
-geometries work end to end from a JSON project but are **experimental**: their API may still change (see
+modules, the browser viewer and the bridge are tested and usable. Configurable developmental stages, fields,
+geometries, fitting, connectome import, pharmacology, arbors and SONATA export work end to end and are tested; the
+stages are young and their API may still change (see
 {doc}`development/roadmap`).
 ```
 
