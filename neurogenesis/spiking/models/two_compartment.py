@@ -31,8 +31,14 @@ def init_state(net, seed=12345):
     N = np.shape(net["mode"])[-1]
     f = jnp.zeros(N, jnp.float32)
     bits = jnp.zeros_like(net["bits0"], dtype=jnp.uint32) if "bits0" in net else jnp.zeros(N, jnp.uint32)
-    return dict(vs=f + EL, vd=f + EL, i_exc=f, i_inh=f, refr=jnp.zeros(N, jnp.int32),
-                bits=bits, phase=jnp.zeros(N, jnp.int32), rng=jnp.asarray(seed, jnp.uint32))
+    st = dict(vs=f + EL, vd=f + EL, i_exc=f, i_inh=f, refr=jnp.zeros(N, jnp.int32),
+              bits=bits, phase=jnp.zeros(N, jnp.int32), rng=jnp.asarray(seed, jnp.uint32))
+    if "e_rev" in net:
+        st["g_exc"] = f
+        st["g_inh"] = f
+        st["g_exc_rev"] = f
+        st["g_inh_rev"] = f
+    return st
 
 
 def tick(net, st, ext):
@@ -46,19 +52,55 @@ def tick(net, st, ext):
     in_refr = st["refr"] > 0
     crossed = jnp.zeros(vs.shape, bool)
     decay = jnp.exp(-DT / tau_s)
+    cond_mode = "e_rev" in net
+    if cond_mode:
+        ge = st["g_exc"]
+        gi = st["g_inh"]
+        gerev = st["g_exc_rev"]
+        girev = st["g_inh_rev"]
     for _ in range(substeps):
         dvs = -gl * (vs - EL) - gc * (vs - vd) + i_ext + ii
         dvd = -gl * (vd - EL) - gc * (vd - vs) + ie
-        vs = jnp.where(in_refr, V_RESET, vs + DT * dvs)
-        vd = vd + DT * dvd
+        if cond_mode:
+            vs_next = (vs + DT * (dvs + girev)) / (1.0 + DT * gi)
+            vd_next = (vd + DT * (dvd + gerev)) / (1.0 + DT * ge)
+            vs = jnp.where(in_refr, V_RESET, vs_next)
+            vd = vd_next
+        else:
+            vs = jnp.where(in_refr, V_RESET, vs + DT * dvs)
+            vd = vd + DT * dvd
         crossed = crossed | ((vs >= theta) & ~in_refr)
         vs = jnp.where(crossed, V_RESET, vs)
         ie, ii = ie * decay, ii * decay
+        if cond_mode:
+            ge, gi = ge * decay, gi * decay
+            gerev, girev = gerev * decay, girev * decay
     forced, rng, phase = drivers(net, st["rng"], st["phase"])
     spiked = crossed | (forced & ~in_refr)
     refr = jnp.where(in_refr, st["refr"] - 1, jnp.where(spiked, net["refractory"], 0))
     bits, arrivals = transmit(net, st["bits"], spiked)
     q = arrivals.astype(jnp.float32) * net["weight"].astype(jnp.float32) * SCALE / tau_s[net["post"]]
-    ie = ie.at[net["post"]].add(jnp.maximum(q, 0.0))
-    ii = ii.at[net["post"]].add(jnp.minimum(q, 0.0))
-    return dict(vs=vs, vd=vd, i_exc=ie, i_inh=ii, refr=refr, bits=bits, phase=phase, rng=rng), spiked.astype(jnp.uint8), arrivals
+    if cond_mode:
+        is_cond = ~jnp.isnan(net["e_rev"])
+        q_curr = jnp.where(is_cond, 0.0, q)
+        ie = ie.at[net["post"]].add(jnp.maximum(q_curr, 0.0))
+        ii = ii.at[net["post"]].add(jnp.minimum(q_curr, 0.0))
+        g_inc = jnp.where(is_cond, jnp.abs(q), 0.0)
+        e_rev = jnp.where(is_cond, net["e_rev"], 0.0)
+        is_exc = jnp.where(is_cond, e_rev >= EL, net["weight"] >= 0)
+        g_exc_inc = jnp.where(is_exc, g_inc, 0.0)
+        g_inh_inc = jnp.where(is_exc, 0.0, g_inc)
+        ge = ge.at[net["post"]].add(g_exc_inc)
+        gerev = gerev.at[net["post"]].add(g_exc_inc * e_rev)
+        gi = gi.at[net["post"]].add(g_inh_inc)
+        girev = girev.at[net["post"]].add(g_inh_inc * e_rev)
+    else:
+        ie = ie.at[net["post"]].add(jnp.maximum(q, 0.0))
+        ii = ii.at[net["post"]].add(jnp.minimum(q, 0.0))
+    out_st = dict(vs=vs, vd=vd, i_exc=ie, i_inh=ii, refr=refr, bits=bits, phase=phase, rng=rng)
+    if cond_mode:
+        out_st["g_exc"] = ge
+        out_st["g_inh"] = gi
+        out_st["g_exc_rev"] = gerev
+        out_st["g_inh_rev"] = girev
+    return out_st, spiked.astype(jnp.uint8), arrivals

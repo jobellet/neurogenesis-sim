@@ -44,9 +44,13 @@ def init_state(net, seed=12345):
     v0 = jnp.full(N, -65.0, jnp.float32)
     am, bm, ah, bh, an, bn = _rates(v0)
     bits = jnp.zeros_like(net["bits0"], dtype=jnp.uint32) if "bits0" in net else jnp.zeros(N, jnp.uint32)
-    return dict(v=v0, m=am / (am + bm), h=ah / (ah + bh), n=an / (an + bn), i_syn=jnp.zeros(N, jnp.float32),
-                refr=jnp.zeros(N, jnp.int32), bits=bits, phase=jnp.zeros(N, jnp.int32),
-                rng=jnp.asarray(seed, jnp.uint32))
+    st = dict(v=v0, m=am / (am + bm), h=ah / (ah + bh), n=an / (an + bn), i_syn=jnp.zeros(N, jnp.float32),
+              refr=jnp.zeros(N, jnp.int32), bits=bits, phase=jnp.zeros(N, jnp.int32),
+              rng=jnp.asarray(seed, jnp.uint32))
+    if "e_rev" in net:
+        st["g_syn"] = jnp.zeros(N, jnp.float32)
+        st["g_syn_rev"] = jnp.zeros(N, jnp.float32)
+    return st
 
 
 def tick(net, st, ext):
@@ -56,20 +60,44 @@ def tick(net, st, ext):
     v, m, h, n, isyn = st["v"], st["m"], st["h"], st["n"], st["i_syn"]
     decay = jnp.exp(-DT / tau_s)
     crossed = jnp.zeros(v.shape, bool)
+    cond_mode = "e_rev" in net
+    if cond_mode:
+        g = st["g_syn"]
+        grev = st["g_syn_rev"]
     for _ in range(substeps):
         am, bm, ah, bh, an, bn = _rates(v)
         m = am / (am + bm) + (m - am / (am + bm)) * jnp.exp(-DT * (am + bm))
         h = ah / (ah + bh) + (h - ah / (ah + bh)) * jnp.exp(-DT * (ah + bh))
         n = an / (an + bn) + (n - an / (an + bn)) * jnp.exp(-DT * (an + bn))
         i_ion = G_NA * m ** 3 * h * (v - E_NA) + G_K * n ** 4 * (v - E_K) + G_L * (v - E_L)
-        v_new = v + DT * (-i_ion + i_ext + isyn)
+        if cond_mode:
+            v_new = (v + DT * (-i_ion + i_ext + isyn + grev)) / (1.0 + DT * g)
+        else:
+            v_new = v + DT * (-i_ion + i_ext + isyn)
         crossed = crossed | ((v < 0.0) & (v_new >= 0.0))
         v = v_new
         isyn = isyn * decay
+        if cond_mode:
+            g = g * decay
+            grev = grev * decay
     forced, rng, phase = drivers(net, st["rng"], st["phase"])
     in_refr = st["refr"] > 0
     spiked = crossed | (forced & ~in_refr)
     refr = jnp.where(in_refr, st["refr"] - 1, jnp.where(forced & ~in_refr, net["refractory"], 0))   # drivers only
     bits, arrivals = transmit(net, st["bits"], spiked)
-    isyn = isyn.at[net["post"]].add(arrivals.astype(jnp.float32) * net["weight"].astype(jnp.float32) * SCALE / tau_s[net["post"]])
-    return dict(v=v, m=m, h=h, n=n, i_syn=isyn, refr=refr, bits=bits, phase=phase, rng=rng), spiked.astype(jnp.uint8), arrivals
+    q = arrivals.astype(jnp.float32) * net["weight"].astype(jnp.float32) * SCALE / tau_s[net["post"]]
+    if cond_mode:
+        is_cond = ~jnp.isnan(net["e_rev"])
+        q_curr = jnp.where(is_cond, 0.0, q)
+        isyn = isyn.at[net["post"]].add(q_curr)
+        g_inc = jnp.where(is_cond, jnp.abs(q), 0.0)
+        e_rev = jnp.where(is_cond, net["e_rev"], 0.0)
+        g = g.at[net["post"]].add(g_inc)
+        grev = grev.at[net["post"]].add(g_inc * e_rev)
+    else:
+        isyn = isyn.at[net["post"]].add(q)
+    out_st = dict(v=v, m=m, h=h, n=n, i_syn=isyn, refr=refr, bits=bits, phase=phase, rng=rng)
+    if cond_mode:
+        out_st["g_syn"] = g
+        out_st["g_syn_rev"] = grev
+    return out_st, spiked.astype(jnp.uint8), arrivals
