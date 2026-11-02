@@ -279,3 +279,21 @@ def test_pinwheel_field_and_charges():
     np.testing.assert_allclose(pinwheel_charges(grid, sing + 0.1, radius=2.0), charges, atol=1e-9)
     # no singularity enclosed: charge 0
     np.testing.assert_allclose(pinwheel_charges(grid, [[10.0, 10.0]], radius=2.0), [0.0], atol=1e-9)
+
+
+def test_composite_fields_bind_sub_fields():
+    genome = {"layers": {"t0": 2.0}}
+    layers = LayerStackField(AnalyticField("z"), thicknesses=[Gene(("layers", "t0"), 0.5, 4.0), 3.0], labels=[10, 20])
+    pts = np.array([[0, 0, 1.0], [0, 0, 3.5]])
+    field = Threshold(Add(layers, 1.0), threshold=15.0)
+    with pytest.raises(ValueError, match="bind"):
+        field.values(pts)
+    bound = field.bind(genome)
+    np.testing.assert_allclose(bound.base_field.values(pts), layers.bind(genome).values(pts) + 1.0)
+    np.testing.assert_allclose(bound.values(pts), [[0, 0], [1, 0]])
+    np.testing.assert_allclose(Add(1.0, layers).bind(genome).values(pts), [[11, 1.5], [21, 1.5]])
+    # composites without genome-dependent parameters bind to themselves
+    grid = GridField(np.arange(27.0).reshape(3, 3, 3), [0, 0, 0], [1, 1, 1])
+    for f in (Add(grid, AnalyticField("x")), Threshold(grid, 3.0), GaussianSmooth(grid, 1.0),
+              DistanceToBoundary(Sphere([1, 1, 1], 1.0), ([0, 0, 0], [2, 2, 2]), 0.5)):
+        assert f.bind(genome) is f

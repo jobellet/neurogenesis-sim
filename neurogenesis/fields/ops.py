@@ -69,6 +69,11 @@ class Add(Field):
         self.a = a
         self.b = b
 
+    def bind(self, genome: Dict[str, Any]) -> 'Field':
+        a = self.a.bind(genome) if isinstance(self.a, Field) else self.a
+        b = self.b.bind(genome) if isinstance(self.b, Field) else self.b
+        return self if a is self.a and b is self.b else Add(a, b)
+
     def values(self, points: np.ndarray) -> np.ndarray:
         val_a = self.a.values(points) if isinstance(self.a, Field) else self.a
         val_b = self.b.values(points) if isinstance(self.b, Field) else self.b
@@ -95,6 +100,10 @@ class Threshold(Field):
         self.threshold = threshold
         self.value_below = value_below
         self.value_above = value_above
+
+    def bind(self, genome: Dict[str, Any]) -> 'Field':
+        base = self.base_field.bind(genome)
+        return self if base is self.base_field else Threshold(base, self.threshold, self.value_below, self.value_above)
 
     def values(self, points: np.ndarray) -> np.ndarray:
         vals = self.base_field.values(points)
@@ -123,6 +132,10 @@ class GaussianSmooth(Field):
         self.sigma = sigma
         self.smoothed_data = self._smooth(base_field.data, sigma / np.array(base_field.spacing))
         self.smoothed_field = GridField(self.smoothed_data, base_field.origin, base_field.spacing, base_field.method)
+
+    def bind(self, genome: Dict[str, Any]) -> 'Field':
+        base = self.base_field.bind(genome)
+        return self if base is self.base_field else GaussianSmooth(base, self.sigma)
 
     def _smooth(self, data: np.ndarray, sigmas: np.ndarray) -> np.ndarray:
         return _gaussian_filter(data, sigmas)
@@ -269,6 +282,13 @@ class DistanceToBoundary(Field):
         if self.signed:
             dist = np.where(inside, dist, -dist)
         self.grid_field = GridField(dist, self.bounds[0], sp, method='trilinear')
+
+    def bind(self, genome: Dict[str, Any]) -> 'Field':
+        if not isinstance(self.region, Field):
+            return self
+        region = self.region.bind(genome)
+        return self if region is self.region else DistanceToBoundary(region, self.bounds, self.spacing, self.label,
+                                                                     self.signed)
 
     def values(self, points: np.ndarray) -> np.ndarray:
         return self.grid_field.values(np.asarray(points, dtype=float)[..., :len(self.bounds[0])])
