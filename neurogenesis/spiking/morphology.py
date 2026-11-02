@@ -108,7 +108,6 @@ class MorphogeneticEngine:
         num_burster = num_pace - num_poisson
 
         num_inh = int(round(num_neurons * (1.0 - exc_ratio)))
-        num_exc = num_neurons - num_pace - num_inh
 
         # Cylindrical somatic placement
         for i in range(num_neurons):

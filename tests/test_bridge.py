@@ -10,8 +10,6 @@ import pytest
 
 from neurogenesis.bridge import METHODS, NGB_VERSION, PROTOCOL_VERSION, read_network, server, write_network
 from neurogenesis.development import BodyPlan, FixedPlacement, Region
-from neurogenesis.genome.io import to_json
-from neurogenesis.modules import Module
 from neurogenesis.spiking.morphology import MorphogeneticEngine
 from neurogenesis.stages import register_stage
 

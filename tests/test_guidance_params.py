@@ -1,12 +1,8 @@
 """Tests for F3: Guidance through Params, string projection keys, and expression-gradient driven axon growth."""
 import json
 import numpy as np
-import pytest
 
 from neurogenesis.stages.base import run_schedule
-from neurogenesis.tissue import Tissue
-from neurogenesis.params import Const, Param, param_to_dict
-from neurogenesis.development.rules import RULES
 
 
 def test_grow_axons_accepts_guidance_param_with_string_keys():

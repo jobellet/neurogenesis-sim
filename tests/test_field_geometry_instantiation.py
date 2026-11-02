@@ -2,8 +2,8 @@
 import numpy as np
 import pytest
 
-from neurogenesis.geometry import Geometry, Box, MeshGeometry, VoxelMaskGeometry, _GEOMETRY_REGISTRY
-from neurogenesis.fields import Field, AnalyticField, GridField, _FIELD_REGISTRY
+from neurogenesis.geometry import Box, _GEOMETRY_REGISTRY
+from neurogenesis.fields import AnalyticField, _FIELD_REGISTRY
 from neurogenesis.stages.base import run_schedule, _instantiate_fields
 from neurogenesis.tissue import Tissue
 

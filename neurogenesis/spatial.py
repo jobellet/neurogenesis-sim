@@ -1,6 +1,6 @@
 import numpy as np
 import math
-from typing import Tuple, Optional, Union
+from typing import Tuple, Optional
 
 class CellList:
     """

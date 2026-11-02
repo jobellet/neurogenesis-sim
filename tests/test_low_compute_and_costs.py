@@ -61,17 +61,17 @@ def test_all_stages_declare_cost_within_factor_three():
         "seed_cells": {"N": Const(N)},
         "proliferate": {"prob": Const(0.5)},
         "apoptosis": {"density_radius": Const(2.0), "max_density": Const(5)},
-        "grow_axons": {"sigma": Const(0.2), "p0": Const(0.5)},
+        "grow_axons": {"guidance": Const({"0->1": {"sigma": 0.2, "p0": 0.5}})},
         "place_by_hand": {"positions": Const(np.zeros((N, 3)).tolist())},
         "connect_by_hand": {"pre": Const([0]), "post": Const([1])},
         "express": {"K": Const(4)},
         "differentiate": {"types": Const([{"type_id": 1}, {"type_id": 2}])},
         "migrate": {"speed": Const(1.0)},
         "sort": {"axis": Const([1.0, 0.0, 0.0])},
-        "prune": {"w_cut": Const(10)},
-        "scale": {"w_target": Const(100.0)},
+        "prune": {"threshold": Const(10)},
+        "scale": {"target": Const(100.0)},
         "myelinate": {"delay_factor": Const(0.8)},
-        "refine_by_activity": {"ticks": Const(50)}
+        "refine_by_activity": {"rule": Const("stdp"), "ticks": Const(50)}
     }
     
     for stage_name in sample_params:
@@ -92,6 +92,18 @@ def test_all_stages_declare_cost_within_factor_three():
             f"Stage {stage_name} memory does not scale linearly: {bytes_cost} -> {bytes_2n}"
         assert ops_cost <= ops_2n <= 4 * (2 * ops_cost), \
             f"Stage {stage_name} ops do not scale linearly: {ops_cost} -> {ops_2n}"
+
+    # The sample params are ones the stages read: each changes a toy tissue's synapses.
+    for stage_name in ("prune", "scale", "myelinate"):
+        t = Tissue.empty()
+        t.add_cells(3, positions=np.zeros((3, 3)))
+        t.connectivity = SparseConnectivity(np.array([0, 1, 2], dtype=np.int32), np.array([1, 2, 0], dtype=np.int32),
+                                            np.array([5, 20, -40], dtype=np.int32), np.array([10, 10, 10], dtype=np.int32))
+        before = [getattr(t.connectivity, k).copy() for k in ("pre", "weight", "delay")]
+        out = STAGE_REGISTRY[stage_name]().run(t, sample_params[stage_name], {}, {}, np.random.default_rng(0))
+        after = [getattr(out.connectivity, k) for k in ("pre", "weight", "delay")]
+        assert any(len(a) != len(b) or not np.array_equal(a, b) for a, b in zip(after, before)), \
+            f"Stage {stage_name} ignored its sample params"
 
 
 def test_stage_cost_accuracy_against_tissue_memory():
