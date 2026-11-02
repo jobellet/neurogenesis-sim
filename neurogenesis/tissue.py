@@ -142,6 +142,7 @@ class Tissue:
     expression_names: List[str] = field(default_factory=list)
     _next_cell_id: int = 0
     generation: Optional[np.ndarray] = None  # (N,) int32 divisions since the founder; zeros when omitted
+    cycling: Optional[np.ndarray] = None  # (N,) bool progenitor cycling state; True when omitted
     transmitter: Optional[np.ndarray] = None  # (N,) int8 bitmask of transmitters released (0 = classic sign only)
     receptor_expression: Optional[np.ndarray] = None  # (N, R) float32 receptor levels; (N, 0) when omitted
     morphology: Optional[object] = None  # optional ArborStore (neurogenesis.morphology), arbors of the cells
@@ -149,6 +150,8 @@ class Tissue:
     def __post_init__(self) -> None:
         if self.generation is None:
             self.generation = np.zeros(len(self.alive), dtype=np.int32)
+        if self.cycling is None:
+            self.cycling = np.ones(len(self.alive), dtype=bool)
         if self.transmitter is None:
             self.transmitter = np.zeros(len(self.alive), dtype=np.int8)
         if self.receptor_expression is None:
@@ -239,6 +242,8 @@ class Tissue:
 
         birth = kwargs.get("birth_stage", np.zeros(N, dtype=np.int32))
         gen = np.asarray(kwargs.get("generation", np.zeros(N, dtype=np.int32)), dtype=np.int32)
+        cyc_arg = kwargs.get("cycling")
+        cyc = np.ones(N, dtype=bool) if cyc_arg is None else np.broadcast_to(np.asarray(cyc_arg, dtype=bool), (N,)).copy()
         ctype = kwargs.get("cell_type", np.zeros(N, dtype=np.int32))
         reg = kwargs.get("region", np.zeros(N, dtype=np.int32))
         expr = kwargs.get("expression", np.zeros((N, K), dtype=np.float32))
@@ -281,6 +286,7 @@ class Tissue:
         self.clone_id = np.concatenate([self.clone_id, c_clone_id])
         self.birth_stage = np.concatenate([self.birth_stage, birth])
         self.generation = np.concatenate([self.generation, gen])
+        self.cycling = np.concatenate([self.cycling, cyc])
         self.cell_type = np.concatenate([self.cell_type, ctype])
         self.region = np.concatenate([self.region, reg])
         self.expression = np.concatenate([self.expression, expr])
@@ -334,6 +340,7 @@ class Tissue:
         self.clone_id = self.clone_id[alive_mask]
         self.birth_stage = self.birth_stage[alive_mask]
         self.generation = self.generation[alive_mask]
+        self.cycling = self.cycling[alive_mask]
         self.cell_type = self.cell_type[alive_mask]
         self.region = self.region[alive_mask]
         self.expression = self.expression[alive_mask]
@@ -406,6 +413,7 @@ class Tissue:
             expression_names=list(self.expression_names),
             _next_cell_id=self._next_cell_id,
             generation=self.generation[indices].copy(),
+            cycling=self.cycling[indices].copy(),
             transmitter=self.transmitter[indices].copy(),
             receptor_expression=self.receptor_expression[indices].copy(),
         )
@@ -515,6 +523,7 @@ class Tissue:
             expression_names=expr_names,
             _next_cell_id=total_next_id,
             generation=np.concatenate([t.generation for t in tissues]),
+            cycling=np.concatenate([t.cycling for t in tissues]),
             transmitter=np.concatenate([t.transmitter for t in tissues]),
             receptor_expression=rex,
             morphology=_concat_morphology(tissues, offsets),
@@ -584,12 +593,14 @@ class Tissue:
             val = getattr(self.connectivity, key, None)
             if val is not None:
                 syn_arrays[key] = np.asarray(val[valid_synapses], dtype=np.float32)
-        return SNNNetwork.from_arrays(
+        out = SNNNetwork.from_arrays(
             version="1.0.0",
             morphology="Custom",
             neurons=net.neurons,
             synapse_arrays=syn_arrays,
         )
+        out._cycling = self.cycling[self.alive].copy()
+        return out
 
     @classmethod
     def from_network(cls, net: SNNNetwork) -> Tissue:
@@ -620,6 +631,7 @@ class Tissue:
         sign = np.where(base_weight >= 0, np.ones(N, dtype=np.int8), np.full(N, -1, dtype=np.int8))
         
         cell_id = np.array([n.id for n in net.neurons], dtype=np.int32)
+        cycling = getattr(net, "_cycling", None)
         t.add_cells(
             N, 
             positions=positions, 
@@ -638,7 +650,8 @@ class Tissue:
             role=role,
             compartment=compartment,
             threshold=threshold,
-            sign=sign
+            sign=sign,
+            cycling=cycling,
         )
         
         M = net.num_synapses
@@ -666,7 +679,7 @@ class Tissue:
         total = 0
         arrays = [
             self.positions, self.directions, self.cell_id, self.parent_id, self.clone_id,
-            self.birth_stage, self.generation, self.cell_type, self.region, self.expression,
+            self.birth_stage, self.generation, self.cycling, self.cell_type, self.region, self.expression,
             self.sign, self.alive, self.mode, self.shift_v, self.shift_s,
             self.base_weight, self.conn_radius, self.conn_prob, self.burst_period,
             self.burst_duty, self.poisson_hz, self.refractory, self.role,

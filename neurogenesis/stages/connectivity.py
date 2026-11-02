@@ -429,12 +429,12 @@ class PlaceByHand:
         else:
             region = np.asarray(region, dtype=np.int32)
             
-        kwargs = {"positions": pos, "region": region}
+        kwargs = {"positions": pos, "region": region, "cycling": np.zeros(len(pos), dtype=bool)}
         
-        for k in ["cell_type", "birth_stage", "sign", "mode", "shift_v", "shift_s", "base_weight", "threshold", "directions"]:
+        for k in ["cell_type", "birth_stage", "sign", "mode", "shift_v", "shift_s", "base_weight", "threshold", "directions", "cycling"]:
             val = resolve(params.get(k), genome, fields)
             if val is not None:
-                if isinstance(val, (int, float, np.integer, np.floating)):
+                if isinstance(val, (int, float, bool, np.integer, np.floating, np.bool_)):
                     kwargs[k] = np.full(len(pos), val)
                 else:
                     kwargs[k] = np.asarray(val)

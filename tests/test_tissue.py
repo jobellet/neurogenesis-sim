@@ -310,3 +310,36 @@ def test_k2_direct_array_edits_keep_a_default_receptor_class():
     t.connectivity.weight = np.array([1], np.int32)
     t.connectivity.delay = np.array([1], np.int32)
     assert len(t.subset(np.arange(2)).connectivity.receptor_class) == 1
+
+
+def test_k6_cycling_defaults_and_carried_through_operations():
+    from neurogenesis.stages.base import STAGE_REGISTRY
+    import neurogenesis.stages  # noqa: F401
+
+    t = Tissue.empty()
+    t = STAGE_REGISTRY["seed_cells"]().run(t, {"N": 3, "position": [0.0, 0.0, 0.0]}, {}, {}, np.random.default_rng(0))
+    assert t.cycling.dtype == bool and t.cycling.tolist() == [True, True, True]
+
+    t = STAGE_REGISTRY["place_by_hand"]().run(t, {"positions": [[1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]}, {}, {}, np.random.default_rng(0))
+    assert t.cycling.tolist() == [True, True, True, False, False]
+
+    t.add_cells(1, cycling=np.array([False]))
+    assert t.cycling.tolist() == [True, True, True, False, False, False]
+
+    sub = t.subset(np.array([4, 0, 5]))
+    assert sub.cycling.tolist() == [False, True, False]
+
+    cat = Tissue.concatenate([sub, t.subset(np.array([1, 3]))])
+    assert cat.cycling.tolist() == [False, True, False, True, False]
+
+    t.kill(np.array([True, False, False, True, False, False]))
+    t.compact()
+    assert t.cycling.tolist() == [True, True, False, False]
+
+    back = Tissue.from_network(t.to_network())
+    assert back.cycling.tolist() == [True, True, False, False]
+
+    # Constructed without cycling field: defaults to True for all cells.
+    kwargs = {k: getattr(t, k) for k in t.__dataclass_fields__ if k != "cycling"}
+    assert Tissue(**kwargs).cycling.tolist() == [True, True, True, True]
+

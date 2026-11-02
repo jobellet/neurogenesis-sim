@@ -263,6 +263,9 @@ sources, listed below the table.
 - **K6. Optional Tissue fields.** `cycling` (bool, C14), `plastic` (per synapse, C23) and `contacts` (per synapse, int,
   C19), defaulted so that existing code and networks are unchanged; carried by add / compact / subset / concatenate and
   into the network where they matter (contacts as weights, plastic for later plasticity).
+  - **Status:** partial: `Tissue.cycling` (bool, per cell; `True` for `seed_cells` / `proliferate`, `False` for
+    `place_by_hand`; carried by `add_cells` / `compact` / `subset` / `concatenate` / `to_network` / `from_network`;
+    `proliferate` divides only cycling cells) done; `plastic` (C23) and `contacts` (C19) pending.
 
 **Order and priorities.** C14 → C15 first (they make birth-order-dependent layering emerge in G2.3, instead of being
 imposed); C21, C22, C23 next (they use existing P3 / P4 and C11); C18 and C24 independent; C16, C17, C19 after N2 / N3;
