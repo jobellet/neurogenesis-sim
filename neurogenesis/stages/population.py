@@ -5,21 +5,9 @@ from typing import Dict, Any, Tuple
 
 from neurogenesis.stages.base import register_stage
 from neurogenesis.tissue import Tissue
-from neurogenesis.params import resolve, Param, param_from_dict, Const, Gene, Fit
+from neurogenesis.params import resolve, Param, worst_case
 from neurogenesis.geometry import Geometry
 from neurogenesis.spatial import CellList
-
-def _worst_case(param: Any, default: Any) -> Any:
-    """Value of a Param for cost estimates: a Const's value, the upper bound of a Gene or Fit, else `default`."""
-    if isinstance(param, dict):
-        param = param_from_dict(param)
-    if isinstance(param, Const):
-        return param.value
-    if isinstance(param, (Gene, Fit)):
-        return param.hi
-    if param is None or isinstance(param, Param.__args__):
-        return default
-    return param
 
 
 @register_stage("seed_cells")
@@ -30,7 +18,7 @@ class SeedCells:
     """
     @classmethod
     def cost(cls, N: int, E: int, params: Dict[str, Any]) -> Tuple[int, int]:
-        M = int(_worst_case(params.get("N"), 100))
+        M = int(worst_case(params.get("N"), 100))
         bytes_cost = M * 128
         ops_cost = M * 15
         return bytes_cost, ops_cost
@@ -113,8 +101,8 @@ class Proliferate:
 
     @classmethod
     def cost(cls, N: int, E: int, params: Dict[str, Any]) -> Tuple[int, int]:
-        M = int(N * min(1.0, float(_worst_case(params.get("prob"), 0.5))))
-        max_cells = _worst_case(params.get("max_cells"), None)
+        M = int(N * min(1.0, float(worst_case(params.get("prob"), 0.5))))
+        max_cells = worst_case(params.get("max_cells"), None)
         if max_cells is not None:
             M = min(M, max(0, int(max_cells) - N))
         M = max(1, M)

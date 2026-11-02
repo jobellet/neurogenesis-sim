@@ -3,24 +3,11 @@ import math
 from typing import Dict, Any, Tuple
 from neurogenesis.stages.base import register_stage
 from neurogenesis.tissue import Tissue
-from neurogenesis.params import resolve, Param, param_from_dict, Const, Gene, Fit
+from neurogenesis.params import resolve, Param, worst_case
 from neurogenesis.spatial import CellList
 from neurogenesis.fields import Field
 from neurogenesis.geometry import Geometry
 from neurogenesis.expressions import eval_expr
-
-
-def _worst_case(param: Any, default: Any) -> Any:
-    """Value of a Param for cost estimates: a Const's value, the upper bound of a Gene or Fit, else `default`."""
-    if isinstance(param, dict):
-        param = param_from_dict(param)
-    if isinstance(param, Const):
-        return param.value
-    if isinstance(param, (Gene, Fit)):
-        return param.hi
-    if param is None or isinstance(param, Param.__args__):
-        return default
-    return param
 
 
 # Mean neighbours per cell assumed by the express cost when radius > 0 (cell-list bins of side radius).
@@ -31,11 +18,11 @@ _EXPRESS_MEAN_NEIGHBOURS = 27
 class Express:
     @staticmethod
     def cost(N: int, E: int, params: Dict[str, Param]) -> Tuple[int, int]:
-        K = int(_worst_case(params.get("K"), 0))
+        K = int(worst_case(params.get("K"), 0))
         # O(N K^2) operations
         ops = N * K * K * 4
         bytes_cost = N * K * 8
-        if K > 0 and float(_worst_case(params.get("radius"), 0.0)) > 0:
+        if K > 0 and float(worst_case(params.get("radius"), 0.0)) > 0:
             nb = _EXPRESS_MEAN_NEIGHBOURS
             cl_bytes, cl_ops = CellList.declared_cost(N, N, nb)
             bytes_cost += cl_bytes + N * nb * K * 4 + N * K * 8
@@ -151,7 +138,7 @@ class Differentiate:
     """
     @staticmethod
     def cost(N: int, E: int, params: Dict[str, Any]) -> Tuple[int, int]:
-        types_val = _worst_case(params.get("types"), [])
+        types_val = worst_case(params.get("types"), [])
         num_types = len(types_val) if isinstance(types_val, list) else 0
         ops = N * num_types * 5
         bytes_cost = N * 4

@@ -3,7 +3,7 @@ import numpy as np
 
 from neurogenesis.params import (
     Const, Gene, Field, Fit, Expr, resolve, collect_genes, collect_project_genes,
-    param_from_dict, param_to_dict
+    param_from_dict, param_to_dict, worst_case
 )
 
 
@@ -136,3 +136,12 @@ def test_param_from_dict_needs_type_unless_shape_is_exact():
     assert param_from_dict({"type": "Gene", "path": "a.b"}) == Gene("a.b")
     with pytest.raises(ValueError, match="missing"):
         param_from_dict({"type": "Fit", "target": "rate"})
+
+
+def test_worst_case():
+    assert worst_case(Const(7), 0) == 7
+    assert worst_case(Gene("a", lo=1, hi=5), 0) == 5.0
+    assert worst_case(Fit("rate", 1.0, 0.0, 2.0), 0) == 2.0
+    assert worst_case({"path": "a", "lo": 0, "hi": 3}, 0) == 3.0
+    assert worst_case(Field("f"), 9) == 9 and worst_case(Expr("x"), 9) == 9 and worst_case(None, 9) == 9
+    assert worst_case(4, 0) == 4
