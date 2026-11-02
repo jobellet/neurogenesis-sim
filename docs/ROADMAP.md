@@ -624,6 +624,88 @@ Grow realistic arbor morphologies and calculate conduction delays based on neuri
 - Multi-compartment or passive dendritic filtering approximation in spiking simulation to capture distal vs proximal synaptic efficacy based on `dendritic_distance`.
 - **Status:** done: `neurogenesis.dendritic` (`apply_dendritic_attenuation`, `dendritic_attenuate` stage, distal compartment routing for `two_compartment`).
 
+### Phase J: interoperability, shared metrics, benchmarks and outreach
+
+Goal: make neurogenesis-sim the development front end of the computational-neuroscience ecosystem. Networks grown here
+are exported to established simulators and neuromorphic toolchains, and public data (morphologies, gene-expression
+atlases, recordings, connectomes) come in as fields, targets and benchmarks. Design rules for every J task:
+- **Outside the kernel.** Importers and exporters live in `neurogenesis/interop/` (one module per format) and never
+  change development or the integer kernels; determinism and kernel equivalence are untouched.
+- **Optional dependencies.** Each format's package is an optional extra (`pip install "neurogenesis-sim[sonata]"`, ...),
+  imported lazily, with a clear error naming the extra. CI installs the extras in one job so the tests never skip.
+- **Honest mappings.** Every export returns an `ExportReport` listing what is exact, what is approximated (with the
+  formula) and what is dropped (e.g. Poisson and burster drivers in formats without them). Formats that can carry
+  toolbox-specific attributes (SONATA, NGB1) round-trip losslessly; this is tested.
+- **One mapping of the dynamics.** All exporters share one documented translation of the integer LIF into a
+  current-based exponential LIF (`neurogenesis/interop/dynamics.py`): `τ = −1 / ln(1 − 2^−shift)` ms (per-tick decay
+  matched exactly; `2^shift` overestimates by up to 39 %), `V = E_L + s·v` (default `E_L` −65 mV, `s` = 15/1024 mV,
+  so the default threshold is −50 mV), a weight `w` becomes the current jump `W = C_m·s·w·(1 − a)/(4a·τ_syn)`
+  (`a = 2^−shift_s`, total charge matched), and a delay of `d` ticks becomes `d + 1` ms (the kernel's extra tick of
+  synaptic latency, verified in the tests). Integer rounding, the minimum decrement and the ±2048 clamp are the
+  approximation.
+- **Licences.** Several target libraries are GPL (navis, NEST), LGPL (libsonata, Norse) or CeCILL (PyNN, Brian 2), and
+  the Allen data are non-commercial: optional or test dependencies only, never vendored code or committed data.
+
+**J1. Interop core [contract]. Status: done (`neurogenesis.interop`).** `neurogenesis.interop`: format registry (`register_format`), `export_network(net, fmt,
+path, **opts) -> ExportReport`, `import_network(fmt, path) -> SNNNetwork`, `formats()`; `ExportReport` (exact /
+approximated / dropped, as JSON); the shared dynamics mapping; CLI `python -m neurogenesis export <network> --format
+<fmt> --out <path>` and `python -m neurogenesis import`. Accepts network JSON, NGB1 or an `SNNNetwork`.
+
+**J2. SONATA (input and output). Status: done (`neurogenesis/interop/sonata.py`); BMTK / NEST run pending (J6).** Nodes and edges in HDF5 with node / edge type CSVs and a circuit config (Dai et al.
+2020), so BMTK, NEST (via its SONATA reader), NEURON and libsonata tools can read grown circuits. SONATA is the primary export: it is the only target that carries
+sparse connectivity, per-synapse delays and extra attributes. Every neuron and synapse field is stored raw (`ngs_*`,
+lossless round trip, tested); positions as x, y, z; one population and one attribute group `0` (all libsonata reads);
+NEST `iaf_psc_exp` dynamics per node; weights in pA and delays in ms from the shared mapping; edge indices with the
+libsonata names (`node_id_to_ranges`). Reader for point-neuron circuits from other tools (inverse mapping). Tested with
+libsonata (`node_id_to_ranges` / afferent and efferent edges). Drivers are written as nodes (rates kept); replaying
+their spikes as a SONATA spikes input is a follow-up.
+
+**J3. NIR (output, small modules).** The Neuromorphic Intermediate Representation (Pedersen et al. 2024, Nat Commun
+15:8122; `pip install nir`): CubaLIF nodes and dense affine / linear weights, for snnTorch, Norse, Lava-DL, SpiNNaker2
+and other NIR backends. NIR has no refractory period, no sparse connectivity and no per-synapse delays (its Delay node
+is per channel), and its time units are not enforced: suited to small modules only; refractoriness and delays are
+reported as approximated, and the time step is written explicitly. Drivers become external inputs or are dropped
+(reported).
+
+**J4. PyNN (output).** A self-contained script plus `.npz` arrays: populations of `IF_curr_exp` with the shared
+mapping (C_m in nF, weights in nA), positions, `FromListConnector` (pre, post, weight, delay) projections, drivers as
+`SpikeSourcePoisson` where possible; runs on PyNN's backends (NEST, NEURON, Brian 2) and SpiNNaker (sPyNNaker).
+PyNN can also read SONATA (`pyNN.serialization.import_from_sonata`), which J6 uses as a cross-check.
+
+**J5. NeuroML 2 (output).** `iafRefCell`-type cells, exponential synapses, populations with instance positions,
+projections with weights and delays, written with libNeuroML and validated with its validator; for Open Source Brain
+and NEURON / NetPyNE import.
+
+**J6. Cross-simulator checks.** For each exporter with a runnable target, simulate reference networks there and in
+`lif_int` and compare spike statistics (rates, CV of ISIs, pairwise correlations) with declared tolerances, report only.
+Documents how close the exported model is, without claiming equivalence.
+
+**J7. Morphologies in (with N4).** SWC and other skeleton formats through `navis` or `neurom` (no hand-written parser),
+into the morphology store of N1, in the frames of I3.
+
+**J8. Gene-expression atlases as fields.** Spatial gene-expression grids (e.g. the Allen Developing Mouse Brain Atlas,
+in-situ hybridisation over developmental ages) imported as `GridField`s, registered to a Project's geometry, to drive
+`express` / `differentiate` from measured expression (semi-supervised). Dataset manifests in `datasets/` (I1), with
+licence and citation.
+
+**J9. Recordings as fit targets.** Spike data from NWB (pynwb units tables) and neo spike trains, reduced to target
+statistics (rates, CV, correlations, PSTHs) for `Fit` Params (E2) and validation (E4).
+
+**J10. Shared connectivity metrics.** One metrics library used by I5, E2 and E4, with the vocabulary of statistical
+connectome analysis: distance-dependent connection probability, degree and weight distributions, reciprocity, motif
+and directed-simplex counts (Reimann et al. 2019 Nat Commun; Connectome-Manipulator, Pokorny et al. 2025), computed
+on grown networks and on imported connectomes alike.
+
+**J11. Public benchmarks.** Two reference problems with data, targets, scripts and a results table: the fly optic-lobe
+motion circuit (I6, male CNS and FlyWire connectomes) and a mouse visual-cortex subset (MICrONS). Results are
+statistical matches "in this simulation", with the spread between individuals as tolerance.
+
+**J12. Zero-install web demo.** The browser viewer and kernel (Phase F) published with preset projects on the
+documentation site, so anyone can grow and simulate a circuit without installing anything.
+
+**J13. Citable releases.** `CITATION.cff`, a Zenodo DOI per tagged release, and a JOSS paper (`paper.md`) once the
+repository is public.
+
 ### Phase G: modules, docs and examples
 
 **G1. Module registry.** Versioned modules (semantic version, toolbox version range), a local catalogue file, `neurogenesis install module.json`, compatibility checks.
@@ -667,6 +749,14 @@ Second wave of stages:
 C2 ─ C14 ─ C15 ─ (G2.3 with emergent layering) ;  P3 + P4 ─ C21 ;  C11 ─ C22 ;  K6 ─ C23, C19 ;  K5 ─ C20 ;
 N2 ─ C16, C17 ;  P2 + N3 ─ C18 ;  B + D1 ─ C24
 
+Interoperability:
+J1 ─┬─ J2 (SONATA) ─┐
+    ├─ J3 (NIR) ────┼─ J6 (cross-simulator checks)
+    ├─ J4 (PyNN) ───┤
+    └─ J5 (NeuroML) ┘
+J10 (metrics) ── I5 / E2 / E4 ;  J7 with N4 ;  J8 after B3 + I1 ;  J9 after E2 ;  J11 after I6 + J10 ;  J12 any time ;
+J13 at the public release
+
 G1 any time after A1 ; G2 after the stages it uses ; G3 last
 ```
 
@@ -677,5 +767,7 @@ G1 any time after A1 ; G2 after the stages it uses ; G3 last
 4. **M4:** H1–H4 merged; native desktop apps (macOS SwiftUI in `desktop/mac/`, Windows + Linux Avalonia in `desktop/avalonia/`) load a Project, dynamically render schedule and parameter editors from the UI schema, run development through the bridge, and simulate live with `nglif`.
 5. **M5:** K1–K4, Phase I (connectome data layer & streaming import), Phase P (pharmacology profiles & multi-channel kernels), Phase N (morphology arbors & SWC import); example I6 (optic lobe column benchmark) runs.
 6. **M6:** Re-express legacy growth as real C stages (placement, differentiation, identity, guidance) with fingerprints deliberately regenerated and certified.
+7. **M7:** J1–J5 and J10 merged: a grown circuit is exported to SONATA, NIR, PyNN and NeuroML 2 with export reports, and
+   its connectivity is described with the shared metrics.
 8. **M8:** C14, C15, C21–C23 merged; example G2.3 grows its layers from the cell-cycle clock and temporal competence
    (birth order predicts layer across development seeds), with a GABA polarity switch and competitive refinement.

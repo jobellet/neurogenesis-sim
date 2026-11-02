@@ -15,6 +15,8 @@
 | `modules` | list installed modules | `--catalogue` |
 | `data info` / `data fetch` | dataset size, license, citation; resumable, checksum-verified download | `dataset --manifest --target --yes` |
 | `ui-schema` | export the versioned UI schema JSON for the desktop apps | `--project --calibrated` |
+| `export` | write a network (JSON or NGB1) in another format; prints the export report | `network --format {sonata} --out` |
+| `import` | read a network from another format into network JSON | `path --format {sonata} --out` |
 
 Every command has `--help`. Worked examples: {doc}`../tutorials/cli`.
 

@@ -6,8 +6,9 @@ toolbox builds on or should be compared with.
 
 ```{admonition} Note on references
 :class: note
-This list was compiled with the help of an AI assistant from well-known publications. Check each reference
-(authors, year, volume, pages) against the publisher's record before citing it.
+This list was compiled with the help of an AI assistant. References with a DOI were checked against Crossref,
+DataCite or Europe PMC on 2026-11-02; the others come from well-known publications. Check each reference against the
+publisher's record before citing it.
 ```
 
 ## How the toolbox relates to existing tools
@@ -16,7 +17,11 @@ This list was compiled with the help of an AI assistant from well-known publicat
 |---|---|---|
 | Cx3D / BioDynaMo | physics of growing cells and neurites, agent-based | detailed mechanics; no evolution of genomes for function, no spiking kernel tied to development |
 | NETMORPH, TREES toolbox | statistical or optimal-wiring growth of neuronal morphologies | morphology-centred; networks are not grown from evolvable genomes for a task |
-| NEST, Brian 2, NEURON, GeNN | simulating spiking networks | networks are specified, not developed; neurogenesis-sim can export to them |
+| NeuroDevSim | phenomenological growth, migration and pruning of neurons in a tissue (Python, parallel) | the closest Python peer for growth stages; no evolvable genome, no integrated spiking kernel |
+| DevNCA | neural cellular automata co-evolving developmental patterns and plasticity rules for spiking networks | the closest conceptual neighbour (development + spiking + evolution); no biological geometry, cell types or data interchange |
+| NEST, Brian 2, NEURON, GeNN, Arbor | simulating spiking networks | networks are specified, not developed; neurogenesis-sim exports to them (SONATA now; PyNN and NeuroML 2 planned, roadmap phase J) |
+| SONATA, NeuroML 2, PyNN, NIR | describing networks independently of a simulator | interchange formats, not development; targets of the exporters |
+| Connectome-Manipulator | rewiring, fitting and transplanting connectomes of SONATA circuits | operates on given circuits; can serve as a baseline for, and manipulate, grown circuits written as SONATA |
 | NEAT, HyperNEAT, ES-HyperNEAT, NDPs | evolving networks through (indirect) encodings | abstract encodings; no biological geometry, cell types, stages or spiking biophysics |
 | Connectome-constrained models | simulating measured wiring diagrams | wiring taken as given; neurogenesis-sim asks how development could produce its statistics |
 
@@ -48,6 +53,8 @@ This list was compiled with the help of an AI assistant from well-known publicat
   and its practical application. *PLoS Computational Biology* 6:e1000877. (TREES toolbox)
 - Breitwieser L, Hesam A, de Montigny J, et al. (2022). BioDynaMo: a modular platform for high-performance
   agent-based simulation. *Bioinformatics* 38:453–460.
+- De Schutter E (2023). Efficient simulation of neural development using shared memory parallelization. *Frontiers
+  in Neuroinformatics* 17:1212384. doi:10.3389/fninf.2023.1212384 (NeuroDevSim)
 
 ## Activity-dependent development
 - Wong ROL (1999). Retinal waves and visual system development. *Annual Review of Neuroscience* 22:29–47.
@@ -78,7 +85,10 @@ This list was compiled with the help of an AI assistant from well-known publicat
 - Zador AM (2019). A critique of pure learning and what artificial neural networks can learn from animal brains.
   *Nature Communications* 10:3770.
 - Najarro E, Sudhakaran S, Risi S (2023). Towards self-assembling artificial neural networks through neural
-  developmental programs. *Proceedings of the Artificial Life Conference (ALIFE 2023)*.
+  developmental programs. *Proceedings of the Artificial Life Conference (ALIFE 2023)*. doi:10.1162/isal_a_00697
+- Gaskin B, et al. (2025). DevNCA: co-evolving developmental patterns and plasticity rules for self-organising spiking
+  neural networks. *Proceedings of the Artificial Life Conference (ALIFE 2025)*. doi:10.1162/ISAL.a.840 (full author
+  list not verified)
 - Shuvaev S, Lachi D, Koulakov A, Zador A (2024). Encoding innate ability through a genomic bottleneck. *PNAS*
   121:e2409160121.
 
@@ -92,7 +102,7 @@ This list was compiled with the help of an AI assistant from well-known publicat
 - Hines ML, Carnevale NT (1997). The NEURON simulation environment. *Neural Computation* 9:1179–1209.
 - Gewaltig MO, Diesmann M (2007). NEST (NEural Simulation Tool). *Scholarpedia* 2:1430.
 - Davison AP, Brüderle D, Eppler J, et al. (2009). PyNN: a common interface for neuronal network simulators.
-  *Frontiers in Neuroinformatics* 2:11.
+  *Frontiers in Neuroinformatics* 2:11. doi:10.3389/neuro.11.011.2008 (online 2008)
 - Gleeson P, Crook S, Cannon RC, et al. (2010). NeuroML: a language for describing data driven models of neurons and
   networks with a high degree of biological detail. *PLoS Computational Biology* 6:e1000815.
 - Yavuz E, Turner J, Nowotny T (2016). GeNN: a code generation framework for accelerated brain simulations.
@@ -122,8 +132,66 @@ This list was compiled with the help of an AI assistant from well-known publicat
   the fly visual system. *Nature* 634:1132–1140.
 - Shiu PK, Sterne GR, Spiller N, et al. (2024). A *Drosophila* computational brain model reveals sensorimotor
   processing. *Nature* 634:210–219.
-- FlyEM / Janelia: male *Drosophila* central nervous system connectome v1.0 (2026), *Cell*; preprint bioRxiv
-  10.1101/2025.10.09.680999. Data under CC-BY 4.0.
+- Berg S, Beckett IR, Costa M, Schlegel P, Januszewski M, Marin EC, et al. (2026). Sexual dimorphism in the complete
+  *Drosophila* male central nervous system connectome. *Cell* 189:5504–5526.e15. doi:10.1016/j.cell.2026.08.015
+  (FlyEM male CNS v1.0; preprint bioRxiv 10.1101/2025.10.09.680999). Data under CC-BY 4.0.
+- Matsliah A, Yu S-c, Kruk K, et al. (2024). Neuronal parts list and wiring diagram for a visual system. *Nature*
+  634:166–180. doi:10.1038/s41586-024-07981-1
+- Nern A, Loesche F, Takemura S-y, et al. (2025). Connectome-driven neural inventory of a complete visual system.
+  *Nature* 641:1225–1237. doi:10.1038/s41586-025-08746-0
+- The MICrONS Consortium, Bae JA, Baptiste M, et al. (2025). Functional connectomics spanning multiple areas of mouse
+  visual cortex. *Nature* 640:435–447. doi:10.1038/s41586-025-08790-w
+- Reimann MW, Gevaert M, Shi Y, Lu H, Markram H, Muller E (2019). A null model of the mouse whole-neocortex
+  micro-connectome. *Nature Communications* 10:3903. doi:10.1038/s41467-019-11630-x (statistical connectivity rules
+  instantiated into a SONATA circuit)
+- Pokorny C, Awile O, Isbister JB, Kurban K, Wolf M, Reimann MW (2025). A connectome manipulation framework for the
+  systematic and reproducible study of structure–function relationships through simulations. *Network Neuroscience*
+  9:207–236. doi:10.1162/netn_a_00429 (Connectome-Manipulator)
+
+## Interchange formats, data standards and tools
+Formats and libraries that neurogenesis-sim reads or writes, or plans to (roadmap phase J).
+- Dai K, Hernando J, Billeh YN, Gratiy SL, Planas J, Davison AP, et al. (2020). The SONATA data format for efficient
+  description of large-scale network models. *PLoS Computational Biology* 16:e1007696. doi:10.1371/journal.pcbi.1007696
+- Dai K, Gratiy SL, Billeh YN, Xu R, Cai B, Cain N, et al. (2020). Brain Modeling ToolKit: an open source software
+  suite for multiscale modeling of brain circuits. *PLoS Computational Biology* 16:e1008386.
+  doi:10.1371/journal.pcbi.1008386 (BMTK)
+- Pedersen JE, Abreu S, Jobst M, Lenz G, Fra V, Bauer FC, et al. (2024). Neuromorphic intermediate representation: a
+  unified instruction set for interoperable brain-inspired computing. *Nature Communications* 15:8122.
+  doi:10.1038/s41467-024-52259-9 (NIR)
+- Cannon RC, Gleeson P, Crook S, Ganapathy G, Marin B, Piasini E, et al. (2014). LEMS: a language for expressing
+  complex biological models in concise and hierarchical form and its use in underpinning NeuroML 2. *Frontiers in
+  Neuroinformatics* 8:79. doi:10.3389/fninf.2014.00079
+- Vella M, Cannon RC, Crook S, Davison AP, Ganapathy G, Robinson HPC, et al. (2014). libNeuroML and PyLEMS: using
+  Python to combine procedural and declarative modeling approaches in computational neuroscience. *Frontiers in
+  Neuroinformatics* 8:38. doi:10.3389/fninf.2014.00038
+- Sinha A, Gleeson P, Marin B, Dura-Bernal S, Panagiotou S, Crook S, et al. (2025). The NeuroML ecosystem for
+  standardized multi-scale modeling in neuroscience. *eLife* 13:RP95135. doi:10.7554/eLife.95135
+- Gleeson P, Cantarelli M, Marin B, Quintana A, Earnshaw M, Sadeh S, et al. (2019). Open Source Brain: a collaborative
+  resource for visualizing, analyzing, simulating, and developing standardized models of neurons and circuits.
+  *Neuron* 103:395–411.e5. doi:10.1016/j.neuron.2019.05.019
+- Abi Akar N, Cumming B, Karakasis V, et al. (2019). Arbor — a morphologically-detailed neural network simulation
+  library for contemporary high-performance computing architectures. *27th Euromicro PDP*, 274–282.
+  doi:10.1109/EMPDP.2019.8671560
+- Rhodes O, Bogdan PA, Brenninkmeijer C, et al. (2018). sPyNNaker: a software package for running PyNN simulations on
+  SpiNNaker. *Frontiers in Neuroscience* 12:816. doi:10.3389/fnins.2018.00816
+- Pehle C-G, Pedersen JE (2021). Norse — a deep learning library for spiking neural networks. Zenodo.
+  doi:10.5281/zenodo.4422025
+- Cannon RC, Turner DA, Pyapali GK, Wheal HV (1998). An on-line archive of reconstructed hippocampal neurons. *Journal
+  of Neuroscience Methods* 84:49–54. doi:10.1016/S0165-0270(98)00091-0 (origin of the SWC format)
+- Thompson CL, Ng L, Menon V, Martinez S, Lee C-K, Glattfelder K, et al. (2014). A high-resolution spatiotemporal
+  atlas of gene expression of the developing mouse brain. *Neuron* 83:309–323. doi:10.1016/j.neuron.2014.05.033
+  (Allen Developing Mouse Brain Atlas; research and non-commercial use)
+- Rübel O, Tritt A, Ly R, Dichter BK, Ghosh S, Niu L, et al. (2022). The Neurodata Without Borders ecosystem for
+  neurophysiological data science. *eLife* 11:e78362. doi:10.7554/eLife.78362
+- Garcia S, Guarino D, Jaillet F, Jennings T, Pröpper R, Rautenberg PL, et al. (2014). Neo: an object model for
+  handling electrophysiology data in multiple formats. *Frontiers in Neuroinformatics* 8:10.
+  doi:10.3389/fninf.2014.00010
+- Smith AM, Niemeyer KE, Katz DS, Barba LA, Githinji G, Gymrek M, et al. (2018). Journal of Open Source Software
+  (JOSS): design and first-year review. *PeerJ Computer Science* 4:e147. doi:10.7717/peerj-cs.147
+
+Licences: these tools keep their own licences (several are GPL, LGPL or CeCILL, and the Allen data are
+non-commercial). neurogenesis-sim uses them only as optional dependencies or as test references, never copies their
+code, and never redistributes their data; see {doc}`../development/third-party`.
 
 ```{admonition} PLACEHOLDER
 :class: placeholder
