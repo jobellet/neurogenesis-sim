@@ -58,10 +58,9 @@ next to this page. About 66 RGCs, 145 relay cells and 710 retinal synapses per n
   scaling and pruning changes the map little; most of the map's precision comes from the chemoaffinity term.
 
 ## Limits and toolbox findings
-- `refine_by_activity` ignores its `waves` (and `twitches`) settings when run from a schedule: `run_schedule` wraps
-  a dict param in `Const` and the stage tests `isinstance(wave_cfg, dict)`, so it silently uses its default wave
-  (source cell 0, speed 1, amplitude 3000). The example registers a two-line subclass, `refine_by_activity_waves`,
-  that unwraps the `Const`; the saved Project lists `examples.retinothalamic` as a plugin for it.
+- `refine_by_activity` used to ignore its `waves` (and `twitches`) settings when run from a schedule (`run_schedule`
+  wraps a dict param in `Const`). Found while writing this example and fixed in #81; the example now uses the stage
+  directly. The results below were measured with an equivalent workaround, so they are unchanged.
 - `grow_axons` resolves guidance values one level deep, so `B` cannot hold per-axis `Gene`s; the example builds `B`
   from the condition genome in Python. The graded genes produced by `express` are not read by the guidance rules (no
   expression-based target rule), so the EphA / EphB expression is illustrative and the gain in `B` carries the effect.

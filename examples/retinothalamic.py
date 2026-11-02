@@ -30,22 +30,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np  # noqa: E402
 
-from neurogenesis.params import Const  # noqa: E402
-from neurogenesis.stages.base import register_stage  # noqa: E402
-from neurogenesis.stages.refinement import RefineByActivityStage  # noqa: E402
-
-
-@register_stage("refine_by_activity_waves")
-class RefineWithWaves(RefineByActivityStage):
-    """`refine_by_activity` with its `waves` dict honoured when run from a schedule. Workaround: `run_schedule` wraps a
-    dict param in `Const`, and `refine_by_activity` then ignores the `waves` (and `twitches`) settings and uses its
-    defaults (neurogenesis/stages/refinement.py, `isinstance(wave_cfg, dict)`)."""
-
-    def run(self, tissue, params, genome, fields, rng):
-        params = {k: (v.value if k in ("waves", "twitches") and isinstance(v, Const) else v) for k, v in params.items()}
-        return super().run(tissue, params, genome, fields, rng)
-
-
 CONDITIONS = ("WT", "b2KO", "TTX", "EphAKO")
 RET_C, RET_S = np.array([50.0, 50.0, 0.0]), np.array([100.0, 100.0, 2.0])      # retina box (space units)
 REL_C, REL_S = np.array([50.0, 50.0, 1000.0]), np.array([60.0, 60.0, 20.0])    # relay box, far from the wave field
@@ -135,7 +119,7 @@ def build_project(cond="WT", seed=0, n_prog=60, n_relay=200, n_waves=4, wave_tic
             else:
                 ids = list(range(n_prog)) + list(range(n_prog + n_relay, n_prog + n_relay + 4 * n_prog))   # retinal ids
                 refine.update(sources=ids, poisson_hz=gene("poisson_hz", 100.0))
-            sched.append(dict(name=f"refine_{k}", operator="refine_by_activity_waves", params=refine))
+            sched.append(dict(name=f"refine_{k}", operator="refine_by_activity", params=refine))
     sched += [
         dict(name="gaba_mature", operator="pharmacology", params=dict(profile=PROFILE, context="mature")),
         dict(name="scale", operator="scale", params=dict(target=1500.0)),
@@ -152,7 +136,6 @@ def build_project(cond="WT", seed=0, n_prog=60, n_relay=200, n_waves=4, wave_tic
     geometry = {"retina": {"type": "Box", "center": RET_C.tolist(), "size": RET_S.tolist()},
                 "relay": {"type": "Box", "center": REL_C.tolist(), "size": REL_S.tolist()}}
     return Project(geometry=geometry, fields=fields, genome=g, schedule=sched, pharmacology=PROFILE,
-                   plugins=["examples.retinothalamic"],
                    metadata=dict(name=f"retinothalamic {cond}", description="toy retina -> relay development"))
 
 
