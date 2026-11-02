@@ -138,6 +138,16 @@ def cmd_estimate(args: argparse.Namespace) -> None:
         r = estimate(m, n, e, ticks)
         print(f"  {m:16s} {r['verdict']}")
 
+def cmd_ui_schema(args: argparse.Namespace) -> None:
+    """Exports the UI schema."""
+    from .project.ui_schema import export_ui_schema
+    project = None
+    if args.project:
+        with open(args.project, "r") as f:
+            project = json.load(f)
+            
+    doc = export_ui_schema(project=project, calibrated=args.calibrated)
+    print(json.dumps(doc, indent=2))
 
 def cmd_fit(args: argparse.Namespace) -> None:
     """Fits a Project's Fit params to targets (E2); writes the genome with the fitted values."""
@@ -291,6 +301,12 @@ def main() -> None:
         q.add_argument("--target", help="data directory (default $NEUROGENESIS_DATA or ~/.cache/neurogenesis/data)")
         q.add_argument("--yes", action="store_true", help="do not ask before downloading")
         q.set_defaults(func=cmd_data)
+
+    # Subcommand: ui-schema
+    p_ui = subparsers.add_parser("ui-schema", help="Export UI schema for desktop apps")
+    p_ui.add_argument("--project", type=str, default=None, help="Path to a project JSON file")
+    p_ui.add_argument("--calibrated", action="store_true", help="Include real time estimates if calibrated")
+    p_ui.set_defaults(func=cmd_ui_schema)
 
     args = parser.parse_args()
     args.func(args)

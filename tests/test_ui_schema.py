@@ -124,3 +124,63 @@ def test_broken_documents_are_rejected(break_it):
 def test_spec_documents_every_top_level_key():
     spec = (COMMON / "UI_SCHEMA.md").read_text()
     assert all(f"`{k}`" in spec or f'"{k}"' in spec for k in SCHEMA["required"])
+
+def test_export_ui_schema_validates():
+    from neurogenesis.project.ui_schema import export_ui_schema
+    doc = export_ui_schema()
+    validate(doc)
+    
+    # Check that known stages are there and available
+    stage_ops = [s["operator"] for s in doc["stages"] if s["available"]]
+    assert "seed_cells" in stage_ops
+    assert "proliferate" in stage_ops
+    assert "migrate" in stage_ops
+    assert "grow_axons" in stage_ops
+    assert "refine_by_activity" in stage_ops
+    
+    # Check cost parsing on a known stage
+    seed = next(s for s in doc["stages"] if s["operator"] == "seed_cells")
+    assert seed["cost"] is not None
+    assert seed["cost"]["declared"] is True
+    assert len(seed["cost"]["samples"]) == 2
+
+def test_export_ui_schema_with_project():
+    from neurogenesis.project.ui_schema import export_ui_schema
+    project = {
+        "schedule": [
+            {
+                "operator": "seed_cells",
+                "name": "1_seed_cells",
+                "params": {
+                    "count": {"type": "Gene", "path": ["count", "map"], "lo": 10, "hi": 2000, "integer": True}
+                }
+            }
+        ]
+    }
+    doc = export_ui_schema(project=project)
+    validate(doc)
+    
+    genes = doc["schedule_genes"]
+    assert len(genes) == 1
+    assert genes[0]["path"] == ["count", "map"]
+    assert genes[0]["lo"] == 10
+    assert genes[0]["hi"] == 2000
+    assert genes[0]["integer"] is True
+    assert genes[0]["used_by"] == [{"stage": "1_seed_cells", "param": "count"}]
+
+def test_bridge_m_ui_schema():
+    from neurogenesis.bridge.server import m_ui_schema
+    doc = m_ui_schema({})
+    validate(doc)
+
+def test_cli_ui_schema(capsys):
+    import sys
+    from unittest.mock import patch
+    from neurogenesis.cli import main
+    
+    with patch.object(sys, 'argv', ['neurogenesis', 'ui-schema']):
+        main()
+    
+    captured = capsys.readouterr()
+    doc = json.loads(captured.out)
+    validate(doc)

@@ -14,6 +14,7 @@
 | `install` | install a module into the local catalogue | `module.json --catalogue --force` |
 | `modules` | list installed modules | `--catalogue` |
 | `data info` / `data fetch` | dataset size, license, citation; resumable, checksum-verified download | `dataset --manifest --target --yes` |
+| `ui-schema` | export the versioned UI schema JSON for the desktop apps | `--project --calibrated` |
 
 Every command has `--help`. Worked examples: {doc}`../tutorials/cli`.
 

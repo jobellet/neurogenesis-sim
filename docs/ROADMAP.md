@@ -333,7 +333,7 @@ Native desktop applications with zero developer setup required for end users:
 - **Tasks:**
   - **H1. Bridge in the package [contract].** (`neurogenesis/bridge/`, protocol spec `desktop/common/PROTOCOL.md`, automated tests) — *by the Mac agent*.
   - **H2. Portable C kernel `nglif` + NGB1 I/O [contract].** (`desktop/common/native/nglif/`, golden fixtures `fixtures/`, 3-OS CI matrix) — *by the Mac agent*.
-  - **H3. UI schema export from Python [contract].** Versioned JSON export from Python (`python -m neurogenesis ui-schema`): stage registry (Params, kinds, bounds, docs), models with cost estimates, guidance/placement rules, genes of a schedule (`collect_genes`), Project schema. Jules task once H1/PR #5 is merged.
+  - **H3. UI schema export from Python [contract, done].** Versioned JSON export from Python (`python -m neurogenesis ui-schema` and bridge `ui_schema` via `neurogenesis.project.ui_schema.export_ui_schema`): stage registry (Params, kinds, bounds, docs, cost samples), models with cost estimates, guidance/placement rules, genes of a schedule (`collect_genes`), Project schema.
   - **H4. Embedded Python runtime scripts.** Automated packaging scripts using `python-build-standalone` on all three OSes (macOS, Windows, and Linux, x86-64 and arm64).
   - **H5. Windows + Linux application (Avalonia).** (`desktop/avalonia/`, C# / .NET 8 cross-platform UI), consuming `nglif` through P/Invoke C ABI and the Python bridge via JSON-RPC/stdio protocol, dynamic panels generated from UI schema, colors from `visual_spec.json`. Packaging: Windows setup `.exe` + `.zip`, Linux AppImage. Built by the Avalonia agent.
   - **H6. Linux packaging extras (optional / later).** Flatpak manifest and distribution testing.
