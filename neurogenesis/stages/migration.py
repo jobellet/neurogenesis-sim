@@ -2,10 +2,9 @@ import numpy as np
 from typing import Dict, Any, Tuple
 
 from neurogenesis.tissue import Tissue
-from neurogenesis.params import Param, resolve, Const
+from neurogenesis.params import Param, resolve, Const, worst_case
 from neurogenesis.spatial import CellList
 from neurogenesis.stages.base import register_stage
-from neurogenesis.stages.differentiation import _worst_case
 
 # Mean neighbours per cell assumed by the costs of neighbour interactions (cell-list bins of side the radius).
 _MEAN_NEIGHBOURS = 27
@@ -63,7 +62,8 @@ class MigrateStage:
     or > 0, or where it leaves the geometry named by `boundary`. Cells whose `layer_field` label (first column, e.g. a
     LayerStackField) equals `target_layer` have arrived and stay. With `min_distance` > 0, living cells closer than
     `min_distance` push each other apart by half their overlap (soft repulsion through the cell list, O(N k)), so
-    spacing approaches `min_distance` over the sub-steps.
+    spacing approaches `min_distance` over the sub-steps. With `tangential` true (per cell), `direction` loses its
+    component along the radial vector from `target`, so cells move perpendicular to it (tangential migration).
     Guided radial and tangential migration and chemotactic cues: Marín & Rubenstein 2003, Annu Rev Neurosci.
     """
 
@@ -72,13 +72,13 @@ class MigrateStage:
 
     @classmethod
     def cost(cls, N: int, E: int, params: Dict[str, Param]) -> Tuple[int, int]:
-        steps = max(1, int(_worst_case(params.get("steps"), 1)))
+        steps = max(1, int(worst_case(params.get("steps"), 1)))
         bytes_cost = N * 8 * 10
         ops_cost = N * 10
         if params.get("chemotaxis_field") is not None:
             bytes_cost += N * 8 * 3 * 6 * 2
             ops_cost += N * 6 * 20
-        if float(_worst_case(params.get("min_distance"), 0.0)) > 0:
+        if float(worst_case(params.get("min_distance"), 0.0)) > 0:
             cl_bytes, cl_ops = CellList.declared_cost(N, N, _MEAN_NEIGHBOURS)
             bytes_cost += N * _MEAN_NEIGHBOURS * _PAIR_BYTES
             ops_cost += cl_ops + N * _MEAN_NEIGHBOURS * 20
@@ -103,17 +103,31 @@ class MigrateStage:
 
     def _move(self, tissue, params, genome, fields, chemo_name, h, layer_name):
         N = len(tissue.alive)
+        ctx_vars = {
+            "generation": tissue.generation,
+            "birth_stage": tissue.birth_stage,
+            "cell_type": tissue.cell_type,
+            "alive": tissue.alive,
+            "parent_id": tissue.parent_id,
+            "clone_id": tissue.clone_id,
+            "cell_id": tissue.cell_id,
+            "x": tissue.positions[:, 0],
+            "y": tissue.positions[:, 1],
+            "z": tissue.positions[:, 2],
+            "np": np,
+            **(genome if isinstance(genome, dict) else {}),
+        }
         speed_param = params.get("speed", Const(0.0))
-        speed = resolve(speed_param, genome, fields, tissue.positions)
+        speed = resolve(speed_param, genome, fields, tissue.positions, context_vars=ctx_vars)
 
         radial = params.get("radial", Const(False))
-        is_radial = resolve(radial, genome, fields, tissue.positions)
+        is_radial = resolve(radial, genome, fields, tissue.positions, context_vars=ctx_vars)
 
         target_param = params.get("target", Const(np.array([0.0, 0.0, 0.0])))
-        target = resolve(target_param, genome, fields, tissue.positions)
+        target = resolve(target_param, genome, fields, tissue.positions, context_vars=ctx_vars)
 
         dir_param = params.get("direction", Const(np.array([1.0, 0.0, 0.0])))
-        base_directions = np.asarray(resolve(dir_param, genome, fields, tissue.positions), dtype=np.float64)
+        base_directions = np.asarray(resolve(dir_param, genome, fields, tissue.positions, context_vars=ctx_vars), dtype=np.float64)
         if base_directions.shape == (3,):
             base_directions = np.tile(base_directions, (N, 1))
 
@@ -121,6 +135,13 @@ class MigrateStage:
         norms = np.linalg.norm(diff, axis=1, keepdims=True)
         norms[norms < 1e-9] = 1.0
         radial_directions = diff / norms
+
+        tangential = params.get("tangential")
+        if tangential is not None:
+            is_tangential = np.asarray(resolve(tangential, genome, fields, tissue.positions, context_vars=ctx_vars), dtype=bool)
+            along = np.sum(base_directions * radial_directions, axis=1, keepdims=True)
+            tangential_directions = base_directions - along * radial_directions
+            base_directions = np.where(np.reshape(is_tangential, (-1, 1)), tangential_directions, base_directions)
 
         if np.isscalar(is_radial):
             if is_radial:
@@ -144,7 +165,7 @@ class MigrateStage:
             step = speed * directions
 
         if chemo_name is not None:
-            gain = resolve(params.get("chemotaxis", Const(0.0)), genome, fields, tissue.positions)
+            gain = resolve(params.get("chemotaxis", Const(0.0)), genome, fields, tissue.positions, context_vars=ctx_vars)
             if np.any(np.asarray(gain) != 0):
                 grad = _unit_rows(_field_gradient(fields[chemo_name], tissue.positions, h))
                 step = step + np.reshape(gain, (-1, 1)) * grad
@@ -157,7 +178,7 @@ class MigrateStage:
         mask = tissue.alive.astype(bool)
 
         if stop_field_param is not None:
-            stop_condition = resolve(stop_field_param, genome, fields, new_positions)
+            stop_condition = resolve(stop_field_param, genome, fields, new_positions, context_vars=ctx_vars)
             if np.isscalar(stop_condition):
                 if stop_condition:
                     mask[:] = False
@@ -168,14 +189,14 @@ class MigrateStage:
                     mask &= (stop_condition <= 0)
 
         if boundary_param is not None:
-            boundary_name = resolve(boundary_param, genome, fields, tissue.positions)
+            boundary_name = resolve(boundary_param, genome, fields, tissue.positions, context_vars=ctx_vars)
             if isinstance(boundary_name, str) and boundary_name in fields:
                 geom = fields[boundary_name]
                 if hasattr(geom, "contains"):
                     mask &= geom.contains(new_positions)
 
         if layer_name is not None:
-            target_layer = resolve(params.get("target_layer", Const(0)), genome, fields, tissue.positions)
+            target_layer = resolve(params.get("target_layer", Const(0)), genome, fields, tissue.positions, context_vars=ctx_vars)
             mask &= _sample_field(fields[layer_name], tissue.positions) != target_layer
 
         tissue.positions = np.where(mask[:, np.newaxis], new_positions, tissue.positions)
@@ -217,7 +238,7 @@ class SortStage:
         bytes_cost = N * 8 * 7
         ops_cost = int(N * np.log2(max(2, N)) + N * 3)
         if params.get("adhesion") is not None:
-            steps = max(1, int(_worst_case(params.get("steps"), 1)))
+            steps = max(1, int(worst_case(params.get("steps"), 1)))
             cl_bytes, cl_ops = CellList.declared_cost(N, N, _MEAN_NEIGHBOURS)
             bytes_cost += N * _MEAN_NEIGHBOURS * _PAIR_BYTES
             ops_cost += steps * (cl_ops + N * _MEAN_NEIGHBOURS * 20)
@@ -298,3 +319,57 @@ class SortStage:
             new_positions = positions_no_proj.copy()
             new_positions[sort_idx] += sorted_projections[:, np.newaxis] * axis[sort_idx]
             tissue.positions = new_positions
+
+
+@register_stage("mosaic")
+class MosaicStage:
+    """Homotypic exclusion zones: cells of the same type closer than `radius` push apart (other types ignore each other).
+
+    For `steps` iterations, each same-type pair of living cells closer than `radius` (cell list, O(N k)) moves apart by
+    `rate` x half their overlap, plus optional Gaussian motility of std `jitter` (space units, from the stage rng),
+    staying inside the geometry named by `boundary`. `types` restricts the interaction to a list of cell types. This
+    produces regular mosaics (high nearest-neighbour regularity index), as in models of exclusion zones between cells of
+    the same type (Galli-Resta et al. 1997, J Neurosci). Generalises the legacy `mosaic` placement rule. No `radius`
+    (or radius <= 0) is a no-op.
+    """
+
+    @classmethod
+    def cost(cls, N: int, E: int, params: Dict[str, Param]) -> Tuple[int, int]:
+        if float(worst_case(params.get("radius"), 0.0)) <= 0:
+            return N * 8, N
+        steps = max(1, int(worst_case(params.get("steps"), 1)))
+        cl_bytes, cl_ops = CellList.declared_cost(N, N, _MEAN_NEIGHBOURS)
+        return int(N * 8 * 7 + N * _MEAN_NEIGHBOURS * _PAIR_BYTES), int(steps * (cl_ops + N * _MEAN_NEIGHBOURS * 20))
+
+    def run(self, tissue: Tissue, params: Dict[str, Param], genome: Dict[str, Any], fields: Dict[str, Any], rng: np.random.Generator) -> Tissue:
+        radius = float(resolve(params.get("radius", Const(0.0)), genome, fields))
+        if radius <= 0 or len(tissue.alive) == 0:
+            return tissue
+        steps = int(resolve(params.get("steps", Const(1)), genome, fields))
+        rate = float(resolve(params.get("rate", Const(1.0)), genome, fields))
+        jitter = float(resolve(params.get("jitter", Const(0.0)), genome, fields))
+        types = params.get("types")
+        mask = tissue.alive.copy()
+        if types is not None:
+            mask &= np.isin(tissue.cell_type, np.asarray(resolve(types, genome, fields)).ravel())
+        idx = np.flatnonzero(mask)
+        if len(idx) < 2:
+            return tissue
+        geom = None
+        if params.get("boundary") is not None:
+            name = resolve(params["boundary"], genome, fields)
+            geom = fields.get(name) if isinstance(name, str) else name
+        ctype = tissue.cell_type[idx]
+        pos = tissue.positions[idx].copy()
+        for _ in range(steps):
+            src, dst, d, u = _neighbour_pairs(pos, radius)
+            same = ctype[src] == ctype[dst]
+            move = _sum_pair_moves(len(idx), src[same], -0.5 * rate * (radius - d[same]), u[same])
+            if jitter > 0:
+                move = move + rng.standard_normal(pos.shape) * jitter
+            new_pos = pos + move
+            if hasattr(geom, "contains"):
+                new_pos = np.where(geom.contains(new_pos)[:, None], new_pos, pos)
+            pos = new_pos
+        tissue.positions[idx] = pos
+        return tissue

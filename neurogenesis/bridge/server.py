@@ -673,6 +673,10 @@ def m_regularity(p):
     xy = [(net.neurons[i].x, net.neurons[i].y) for i in idx]
     return dict(regularity=nearest_neighbour_regularity(xy), cells=len(idx))
 
+def m_ui_schema(p):
+    """Exports the UI schema."""
+    from neurogenesis.project.ui_schema import export_ui_schema
+    return export_ui_schema(project=p.get("project"), calibrated=bool(p.get("calibrated", False)))
 
 # --------------------------------------------------------------------------------------------------- plasticity
 def m_plasticity_rules(p):

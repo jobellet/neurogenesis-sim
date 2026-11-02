@@ -28,7 +28,7 @@ and a stage merged into the toolbox appears in all three without changing them.
   "format": "neurogenesis-ui-schema",
   "version": "1.0",
   "generated_by": {"toolbox": "0.1.0", "python": "3.12.15", "date": "2026-11-01T18:00:00Z"},
-  "project_schema_version": "1.0.0",
+  "project_schema_version": "1.1.0",
   "param_sources": [...],
   "stages": [...],
   "models": [...],

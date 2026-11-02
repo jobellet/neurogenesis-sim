@@ -1,0 +1,64 @@
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths: ["docs/**", "neurogenesis/**", "desktop/common/*.md", "README.md", "AGENTS.md", "CONTRIBUTING.md",
+            "scripts/build_context.py", ".github/workflows/docs.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ${{ fromJSON(vars.LINUX_RUNNER || '"ubuntu-latest"') }}   # see .github/RUNNERS.md
+    permissions:
+      contents: read
+      pull-requests: read   # the list of open pull requests in the AI context file
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install (in a virtual environment, so a self-hosted machine keeps its own Python untouched)
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install -e . -r docs/requirements.txt
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+      - name: Build (warnings are errors)
+        env:
+          JAX_PLATFORMS: cpu
+        run: sphinx-build -W --keep-going -b html docs docs/_build/html
+      - name: One-file documentation for AI assistants (published next to the site)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr list --state open --json number,title,headRefName,isDraft > "$RUNNER_TEMP/prs.json" || echo '[]' > "$RUNNER_TEMP/prs.json"
+          python scripts/build_context.py --open-prs "$RUNNER_TEMP/prs.json" \
+            --out docs/_build/html/neurogenesis-sim-context.md --brief-out docs/_build/html/neurogenesis-sim-brief.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ai-context
+          path: |
+            docs/_build/html/neurogenesis-sim-context.md
+            docs/_build/html/neurogenesis-sim-brief.md
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs/_build/html
+
+  # GitHub Pages is only published from main, and only once the repository is public.
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.event.repository.private == false
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

@@ -25,15 +25,33 @@ def pack(network: SNNNetwork, n_pad: int | None = None, e_pad: int | None = None
     """Numpy arrays of a network, padded to n_pad neurons, e_pad synapses and p_pad Poisson neurons (the Poisson list is
     scanned sequentially at every tick, so it is kept short: by default the number of Poisson neurons, at least 1)."""
     n = network.num_neurons
-    syn = [s for s in network.synapses if s.pre < n and s.post < n]
+    if network.synapse_arrays is not None:
+        sa = network.synapse_arrays
+        mask = (sa["pre"] < n) & (sa["post"] < n)
+        s_pre = sa["pre"][mask].astype(np.uint32)
+        s_post = sa["post"][mask].astype(np.uint32)
+        s_w = sa["weight"][mask].astype(np.int32)
+        s_d = sa["delay"][mask].astype(np.int32)
+        n_syn = len(s_pre)
+    else:
+        syn = [s for s in network.synapses if s.pre < n and s.post < n]
+        s_pre = np.asarray([s.pre for s in syn], np.uint32)
+        s_post = np.asarray([s.post for s in syn], np.uint32)
+        s_w = np.asarray([s.weight for s in syn], np.int32)
+        s_d = np.asarray([s.delay for s in syn], np.int32)
+        n_syn = len(syn)
     N = n_pad or n
-    E = e_pad or max(len(syn), 1)
-    assert N >= n and E >= len(syn)
+    E = e_pad or max(n_syn, 1)
+    assert N >= n and E >= n_syn
     f = lambda attr, dt, fill=0: np.asarray([getattr(x, attr) for x in network.neurons] + [fill] * (N - n), dt)
     mode = f("mode", np.int32)
     pois = np.nonzero(mode[:n] == 1)[0]
+    pad_e = E - n_syn
+    delay_arr = np.concatenate([s_d, np.ones(pad_e, np.int32)]) if pad_e else s_d
+    W = max(1, (int(np.max(delay_arr)) + 32) // 32) if len(delay_arr) > 0 else 1
     out = dict(
         n=np.int32(n),
+        bits0=np.zeros((N, W), np.uint32) if W > 1 else np.zeros(N, np.uint32),
         mode=mode, shift_v=f("shift_v", np.int32, 5), shift_s=f("shift_s", np.int32, 4),
         burst_period=f("burst_period", np.int32, 200), burst_duty=f("burst_duty", np.int32, 24),
         refractory=f("refractory", np.int32, 0), role=f("role", np.int32, 0), threshold=f("threshold", np.int32, 1024),
@@ -41,12 +59,26 @@ def pack(network: SNNNetwork, n_pad: int | None = None, e_pad: int | None = None
         poisson_thresh=np.asarray([min(4294967295, int((x.poisson_hz / 1000.0) * 4294967296)) for x in network.neurons] + [0] * (N - n), np.uint32),
         pois_idx=np.concatenate([pois, np.full((p_pad or max(len(pois), 1)) - len(pois), -1)]).astype(np.int32),  # in index order
         n_pois=np.int32(len(pois)),
-        pre=np.asarray([s.pre for s in syn] + [0] * (E - len(syn)), np.int32),
-        post=np.asarray([s.post for s in syn] + [0] * (E - len(syn)), np.int32),
-        weight=np.asarray([s.weight for s in syn] + [0] * (E - len(syn)), np.int32),
-        delay=np.asarray([s.delay for s in syn] + [1] * (E - len(syn)), np.int32),
-        valid=np.asarray([True] * len(syn) + [False] * (E - len(syn))),
+        pre=np.concatenate([s_pre, np.zeros(pad_e, np.uint32)]) if pad_e else s_pre,
+        post=np.concatenate([s_post, np.zeros(pad_e, np.uint32)]) if pad_e else s_post,
+        weight=np.concatenate([s_w, np.zeros(pad_e, np.int32)]) if pad_e else s_w,
+        delay=delay_arr,
+        valid=np.concatenate([np.ones(n_syn, bool), np.zeros(pad_e, bool)]) if pad_e else np.ones(n_syn, bool),
     )
+    if network.synapse_arrays and "e_rev" in network.synapse_arrays:
+        s_e_rev = network.synapse_arrays["e_rev"][mask].astype(np.float32)
+        out["e_rev"] = np.concatenate([s_e_rev, np.full(pad_e, np.nan, np.float32)]) if pad_e else s_e_rev
+    if network.synapse_arrays and "tau_decay" in network.synapse_arrays:
+        s_tau_decay = network.synapse_arrays["tau_decay"][mask].astype(np.float32)
+        out["tau_decay"] = np.concatenate([s_tau_decay, np.full(pad_e, np.nan, np.float32)]) if pad_e else s_tau_decay
+    if network.synapse_arrays and "channel" in network.synapse_arrays:
+        s_channel = network.synapse_arrays["channel"][mask].astype(np.int32)
+        out["channel"] = np.concatenate([s_channel, np.zeros(pad_e, np.int32)]) if pad_e else s_channel
+        if n > 0 and hasattr(network.neurons[0], "shift_s_channels"):
+            ch0 = np.asarray(network.neurons[0].shift_s_channels, np.int32)
+            out["shift_s_channels"] = f("shift_s_channels", np.int32, np.full_like(ch0, 4))
+        else:
+            out["shift_s_channels"] = np.stack([out["shift_s"]] * 2, axis=1)
     out["mode"][n:] = 0
     return out
 
@@ -54,7 +86,11 @@ def pack(network: SNNNetwork, n_pad: int | None = None, e_pad: int | None = None
 def init_state(net: dict, seed: int = 12345) -> dict:
     N = np.shape(net["mode"])[-1]
     z = jnp.zeros(N, jnp.int32)
-    return dict(v=z, i_syn=z, bits=jnp.zeros(N, U32), phase=z, refr=z, rng=jnp.asarray(seed, U32))
+    bits = jnp.zeros_like(net["bits0"], dtype=U32) if "bits0" in net else jnp.zeros(N, U32)
+    st = dict(v=z, i_syn=z, bits=bits, phase=z, refr=z, rng=jnp.asarray(seed, U32))
+    if "channel" in net:
+        st["i_syn_channels"] = jnp.zeros_like(net["shift_s_channels"], dtype=jnp.int32)
+    return st
 
 
 def _xorshift(x):
@@ -72,10 +108,19 @@ def _decay(x, k):
 def tick(net: dict, st: dict, ext_current=None):
     """One tick. ext_current (N,) int32 is added to the synaptic current before the tick (0 for the reference)."""
     net = {k: jnp.asarray(x) for k, x in net.items()}
-    i_syn = st["i_syn"] if ext_current is None else st["i_syn"] + ext_current
+    multi_channel = "channel" in net
+    if multi_channel:
+        i_syn_channels = st["i_syn_channels"]
+        i_syn_decayed = _decay(i_syn_channels, net["shift_s_channels"])
+        i_syn_sum_decayed = jnp.sum(i_syn_decayed, axis=-1)
+        if ext_current is not None:
+            i_syn_sum_decayed = i_syn_sum_decayed + _decay(ext_current, net["shift_s"])
+    else:
+        i_syn = st["i_syn"] if ext_current is None else st["i_syn"] + ext_current
+        i_syn_decayed = _decay(i_syn, net["shift_s"])
+        i_syn_sum_decayed = i_syn_decayed
     v = _decay(st["v"], net["shift_v"])
-    i_syn = _decay(i_syn, net["shift_s"])
-    v = jnp.clip(v + jnp.right_shift(i_syn, 2), -2048, 2048)
+    v = jnp.clip(v + jnp.right_shift(i_syn_sum_decayed, 2), -2048, 2048)
     # Poisson drivers: one xorshift draw per Poisson neuron, in index order (padding does not advance the generator)
     P = net["pois_idx"].shape[-1]
 
@@ -98,11 +143,33 @@ def tick(net: dict, st: dict, ext_current=None):
     spiked = spiked & ~in_refr
     refr = jnp.where(in_refr, st["refr"] - 1, jnp.where(spiked, net["refractory"], 0))
     v = jnp.where(spiked | in_refr, -256, v)
-    bits = (st["bits"] << U32(1)) | spiked.astype(U32)
-    # propagation through delays
-    arrivals = ((bits[net["pre"]] >> net["delay"].astype(U32)) & U32(1)).astype(jnp.int32) * net["valid"]
-    i_syn = i_syn.at[net["post"]].add(arrivals * net["weight"])
-    return dict(v=v, i_syn=i_syn, bits=bits, phase=phase, refr=refr, rng=rng), spiked.astype(jnp.uint8), arrivals
+    if st["bits"].ndim == 1:
+        bits = (st["bits"] << U32(1)) | spiked.astype(U32)
+        arrivals = ((bits[net["pre"]] >> net["delay"].astype(U32)) & U32(1)).astype(jnp.int32) * net["valid"]
+    else:
+        W = st["bits"].shape[-1]
+        words = [(st["bits"][:, 0] << U32(1)) | spiked.astype(U32)]
+        for w in range(1, W):
+            words.append((st["bits"][:, w] << U32(1)) | (st["bits"][:, w - 1] >> U32(31)))
+        bits = jnp.stack(words, axis=-1)
+        delay_word = net["delay"] >> 5
+        delay_bit = net["delay"] & 31
+        pre_bits = bits[net["pre"]]
+        selected_word = jnp.take_along_axis(pre_bits, delay_word[:, None].astype(jnp.int32), axis=1).squeeze(axis=1)
+        arrivals = ((selected_word >> delay_bit.astype(U32)) & U32(1)).astype(jnp.int32) * net["valid"]
+
+    q = arrivals * net["weight"]
+    if multi_channel:
+        N = net["mode"].shape[-1]
+        C = net["shift_s_channels"].shape[-1]
+        flat_idx = net["post"] * C + net["channel"]
+        flat_q = jnp.zeros(N * C, dtype=jnp.int32).at[flat_idx].add(q)
+        i_syn_next = i_syn_decayed + flat_q.reshape((N, C))
+        out_st = dict(v=v, i_syn=jnp.sum(i_syn_next, axis=-1), i_syn_channels=i_syn_next, bits=bits, phase=phase, refr=refr, rng=rng)
+    else:
+        i_syn = i_syn_decayed.at[net["post"]].add(q)
+        out_st = dict(v=v, i_syn=i_syn, bits=bits, phase=phase, refr=refr, rng=rng)
+    return out_st, spiked.astype(jnp.uint8), arrivals
 
 
 def run(net: dict, st: dict, ticks: int):

@@ -123,6 +123,41 @@ def test_migration():
             json.dump(legacy_data, f)
             
         p = Project.load(path)
-        assert p.version == "1.0.0"
+        assert p.version == schema.SCHEMA_VERSION
         assert p.plan["name"] == "toy"
         assert p.plugins == ["my_plugin"]
+
+
+def test_migration_100_to_110_keeps_the_project_and_its_development(tmp_path):
+    """K1: a 1.0.0 project loads as 1.1.0, unchanged apart from the version, and grows the same tissue."""
+    from neurogenesis.stages.base import run_schedule
+    import numpy as np
+    old = {"version": "1.0.0", "geometry": {"box": {"type": "Box", "center": [0, 0, 0], "size": [1, 1, 1]}},
+           "fields": {}, "schedule": [{"name": "s", "operator": "seed_cells", "params": {"N": 20, "geometry": "box"}},
+                                      {"name": "d", "operator": "proliferate", "params": {"prob": 0.5}}],
+           "genome": {}, "plugins": [], "metadata": {"a": 1}, "neuron_model": "lif_int"}
+    (tmp_path / "old.json").write_text(json.dumps(old))
+    p = Project.load(tmp_path / "old.json")
+    assert p.version == "1.1.0" and p.data_sources is None and p.pharmacology is None and p.morphology is None
+    d = p.to_dict()
+    assert {k: v for k, v in d.items() if k != "version"} == {k: v for k, v in old.items() if k != "version"}
+    a, b = run_schedule(old, {}, 3), run_schedule(d, {}, 3)
+    assert np.array_equal(a.positions, b.positions)
+    chained = schema.migrate({"name": "toy", "regions": [], "projections": []}, "0.1.0", "1.1.0")
+    assert chained["version"] == "1.1.0" and chained["plan"]["name"] == "toy"
+
+
+def test_schema_110_sections_round_trip_and_validation(tmp_path):
+    p = Project(data_sources={"fly": {"dataset": "toy_connectome", "filters": {"cell_type": ["A"]}}},
+                pharmacology={"profile": "default"}, morphology={"compartments": 3})
+    p.save(tmp_path / "p.json")
+    q = Project.load(tmp_path / "p.json")
+    assert q.data_sources == p.data_sources and q.pharmacology == p.pharmacology and q.morphology == p.morphology
+    bad = p.to_dict()
+    bad["pharmacology"] = [1]
+    with pytest.raises(ValueError, match="pharmacology"):
+        schema.validate(bad)
+    bad = p.to_dict()
+    bad["data_sources"] = {"x": {"files": []}}
+    with pytest.raises(ValueError, match="dataset"):
+        schema.validate(bad)

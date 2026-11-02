@@ -69,6 +69,11 @@ class Add(Field):
         self.a = a
         self.b = b
 
+    def bind(self, genome: Dict[str, Any]) -> 'Field':
+        a = self.a.bind(genome) if isinstance(self.a, Field) else self.a
+        b = self.b.bind(genome) if isinstance(self.b, Field) else self.b
+        return self if a is self.a and b is self.b else Add(a, b)
+
     def values(self, points: np.ndarray) -> np.ndarray:
         val_a = self.a.values(points) if isinstance(self.a, Field) else self.a
         val_b = self.b.values(points) if isinstance(self.b, Field) else self.b
@@ -88,6 +93,57 @@ class Add(Field):
         return cls(a, b)
 
 
+class _Binary(Field):
+    """a OP b of two fields or constants, evaluated pointwise (shared by Subtract and Multiply)."""
+    type_name = ""
+
+    def __init__(self, a: Union[Field, float], b: Union[Field, float]):
+        self.a = a
+        self.b = b
+
+    def _op(self, x, y):
+        raise NotImplementedError
+
+    def bind(self, genome: Dict[str, Any]) -> 'Field':
+        a = self.a.bind(genome) if isinstance(self.a, Field) else self.a
+        b = self.b.bind(genome) if isinstance(self.b, Field) else self.b
+        return self if a is self.a and b is self.b else type(self)(a, b)
+
+    def values(self, points: np.ndarray) -> np.ndarray:
+        val_a = self.a.values(points) if isinstance(self.a, Field) else self.a
+        val_b = self.b.values(points) if isinstance(self.b, Field) else self.b
+        return self._op(val_a, val_b)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {'type': self.type_name,
+                'a': self.a.to_dict() if isinstance(self.a, Field) else self.a,
+                'b': self.b.to_dict() if isinstance(self.b, Field) else self.b}
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> 'Field':
+        a = field_from_dict(d['a']) if isinstance(d['a'], dict) else d['a']
+        b = field_from_dict(d['b']) if isinstance(d['b'], dict) else d['b']
+        return cls(a, b)
+
+
+@register_field('Subtract')
+class Subtract(_Binary):
+    """a - b."""
+    type_name = 'Subtract'
+
+    def _op(self, x, y):
+        return x - y
+
+
+@register_field('Multiply')
+class Multiply(_Binary):
+    """a * b (e.g. a field masked by a 0 / 1 threshold field)."""
+    type_name = 'Multiply'
+
+    def _op(self, x, y):
+        return x * y
+
+
 @register_field('Threshold')
 class Threshold(Field):
     def __init__(self, base_field: Field, threshold: float, value_below: float = 0.0, value_above: float = 1.0):
@@ -95,6 +151,10 @@ class Threshold(Field):
         self.threshold = threshold
         self.value_below = value_below
         self.value_above = value_above
+
+    def bind(self, genome: Dict[str, Any]) -> 'Field':
+        base = self.base_field.bind(genome)
+        return self if base is self.base_field else Threshold(base, self.threshold, self.value_below, self.value_above)
 
     def values(self, points: np.ndarray) -> np.ndarray:
         vals = self.base_field.values(points)
@@ -124,6 +184,10 @@ class GaussianSmooth(Field):
         self.smoothed_data = self._smooth(base_field.data, sigma / np.array(base_field.spacing))
         self.smoothed_field = GridField(self.smoothed_data, base_field.origin, base_field.spacing, base_field.method)
 
+    def bind(self, genome: Dict[str, Any]) -> 'Field':
+        base = self.base_field.bind(genome)
+        return self if base is self.base_field else GaussianSmooth(base, self.sigma)
+
     def _smooth(self, data: np.ndarray, sigmas: np.ndarray) -> np.ndarray:
         return _gaussian_filter(data, sigmas)
 
@@ -152,7 +216,7 @@ class DistanceTransform(Field):
         
     def _compute_distance_field(self) -> GridField:
         """Exact nearest-target distance at each grid node, O(G * T) in blocks of MAX_PAIRS pairs."""
-        from .maps import regular_points
+        from .maps import _regular_axes, regular_points
 
         points = regular_points(self.bounds, self.spacing)
         targets = np.asarray(self.target_points, dtype=float)
@@ -162,13 +226,13 @@ class DistanceTransform(Field):
             diff = points[i:i + step, None, :] - targets[None, :, :]
             distances[i:i + step] = np.sqrt(np.min(np.sum(diff * diff, axis=-1), axis=1))
         
-        min_b, max_b = self.bounds
+        min_b = self.bounds[0]
         if isinstance(self.spacing, (float, int)):
             spacing = np.array([self.spacing] * len(min_b))
         else:
             spacing = np.array(self.spacing)
             
-        grid_shape = np.ceil((max_b - min_b) / spacing).astype(int)
+        grid_shape = [len(a) for a in _regular_axes(self.bounds, self.spacing)]
         dist_grid = distances.reshape(*grid_shape)
         
         return GridField(dist_grid, min_b, spacing, method='trilinear')
@@ -254,11 +318,24 @@ class DistanceToBoundary(Field):
         self.spacing = spacing
         self.label = label
         self.signed = bool(signed)
-        nodes, shape, sp = _grid_nodes(self.bounds, spacing)
+        self.grid_field: Optional[GridField] = None
+        if isinstance(region, Field) and label is None:
+            raise ValueError("DistanceToBoundary of a field region needs a label")
+        try:
+            self.grid_field = self._build_grid(region)
+        except ValueError as exc:
+            if isinstance(region, Field) and "bind" in str(exc):
+                self.grid_field = None
+            else:
+                raise
+
+    def _build_grid(self, region: Any) -> GridField:
+        nodes, shape, sp = _grid_nodes(self.bounds, self.spacing)
         if isinstance(region, Field):
-            if label is None:
-                raise ValueError("DistanceToBoundary of a field region needs a label")
-            inside = np.asarray(region.values(nodes)) == label
+            vals = np.asarray(region.values(nodes))
+            if vals.ndim == 2 and vals.shape[0] == len(nodes):
+                vals = vals[:, 0]
+            inside = vals == self.label
         else:
             pts = nodes if nodes.shape[1] == 3 else np.pad(nodes, ((0, 0), (0, 3 - nodes.shape[1])))
             inside = np.asarray(region.contains(pts), dtype=bool)
@@ -268,9 +345,19 @@ class DistanceToBoundary(Field):
         dist = np.maximum(np.where(inside, d_in, d_out) - 0.5 * float(np.min(sp)), 0.0)
         if self.signed:
             dist = np.where(inside, dist, -dist)
-        self.grid_field = GridField(dist, self.bounds[0], sp, method='trilinear')
+        return GridField(dist, self.bounds[0], sp, method='trilinear')
+
+    def bind(self, genome: Dict[str, Any]) -> 'Field':
+        if not isinstance(self.region, Field):
+            return self
+        region = self.region.bind(genome)
+        if region is self.region and self.grid_field is not None:
+            return self
+        return DistanceToBoundary(region, self.bounds, self.spacing, self.label, self.signed)
 
     def values(self, points: np.ndarray) -> np.ndarray:
+        if self.grid_field is None:
+            raise ValueError("DistanceToBoundary has an unbound region field (call bind(genome) first)")
         return self.grid_field.values(np.asarray(points, dtype=float)[..., :len(self.bounds[0])])
 
     def to_dict(self) -> Dict[str, Any]:

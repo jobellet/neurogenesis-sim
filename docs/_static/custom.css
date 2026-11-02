@@ -1,0 +1,4 @@
+.placeholder, .admonition.placeholder { border-left: 4px solid #c0392b; background: #fdf2f2; }
+.admonition.placeholder > .admonition-title { background: #c0392b; }
+.wy-nav-content { max-width: 960px; }
+img.gif-demo { border: 1px solid #ddd; }

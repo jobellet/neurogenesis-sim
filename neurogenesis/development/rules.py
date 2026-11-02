@@ -134,4 +134,6 @@ def receptor_sign(ctx):
     """gd["receptor"] = "inverting": the postsynaptic receptor inverts the transmitter's effect (e.g. a metabotropic
     glutamate receptor that closes a cation channel), so an excitatory source inhibits this target and vice versa."""
     if ctx.gd.get("receptor") == "inverting":
-        ctx.w = -ctx.w
+        from ..pharmacology import Receptor
+        sign, gain = Receptor("inverting", sign=-1).resolved(None, ctx.gd)
+        ctx.w = float(sign) * ctx.w * gain
