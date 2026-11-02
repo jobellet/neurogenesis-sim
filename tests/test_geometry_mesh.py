@@ -194,3 +194,130 @@ def test_obj_parsing():
     assert len(mesh.vertices) == 3
     assert len(mesh.faces) == 1
     os.remove('temp.obj')
+
+
+def icosphere(radius=1.0, subdivisions=3):
+    """Closed, outward-oriented icosphere mesh (vertices on the sphere)."""
+    t = (1.0 + 5 ** 0.5) / 2
+    verts = [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t],
+             [0, -1, -t], [0, 1, -t], [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]]
+    faces = [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4],
+             [11, 10, 2], [10, 7, 6], [7, 1, 8], [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8],
+             [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]]
+    verts = [list(np.array(v) / np.linalg.norm(v)) for v in verts]
+    for _ in range(subdivisions):
+        cache, new_faces = {}, []
+
+        def mid(a, b):
+            key = (min(a, b), max(a, b))
+            if key not in cache:
+                m = (np.array(verts[a]) + np.array(verts[b])) / 2
+                verts.append(list(m / np.linalg.norm(m)))
+                cache[key] = len(verts) - 1
+            return cache[key]
+        for a, b, c in faces:
+            ab, bc, ca = mid(a, b), mid(b, c), mid(c, a)
+            new_faces += [[a, ab, ca], [b, bc, ab], [c, ca, bc], [ab, bc, ca]]
+        faces = new_faces
+    return np.array(verts) * radius, np.array(faces)
+
+
+def box_mesh(lo, hi):
+    lo, hi = np.asarray(lo, float), np.asarray(hi, float)
+    cube = get_cube_mesh()
+    return MeshGeometry(lo + cube.vertices * (hi - lo), cube.faces)
+
+
+def mesh_volume(vertices, faces):
+    v = np.asarray(vertices, float)[faces]
+    return np.sum(np.einsum('ij,ij->i', v[:, 0], np.cross(v[:, 1], v[:, 2]))) / 6.0
+
+
+def test_mesh_voxelisation_volume_within_2_percent():
+    R = 1.5
+    V, F = icosphere(R, 3)
+    mesh = MeshGeometry(V, F)
+    vox = mesh.voxel_cache
+    vol = vox.mask.sum() * np.prod(vox.pitch)
+    analytic = 4.0 / 3.0 * np.pi * R ** 3
+    assert abs(vol - analytic) / analytic < 0.02
+    assert abs(vol - mesh_volume(V, F)) / mesh_volume(V, F) < 0.02
+
+    box = box_mesh([-1.0, 0.5, 2.0], [1.3, 1.5, 2.4])  # 2.3 x 1.0 x 0.4
+    vox = box.voxel_cache
+    assert abs(vox.mask.sum() * np.prod(vox.pitch) - 2.3 * 1.0 * 0.4) / (2.3 * 0.4) < 0.02
+
+
+def test_mesh_contains_matches_sphere_and_chunking(monkeypatch):
+    V, F = icosphere(1.0, 3)
+    mesh = MeshGeometry(V, F)
+    rng = np.random.default_rng(0)
+    pts = rng.uniform(-1.2, 1.2, size=(4000, 3))
+    r = np.linalg.norm(pts, axis=-1)
+    inside = mesh.contains(pts)
+    clear = (r < 0.98) | (r > 1.0)  # inradius of this icosphere > 0.98
+    np.testing.assert_array_equal(inside[clear], r[clear] < 0.98)
+    monkeypatch.setattr(MeshGeometry, "MAX_PAIRS", 97)
+    np.testing.assert_array_equal(mesh.contains(pts), inside)
+
+
+def test_mesh_sampling_uniform_including_boundary():
+    V, F = icosphere(1.0, 3)
+    mesh = MeshGeometry(V, F)
+    n = 40000
+    pts = mesh.sample_points(n, np.random.default_rng(5))
+    assert pts.shape == (n, 3)
+    assert np.all(mesh.contains(pts))
+    r = np.linalg.norm(pts, axis=-1)
+    vol = mesh_volume(V, F)
+    ball = lambda a: 4.0 / 3.0 * np.pi * a ** 3
+    p_inner = ball(0.5) / vol
+    p_shell = (vol - ball(0.95)) / vol  # outermost shell, crossed by the surface voxels
+    for frac, p in ((np.mean(r < 0.5), p_inner), (np.mean(r > 0.95), p_shell)):
+        sd = np.sqrt(p * (1 - p) / n)
+        assert abs(frac - p) < 4 * sd, (frac, p)
+    # deterministic given the generator
+    np.testing.assert_array_equal(mesh.sample_points(100, np.random.default_rng(1)),
+                                  mesh.sample_points(100, np.random.default_rng(1)))
+
+
+def test_voxel_mask_npz_affine_and_origin(tmp_path):
+    mask = np.zeros((4, 5, 6), dtype=np.uint8)
+    mask[1:3, 2:4, 3:6] = 1
+    affine = np.diag([0.5, 0.25, 2.0, 1.0])
+    affine[:3, 3] = [1.0, -2.0, 0.0]
+    p1 = tmp_path / "mask_affine.npz"
+    np.savez(p1, mask=mask, affine=affine)
+    v1 = VoxelMaskGeometry.from_npz(str(p1))
+    np.testing.assert_allclose(v1.origin, [1.0, -2.0, 0.0])
+    np.testing.assert_allclose(v1.pitch, [0.5, 0.25, 2.0])
+    np.testing.assert_array_equal(v1.mask, mask.astype(bool))
+
+    p2 = tmp_path / "mask_origin.npz"
+    np.savez(p2, mask=mask, origin=[1.0, -2.0, 0.0], voxel_size=[0.5, 0.25, 2.0])
+    v2 = VoxelMaskGeometry.from_npz(str(p2))
+    pts = v2.sample_points(500, np.random.default_rng(0))
+    assert np.all(v1.contains(pts)) and np.all(v2.contains(pts))
+    lo = np.array([1.0, -2.0, 0.0]) + np.array([1, 2, 3]) * np.array([0.5, 0.25, 2.0])
+    hi = np.array([1.0, -2.0, 0.0]) + np.array([3, 4, 6]) * np.array([0.5, 0.25, 2.0])
+    assert np.all(pts >= lo) and np.all(pts <= hi)
+
+    import json
+    d = json.loads(json.dumps(v2.to_dict()))
+    assert d == {"type": "voxel_mask", "npz": str(p2)}
+    v3 = geometry_from_dict(d)
+    assert isinstance(v3, VoxelMaskGeometry)
+    np.testing.assert_array_equal(v3.mask, v2.mask)
+    np.testing.assert_allclose(v3.pitch, v2.pitch)
+
+    p3 = tmp_path / "saved.npz"
+    v1.save_npz(str(p3))
+    v4 = VoxelMaskGeometry.from_npz(str(p3))
+    np.testing.assert_array_equal(v4.mask, v1.mask)
+    np.testing.assert_allclose(v4.origin, v1.origin)
+
+    bad = affine.copy()
+    bad[0, 1] = 0.1
+    np.savez(tmp_path / "bad.npz", mask=mask, affine=bad)
+    with pytest.raises(ValueError, match="axis-aligned"):
+        VoxelMaskGeometry.from_npz(str(tmp_path / "bad.npz"))
