@@ -40,10 +40,10 @@ Limits: one of `geometry` / `position` / `points` is required (`ValueError` othe
 Monte Carlo (65 536 points, about 1 % error) from the stage's random stream; flat geometries are measured by area. The
 cost assumes `N = 100` (or `max_cells`) unless `N` is a constant.
 
-**`proliferate` (C2).** Each alive cell divides with probability `prob`; the daughter is appended, the mother stays.
+**`proliferate` (C2).** Each cycling alive cell (`Tissue.cycling`) divides with probability `prob`; the daughter is appended, the mother stays.
 | Param | Default | Meaning |
 |---|---|---|
-| `prob` | 0.0 | division probability per cell and call (per cell; an `Expr` sees `cell_type`, `generation`, `birth_stage`, `region`, `x`, `y`, `z` and the top-level genes); 0 is neutral |
+| `prob` | 0.0 | division probability per cell and call (per cell; an `Expr` sees `cell_type`, `generation`, `cycling`, `birth_stage`, `region`, `x`, `y`, `z` and the top-level genes); 0 is neutral |
 | `jitter` | 0.1 | standard deviation of the daughter's Gaussian displacement from the mother (space units, per cell) |
 | `new_type` | none | cell type of the daughters (per cell); if absent daughters copy the mother's type |
 | `max_cells` | none | upper bound on alive cells; if divisions would exceed it, a random subset divides so the bound holds exactly |
@@ -52,8 +52,10 @@ cost assumes `N = 100` (or `max_cells`) unless `N` is a constant.
 | `expression_noise` | 0.0 | standard deviation of Gaussian noise added to both daughters' expression, clipped at 0 |
 | `birth_stage` | none | birth stage given to new daughters; if absent, one more than the latest alive `birth_stage` |
 
-Daughters copy the mother's region, expression, sign and neuron parameters and record `parent_id` and `clone_id`; both
-daughters get `generation = mother's + 1` (`Tissue.generation`). Dead cells do not divide.
+Daughters copy the mother's region, expression, sign, `cycling` (`True` by default for cells from `seed_cells` and
+`proliferate`) and neuron parameters and record `parent_id` and `clone_id`; both daughters get `generation = mother's + 1`
+(`Tissue.generation`). Dead cells and postmitotic cells (`cycling == False`, e.g. from `place_by_hand` or
+`cell_cycle_clock`) do not divide.
 
 **`apoptosis` (C3).** Kills cells, then compacts the tissue (connectivity re-indexed).
 | Param | Default | Meaning |
@@ -165,9 +167,9 @@ Weights are `w · (1 or −inh) · U(0.9, 1.1)`, rounded and clipped. The stage 
 region without alive cells is a no-op for that projection. Limits: the dense path uses O(Ns·Nd) memory (only up to 2048 cells per side by default); no probability rule (not even `no_autapse`) applies unless listed; the sparse path supports only the
 `identity_expression`, `no_autapse` and `source_sign` probability rules and uses a fixed cutoff of 5σ.
 
-**`place_by_hand` (C9).** Appends cells at explicit `positions` (M, 3), with `region` (0) and optional `cell_type`,
-`birth_stage`, `sign`, `mode`, `shift_v`, `shift_s`, `base_weight`, `threshold`, `directions` (scalars or one value per
-cell). No positions = no-op.
+**`place_by_hand` (C9).** Appends cells at explicit `positions` (M, 3), with `region` (0), `cycling` (`False` by
+default) and optional `cell_type`, `birth_stage`, `sign`, `mode`, `shift_v`, `shift_s`, `base_weight`, `threshold`,
+`directions` (scalars or one value per cell). No positions = no-op.
 
 **`connect_by_hand` (C9).** Appends synapses `pre[i] → post[i]` (current cell indices, not cell ids) with `weight`
 (1.0, truncated to an integer) and `delay` (1 tick). Indices outside [0, N) and delays outside [1, 31] raise

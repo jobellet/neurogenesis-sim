@@ -51,8 +51,8 @@ Every stage parameter is a **Param**, which says where its value comes from:
 
 ## Tissue
 The {py:class}`~neurogenesis.tissue.Tissue` is the state that stages transform: positions (float64), parent and clone
-ids (lineage), birth stage, cell type, region, expression channels, sign, neuron parameters, alive flag, and sparse
-connectivity (pre, post, weight, delay). `tissue.to_network()` compiles it into an `SNNNetwork`.
+ids (lineage), birth stage, generation, cycling flag, cell type, region, expression channels, sign, neuron parameters,
+alive flag, and sparse connectivity (pre, post, weight, delay). `tissue.to_network()` compiles it into an `SNNNetwork`.
 
 ## Spiking network and neuron models
 An `SNNNetwork` holds neurons (integer LIF parameters: leak shift, synaptic shift, threshold, refractory period;

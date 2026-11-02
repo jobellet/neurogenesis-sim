@@ -169,7 +169,7 @@ class SeedCells:
 
 @register_stage("proliferate")
 class Proliferate:
-    """Cell division: each alive cell divides with probability `prob` (a `Param`, per cell).
+    """Cell division: each cycling alive cell divides with probability `prob` (a `Param`, per cell).
 
     The parent row stays in place as one daughter; the other daughter is appended, displaced by Gaussian `jitter`
     (space units), with `parent_id`, `clone_id` and the parent's state. Both daughters get `generation` + 1. The
@@ -208,15 +208,16 @@ class Proliferate:
 
         prob_param = params.get("prob", 0.0)
         ctx_vars = {**(genome if isinstance(genome, dict) else {}), "cell_type": tissue.cell_type,
-                    "generation": tissue.generation, "birth_stage": tissue.birth_stage, "region": tissue.region,
-                    "x": tissue.positions[:, 0], "y": tissue.positions[:, 1], "z": tissue.positions[:, 2], "np": np}
+                    "generation": tissue.generation, "cycling": tissue.cycling, "birth_stage": tissue.birth_stage,
+                    "region": tissue.region, "x": tissue.positions[:, 0], "y": tissue.positions[:, 1],
+                    "z": tissue.positions[:, 2], "np": np}
         prob = resolve(prob_param, genome, fields, positions=tissue.positions, context_vars=ctx_vars)
         if np.isscalar(prob):
             prob = np.full(N, prob)
         else:
             prob = np.asarray(prob)
 
-        dividing = (rng.random(N) < prob) & tissue.alive
+        dividing = (rng.random(N) < prob) & tissue.alive & tissue.cycling
         div_indices = np.where(dividing)[0]
 
         max_cells_param = params.get("max_cells", None)
@@ -284,6 +285,7 @@ class Proliferate:
             clone_id=parent_clones,
             birth_stage=birth_stage,
             generation=generation,
+            cycling=tissue.cycling[div_indices].copy(),
             cell_type=cell_type,
             region=tissue.region[div_indices].copy(),
             expression=expression,

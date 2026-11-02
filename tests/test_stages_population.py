@@ -212,6 +212,30 @@ def test_proliferate_skips_dead_cells():
     assert t.parent_id[4:].tolist() == [1, 3]
 
 
+def test_proliferate_divides_only_cycling_cells_and_matches_all_cycling_bit_for_bit():
+    # With every cell cycling (the default), behaviour is bit-for-bit identical.
+    t_all = _c2_tissue(N=25, K=2, seed=9)
+    assert np.all(t_all.cycling)
+    t_explicit = _c2_tissue(N=25, K=2, seed=9)
+    t_explicit.cycling = np.ones(25, dtype=bool)
+    a = Proliferate().run(t_all, {"prob": 0.65, "jitter": 0.1}, {}, {}, np.random.default_rng(77))
+    b = Proliferate().run(t_explicit, {"prob": 0.65, "jitter": 0.1}, {}, {}, np.random.default_rng(77))
+    assert _fingerprint(a) == _fingerprint(b)
+    assert np.all(a.cycling)
+
+    # Non-cycling cells (including cells placed by place_by_hand) never divide and keep their generation.
+    from neurogenesis.stages.connectivity import PlaceByHand
+    t = Tissue.empty()
+    t.add_cells(4, cycling=np.array([True, False, True, False]))
+    t = PlaceByHand().run(t, {"positions": [[5.0, 0.0, 0.0]]}, {}, {}, np.random.default_rng(0))
+    assert t.cycling.tolist() == [True, False, True, False, False]
+    t = Proliferate().run(t, {"prob": 1.0}, {}, {}, np.random.default_rng(0))
+    assert len(t.alive) == 7
+    assert t.parent_id[5:].tolist() == [0, 2]
+    assert t.generation.tolist() == [1, 0, 1, 0, 0, 1, 1]
+    assert t.cycling.tolist() == [True, False, True, False, False, True, True]
+
+
 def test_proliferate_max_cells_bound_exact():
     from neurogenesis.params import Const
     stage = Proliferate()
