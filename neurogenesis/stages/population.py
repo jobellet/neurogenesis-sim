@@ -5,21 +5,87 @@ from typing import Dict, Any, Tuple
 
 from neurogenesis.stages.base import register_stage
 from neurogenesis.tissue import Tissue
-from neurogenesis.params import resolve, Param, param_from_dict, Const, Gene, Fit
+from neurogenesis.params import resolve, Param, worst_case
 from neurogenesis.geometry import Geometry
 from neurogenesis.spatial import CellList
 
-def _worst_case(param: Any, default: Any) -> Any:
-    """Value of a Param for cost estimates: a Const's value, the upper bound of a Gene or Fit, else `default`."""
-    if isinstance(param, dict):
-        param = param_from_dict(param)
-    if isinstance(param, Const):
-        return param.value
-    if isinstance(param, (Gene, Fit)):
-        return param.hi
-    if param is None or isinstance(param, Param.__args__):
-        return default
-    return param
+
+# Uniform points used to measure a geometry's volume (Monte Carlo, relative error about 1 / sqrt(n * fraction inside)).
+_VOLUME_SAMPLES = 65536
+
+
+def geometry_volume(geometry: Geometry, rng: np.random.Generator, n: int = _VOLUME_SAMPLES) -> float:
+    """Volume of a geometry (space units cubed): bounding-box volume times the fraction of n uniform box points inside.
+
+    Flat geometries (a zero-size box axis) are measured in the remaining dimensions (area)."""
+    lo, hi = (np.asarray(b, dtype=np.float64) for b in geometry.bounding_box())
+    size = hi - lo
+    flat = size <= 0
+    pts = lo + rng.random((n, 3)) * np.where(flat, 0.0, size)
+    return float(np.prod(np.where(flat, 1.0, size)) * np.mean(geometry.contains(pts)))
+
+
+def _sample_density(geometry: Geometry, params: Dict[str, Any], genome: Dict[str, Any], fields: Dict[str, Any],
+                    rng: np.random.Generator) -> np.ndarray:
+    """Positions drawn with a density (cells per unit volume): a number, or a field thinned against `max_density`.
+
+    A constant density gives round(density x volume) uniform cells. A per-cell density (a `Field` param) is sampled
+    by thinning: round(max_density x volume) uniform candidates, each kept with probability density / max_density
+    (Lewis & Shedler 1979, Naval Res Logist Q); values above `max_density` are clipped. `max_cells` bounds the count.
+    """
+    volume = geometry_volume(geometry, rng)
+    density_param = params["density"]
+    max_cells = params.get("max_cells")
+    max_cells = int(resolve(max_cells, genome, fields)) if max_cells is not None else None
+    density = resolve(density_param, genome, fields)
+    if np.isscalar(density) and not isinstance(density, str):
+        n = int(round(float(density) * volume))
+        n = min(n, max_cells) if max_cells is not None else n
+        return geometry.sample_points(n, rng).astype(np.float64) if n > 0 else np.zeros((0, 3))
+    if params.get("max_density") is None:
+        raise ValueError("seed_cells: a density field needs 'max_density' (cells per unit volume).")
+    max_density = float(resolve(params["max_density"], genome, fields))
+    n = int(round(max_density * volume))
+    if max_cells is not None:
+        n = min(n, int(np.ceil(max_cells * 1.5)) + 16)
+    if n <= 0:
+        return np.zeros((0, 3))
+    cand = geometry.sample_points(n, rng).astype(np.float64)
+    d = np.asarray(resolve(density_param, genome, fields, positions=cand), dtype=np.float64).reshape(-1)
+    keep = rng.random(n) < np.clip(d / max_density, 0.0, 1.0)
+    out = cand[keep]
+    return out[:max_cells] if max_cells is not None else out
+
+
+def _point_set(spec: Any, rng: np.random.Generator) -> np.ndarray:
+    """(M, 3) positions from a list of points or a point-pattern dict (B4).
+
+    A dict has `pattern` ("regular", "jittered" or "poisson_disc"), `bounds` ([lo, hi] in 2 or 3 dimensions; 2D
+    points get z = 0) and `spacing` (regular, jittered), `jitter` (jittered) or `radius` (poisson_disc). A
+    registered `PointSetField` or any object with a `points` attribute gives its points.
+    """
+    from neurogenesis.fields.maps import regular_points, jittered_points, poisson_disc_points
+    if hasattr(spec, "points"):
+        pts = np.asarray(spec.points, dtype=np.float64)
+    elif isinstance(spec, dict):
+        bounds = (np.asarray(spec["bounds"][0], dtype=float), np.asarray(spec["bounds"][1], dtype=float))
+        kind = spec.get("pattern", "regular")
+        if kind == "regular":
+            pts = regular_points(bounds, spec["spacing"])
+        elif kind == "jittered":
+            pts = jittered_points(bounds, spec["spacing"], float(spec.get("jitter", 0.0)), rng)
+        elif kind == "poisson_disc":
+            pts = poisson_disc_points(bounds, float(spec["radius"]), rng)
+        else:
+            raise ValueError(f"seed_cells: unknown point pattern {kind!r}")
+    else:
+        pts = np.asarray(spec, dtype=np.float64)
+    pts = np.atleast_2d(np.asarray(pts, dtype=np.float64))
+    if pts.size == 0:
+        return np.zeros((0, 3))
+    if pts.shape[1] < 3:
+        pts = np.concatenate([pts, np.zeros((len(pts), 3 - pts.shape[1]))], axis=1)
+    return pts[:, :3]
 
 
 @register_stage("seed_cells")
@@ -30,19 +96,15 @@ class SeedCells:
     """
     @classmethod
     def cost(cls, N: int, E: int, params: Dict[str, Any]) -> Tuple[int, int]:
-        M = int(_worst_case(params.get("N"), 100))
+        M = int(worst_case(params.get("N"), 100))
+        if params.get("density") is not None or params.get("points") is not None:
+            M = int(worst_case(params.get("max_cells"), 100))
         bytes_cost = M * 128
         ops_cost = M * 15
         return bytes_cost, ops_cost
 
     def run(self, tissue: Tissue, params: Dict[str, Any], genome: Dict[str, Any], fields: Dict[str, Any], rng: np.random.Generator) -> Tissue:
-        N_param = params.get("N", 0)
-        N = int(resolve(N_param, genome, fields))
-        
-        if N <= 0:
-            return tissue
-
-        # Get geometry
+        geometry = None
         geom_param = params.get("geometry", None)
         if geom_param is not None:
             resolved_geom = resolve(geom_param, genome, fields)
@@ -54,21 +116,37 @@ class SeedCells:
                 geometry = resolved_geom
             else:
                 raise TypeError(f"Expected geometry name or Geometry object, got {type(resolved_geom).__name__}.")
-            
             if not isinstance(geometry, Geometry):
                 raise TypeError(f"Object {geom_param!r} is of type {type(geometry).__name__}, expected Geometry with sample_points().")
-            positions = geometry.sample_points(N, rng).astype(np.float64)
-        elif "position" in params:
-            pos_param = params.get("position", [0.0, 0.0, 0.0])
-            pos = resolve(pos_param, genome, fields)
-            if isinstance(pos, (list, tuple, np.ndarray)):
-                pos = np.array(pos, dtype=np.float64)
-            else:
-                pos = np.array([0.0, 0.0, 0.0], dtype=np.float64)
-            positions = np.tile(pos, (N, 1))
+
+        if params.get("points") is not None:
+            positions = _point_set(resolve(params["points"], genome, fields), rng)
+            if geometry is not None and len(positions):
+                positions = positions[geometry.contains(positions)]
+            N = len(positions)
+        elif params.get("density") is not None:
+            if geometry is None:
+                raise ValueError("seed_cells: 'density' needs a 'geometry'.")
+            positions = _sample_density(geometry, params, genome, fields, rng)
+            N = len(positions)
         else:
-            raise ValueError("seed_cells requires either 'geometry' or 'position' parameter.")
-            
+            N = int(resolve(params.get("N", 0), genome, fields))
+            if N <= 0:
+                return tissue
+            if geometry is not None:
+                positions = geometry.sample_points(N, rng).astype(np.float64)
+            elif "position" in params:
+                pos = resolve(params.get("position", [0.0, 0.0, 0.0]), genome, fields)
+                if isinstance(pos, (list, tuple, np.ndarray)):
+                    pos = np.array(pos, dtype=np.float64)
+                else:
+                    pos = np.array([0.0, 0.0, 0.0], dtype=np.float64)
+                positions = np.tile(pos, (N, 1))
+            else:
+                raise ValueError("seed_cells requires either 'geometry' or 'position' parameter.")
+        if N <= 0:
+            return tissue
+
         region_param = params.get("region", 0)
         region = int(resolve(region_param, genome, fields))
         
@@ -91,7 +169,7 @@ class SeedCells:
 
 @register_stage("proliferate")
 class Proliferate:
-    """Cell division: each alive cell divides with probability `prob` (a `Param`, per cell).
+    """Cell division: each cycling alive cell divides with probability `prob` (a `Param`, per cell).
 
     The parent row stays in place as one daughter; the other daughter is appended, displaced by Gaussian `jitter`
     (space units), with `parent_id`, `clone_id` and the parent's state. Both daughters get `generation` + 1. The
@@ -113,8 +191,8 @@ class Proliferate:
 
     @classmethod
     def cost(cls, N: int, E: int, params: Dict[str, Any]) -> Tuple[int, int]:
-        M = int(N * min(1.0, float(_worst_case(params.get("prob"), 0.5))))
-        max_cells = _worst_case(params.get("max_cells"), None)
+        M = int(N * min(1.0, float(worst_case(params.get("prob"), 0.5))))
+        max_cells = worst_case(params.get("max_cells"), None)
         if max_cells is not None:
             M = min(M, max(0, int(max_cells) - N))
         M = max(1, M)
@@ -129,13 +207,25 @@ class Proliferate:
             return tissue
 
         prob_param = params.get("prob", 0.0)
-        prob = resolve(prob_param, genome, fields, positions=tissue.positions)
+        ctx_vars = {**(genome if isinstance(genome, dict) else {}), "cell_type": tissue.cell_type,
+                    "generation": tissue.generation, "cycling": tissue.cycling, "birth_stage": tissue.birth_stage,
+                    "birth_time": tissue.birth_time, "region": tissue.region,
+                    "x": tissue.positions[:, 0], "y": tissue.positions[:, 1],
+                    "z": tissue.positions[:, 2], "np": np}
+        prob = resolve(prob_param, genome, fields, positions=tissue.positions, context_vars=ctx_vars)
         if np.isscalar(prob):
             prob = np.full(N, prob)
         else:
             prob = np.asarray(prob)
 
-        dividing = (rng.random(N) < prob) & tissue.alive
+        clock_mask = getattr(tissue, "_clock_cycle_mask", None)
+        if clock_mask is not None and len(clock_mask) == N:
+            tissue._clock_cycle_mask = None
+            dividing = (rng.random(N) < prob) & tissue.alive & clock_mask
+            clock_advanced = True
+        else:
+            dividing = (rng.random(N) < prob) & tissue.alive & tissue.cycling
+            clock_advanced = False
         div_indices = np.where(dividing)[0]
 
         max_cells_param = params.get("max_cells", None)
@@ -151,7 +241,7 @@ class Proliferate:
         parent_positions = tissue.positions[div_indices]
         parent_ids = tissue.cell_id[div_indices]
         parent_clones = tissue.clone_id[div_indices]
-        generation = tissue.generation[div_indices] + 1
+        generation = tissue.generation[div_indices].copy() if clock_advanced else tissue.generation[div_indices] + 1
         birth_param = params.get("birth_stage", None)
         if birth_param is None:
             birth_stage = np.full(M, int(np.max(tissue.birth_stage[tissue.alive])) + 1, dtype=np.int32)
@@ -203,6 +293,8 @@ class Proliferate:
             clone_id=parent_clones,
             birth_stage=birth_stage,
             generation=generation,
+            cycling=tissue.cycling[div_indices].copy(),
+            birth_time=tissue.birth_time[div_indices].copy(),
             cell_type=cell_type,
             region=tissue.region[div_indices].copy(),
             expression=expression,
@@ -221,6 +313,9 @@ class Proliferate:
             compartment=tissue.compartment[div_indices].copy(),
             threshold=tissue.threshold[div_indices].copy()
         )
+        exited = getattr(tissue, "_clock_exited_mask", None)
+        if exited is not None and len(exited) == N:
+            tissue._clock_exited_mask = np.concatenate([exited, exited[div_indices].copy()])
         return tissue
 
 @register_stage("apoptosis")
@@ -313,4 +408,102 @@ class Apoptosis:
             tissue.kill(dying)
             tissue.compact()
 
+        return tissue
+
+
+@register_stage("cell_cycle_clock")
+class CellCycleClock:
+    """Progenitor cell-cycle exit clock (Takahashi, Nowakowski & Caviness 1995, J Neurosci; 1996, J Neurosci;
+    Caviness, Takahashi & Nowakowski 2000).
+
+    Called once per cell cycle before `proliferate`. Each cycling alive cell leaves the cycle (`cycling = False`)
+    with probability `Q(generation) = min(1, k * generation^a)` or from a per-generation table `Q` (`q_table`).
+    Leaving cells keep their exit `generation` (their birth cycle) frozen across later cycles. When `T_C` (a
+    per-generation table or formula) is given, each cycling cell's `birth_time` advances by `T_C(generation)` and
+    freezes when the cell leaves the cycle. With `k = 0` (or no parameters), the stage is a no-op.
+    """
+
+    @classmethod
+    def cost(cls, N: int, E: int, params: Dict[str, Any]) -> Tuple[int, int]:
+        n = max(1, N)
+        return (n * 32, n * 10)
+
+    def run(self, tissue: Tissue, params: Dict[str, Any], genome: Dict[str, Any], fields: Dict[str, Any],
+            rng: np.random.Generator) -> Tissue:
+        N = len(tissue.alive)
+        if N == 0 or not params:
+            return tissue
+
+        cycling_mask = tissue.alive & tissue.cycling
+        if not np.any(cycling_mask):
+            return tissue
+
+        q_param = params.get("Q", params.get("q_table"))
+        k_param = params.get("k", 0.0)
+        a_param = params.get("a", 1.97)
+        tc_param = params.get("T_C", params.get("tc_table", params.get("tc")))
+
+        # Check neutral condition before mutating generation
+        ctx_check = {**(genome if isinstance(genome, dict) else {}), "cell_type": tissue.cell_type,
+                     "generation": tissue.generation, "cycling": tissue.cycling, "birth_stage": tissue.birth_stage,
+                     "birth_time": tissue.birth_time, "region": tissue.region,
+                     "x": tissue.positions[:, 0], "y": tissue.positions[:, 1],
+                     "z": tissue.positions[:, 2], "np": np}
+        if q_param is None:
+            k_val = resolve(k_param, genome, fields, positions=tissue.positions, context_vars=ctx_check)
+            if np.all(np.asarray(k_val, dtype=np.float64) <= 0.0) and tc_param is None:
+                return tissue
+
+        # Advance cycle counter for cycling cells entering this cycle (unless caller pre-populated generation >= 1 on first call)
+        if getattr(tissue, "_clock_active", False) or np.any(tissue.generation[cycling_mask] == 0):
+            tissue.generation[cycling_mask] += 1
+        tissue._clock_active = True
+        tissue._clock_cycle_mask = cycling_mask.copy()
+
+        cc = tissue.generation
+        ctx_vars = {**(genome if isinstance(genome, dict) else {}), "cell_type": tissue.cell_type,
+                    "generation": cc, "CC": cc, "cycling": tissue.cycling, "birth_stage": tissue.birth_stage,
+                    "birth_time": tissue.birth_time, "region": tissue.region,
+                    "x": tissue.positions[:, 0], "y": tissue.positions[:, 1],
+                    "z": tissue.positions[:, 2], "np": np}
+
+        if tc_param is not None:
+            tc_val = resolve(tc_param, genome, fields, positions=tissue.positions, context_vars=ctx_vars)
+            if isinstance(tc_val, dict):
+                tc_arr = np.array([float(tc_val.get(int(g), tc_val.get(str(int(g)), 0.0))) for g in cc], dtype=np.float32)
+            elif isinstance(tc_val, (list, tuple)) or (
+                isinstance(tc_val, np.ndarray) and tc_val.ndim == 1 and ("tc_table" in params or len(tc_val) != N)
+            ):
+                table = np.asarray(tc_val, dtype=np.float32)
+                idx = np.clip(cc - 1, 0, max(0, len(table) - 1))
+                tc_arr = table[idx] if len(table) > 0 else np.zeros(N, dtype=np.float32)
+            elif np.isscalar(tc_val):
+                tc_arr = np.full(N, float(tc_val), dtype=np.float32)
+            else:
+                tc_arr = np.asarray(tc_val, dtype=np.float32)
+            tissue.birth_time[cycling_mask] += tc_arr[cycling_mask]
+
+        if q_param is not None:
+            q_val = resolve(q_param, genome, fields, positions=tissue.positions, context_vars=ctx_vars)
+            if isinstance(q_val, dict):
+                q_arr = np.array([float(q_val.get(int(g), q_val.get(str(int(g)), 0.0))) for g in cc], dtype=np.float64)
+            elif isinstance(q_val, (list, tuple)) or (
+                isinstance(q_val, np.ndarray) and q_val.ndim == 1 and ("q_table" in params or len(q_val) != N)
+            ):
+                table = np.asarray(q_val, dtype=np.float64)
+                idx = np.clip(cc - 1, 0, max(0, len(table) - 1))
+                q_arr = table[idx] if len(table) > 0 else np.zeros(N, dtype=np.float64)
+            elif np.isscalar(q_val):
+                q_arr = np.full(N, float(q_val), dtype=np.float64)
+            else:
+                q_arr = np.asarray(q_val, dtype=np.float64)
+            q_prob = np.clip(q_arr, 0.0, 1.0)
+        else:
+            k_val = np.asarray(resolve(k_param, genome, fields, positions=tissue.positions, context_vars=ctx_vars), dtype=np.float64)
+            a_val = np.asarray(resolve(a_param, genome, fields, positions=tissue.positions, context_vars=ctx_vars), dtype=np.float64)
+            q_prob = np.clip(k_val * np.power(np.maximum(cc.astype(np.float64), 0.0), a_val), 0.0, 1.0)
+
+        leaving = cycling_mask & (rng.random(N) < q_prob)
+        tissue.cycling[leaving] = False
+        tissue._clock_exited_mask = leaving.copy()
         return tissue

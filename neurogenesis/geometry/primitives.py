@@ -348,11 +348,21 @@ class CurvedSheet(Geometry):
         n_len = np.linalg.norm(n, axis=-1, keepdims=True)
         return np.where(n_len > 0, n / n_len, np.array([0, 0, 1], dtype=np.float32))
 
+    # Bytes of the (chunk, M, 3) difference array in _closest_points; peak temporary memory stays below
+    # 3 x this bound (difference, its square, distances) whatever the number of points.
+    _CLOSEST_CHUNK_BYTES = 8 << 20
+
     def _closest_points(self, points):
-        # Broadly vectorised: (N, 1, 3) - (1, M, 3) -> (N, M, 3)
-        diff = points[:, np.newaxis, :] - self.surface_points[np.newaxis, :, :]
-        dists = np.sum(diff**2, axis=-1)
-        closest_idx = np.argmin(dists, axis=-1)
+        """Index of the nearest surface sample (of M) for each of N points, in chunks of points: O(N M) operations,
+        temporary memory below 3 x _CLOSEST_CHUNK_BYTES plus the N indices."""
+        points = np.asarray(points)
+        M = len(self.surface_points)
+        itemsize = np.result_type(points.dtype, self.surface_points.dtype).itemsize
+        chunk = max(1, self._CLOSEST_CHUNK_BYTES // (M * 3 * itemsize))
+        closest_idx = np.empty(len(points), dtype=np.intp)
+        for start in range(0, len(points), chunk):
+            diff = points[start:start + chunk, np.newaxis, :] - self.surface_points[np.newaxis, :, :]
+            closest_idx[start:start + chunk] = np.argmin(np.sum(diff**2, axis=-1), axis=-1)
         return closest_idx
 
     def contains(self, points: np.ndarray) -> np.ndarray:

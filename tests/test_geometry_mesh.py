@@ -186,14 +186,12 @@ def test_voxel_json_roundtrip():
     assert np.allclose(voxel.origin, voxel2.origin)
     assert np.allclose(voxel.pitch, voxel2.pitch)
 
-def test_obj_parsing():
-    import os
-    with open('temp.obj', 'w') as f:
-        f.write("""v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n""")
-    mesh = MeshGeometry.from_obj('temp.obj')
+def test_obj_parsing(tmp_path):
+    path = tmp_path / "temp.obj"
+    path.write_text("""v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n""")
+    mesh = MeshGeometry.from_obj(str(path))
     assert len(mesh.vertices) == 3
     assert len(mesh.faces) == 1
-    os.remove('temp.obj')
 
 
 def icosphere(radius=1.0, subdivisions=3):

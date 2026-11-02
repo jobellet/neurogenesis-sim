@@ -30,10 +30,13 @@ def test_poisson_threshold_does_not_overflow():
     assert int(sim.poisson_thresh[0]) == 4294967295
 
 
-def test_csr_refuses_too_many_neurons():
+def test_csr_handles_many_neurons():
     net = SNNNetwork(neurons=[MorphogeneticEngine.generate_microcircuit(1, seed=0).neurons[0]] * 65536)
-    with pytest.raises(ValueError):
-        net.to_csr()
+    # Shouldn't raise ValueError anymore
+    row_ptr, col, w, d = net.to_csr()
+    assert len(row_ptr) == 65537
+    assert row_ptr.dtype == np.uint32
+    assert col.dtype == np.uint32
 
 
 # ---------------------------------------------------------------- refractory period and JAX port
@@ -130,3 +133,61 @@ def test_per_neuron_threshold_browser_equals_reference(tmp_path):
     py = "\n".join(f"{t} {i}" for t, i in sim.spike_history)
     js = subprocess.run(["node", str(root / "scripts/js/check_kernel_equivalence.mjs"), str(f), "300"], capture_output=True, text=True, cwd=root).stdout.strip()
     assert py == js and len(py) > 0
+
+
+def test_long_delays(tmp_path):
+    """Test that max_delay > 31 correctly triggers W > 1 and multi-word bitshifts and propagation."""
+    import shutil
+    import subprocess
+    from pathlib import Path
+    import platform
+    import ctypes
+    
+    net = MorphogeneticEngine.generate_microcircuit(20, seed=42)
+    rng = np.random.default_rng(42)
+    for s in net.synapses:
+        s.delay = int(rng.integers(1, 150))
+        
+    # Check Python Reference
+    sim = IntegerSNNSimulator(net, seed=42)
+    sim.run(200)
+    ref = np.zeros((200, net.num_neurons), np.uint8)
+    for t, i in sim.spike_history:
+        ref[t, i] = 1
+        
+    # Check JAX backend
+    packed = jax_sim.pack(net)
+    _, spk = jax.jit(lambda: jax_sim.run(packed, jax_sim.init_state(packed, 42), 200))()
+    assert np.array_equal(np.asarray(spk)[:, :net.num_neurons], ref)
+    assert ref.sum() > 0
+    
+    # Check Browser kernel
+    root = Path(__file__).resolve().parents[1]
+    if shutil.which("node") is not None and (root / "scripts/js/build/kernel.js").exists():
+        f = tmp_path / "n.json"
+        net.save_json(f)
+        py = "\n".join(f"{t} {i}" for t, i in sim.spike_history)
+        # Note JS kernel defaults to 12345, so we need to run reference with seed 12345 to compare JS
+        sim2 = IntegerSNNSimulator(net, seed=12345)
+        sim2.run(200)
+        py2 = "\n".join(f"{t} {i}" for t, i in sim2.spike_history)
+        js = subprocess.run(["node", str(root / "scripts/js/check_kernel_equivalence.mjs"), str(f), "200"], capture_output=True, text=True, cwd=root).stdout.strip()
+        assert py2 == js and len(py2) > 0
+
+    # Check C nglif kernel
+    cc = shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")
+    if cc is not None:
+        from neurogenesis.bridge.ngb import write_network
+        nglif_dir = root / "desktop" / "common" / "native" / "nglif"
+        fix_dir = tmp_path / "nglif_long"
+        fix_dir.mkdir(exist_ok=True)
+        write_network(net, fix_dir / "long_delays.ngb")
+        spikes_arr = np.asarray(sim.spike_history, dtype="<i4").reshape(-1)
+        (fix_dir / "long_delays.spikes.i32").write_bytes(spikes_arr.tobytes())
+        (fix_dir / "MANIFEST.txt").write_text("long_delays 200 42 -\n")
+        exe = tmp_path / "nglif_test_long"
+        subprocess.run([cc, "-std=c11", "-O2", str(nglif_dir / "nglif.c"), str(nglif_dir / "nglif_test.c"), "-o", str(exe)], check=True)
+        r = subprocess.run([str(exe), str(fix_dir)], capture_output=True, text=True)
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert "0 failures" in r.stdout
+

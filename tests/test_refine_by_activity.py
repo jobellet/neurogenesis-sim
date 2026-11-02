@@ -252,3 +252,74 @@ def test_end_to_end_refine_by_activity_in_schedule():
     assert len(tissue.connectivity.pre) > 0
     assert len(tissue.connectivity.weight) == len(tissue.connectivity.pre)
     assert np.all(tissue.connectivity.weight >= 50)
+
+
+def test_spontaneous_wave_driver_potentiates_along_propagation():
+    """Spontaneous waves with defined sources and speed potentiate feedforward connections."""
+    tissue = Tissue.empty()
+    # 3 neurons along a line: 0 at origin, 1 at x=10, 2 at x=20
+    tissue.add_cells(3, positions=np.array([[0, 0, 0], [10, 0, 0], [20, 0, 0]], dtype=float))
+    tissue.threshold[:] = 512
+    tissue.connectivity = SparseConnectivity(
+        pre=np.array([0, 1], dtype=np.int32),
+        post=np.array([1, 2], dtype=np.int32),
+        weight=np.array([200, 200], dtype=np.int32),
+        delay=np.array([1, 1], dtype=np.int32)
+    )
+
+    stage_wave = Stage(
+        name="wave_refine",
+        operator="refine_by_activity",
+        params={
+            "ticks": Const(40),
+            "rule": Const("stdp"),
+            "A_plus": Const(5.0),
+            "A_minus": Const(1.0),
+            "waves": {
+                "sources": [0],
+                "speed": 1.0,
+                "interval": 50,
+                "duration": 3,
+                "amplitude": 3000
+            }
+        }
+    )
+    t_wave = stage_wave.run(tissue, {}, {}, np.random.default_rng(42))
+    assert t_wave.connectivity.weight[0] > 200, f"Expected weight > 200, got {t_wave.connectivity.weight[0]}"
+
+
+def test_motor_twitches_with_sensory_feedback_potentiates_loop():
+    """Motor twitches triggering sensory feedback potentiate motor-to-sensory pathway."""
+    tissue = Tissue.empty()
+    # neuron 0: motor, neuron 1: sensory
+    tissue.add_cells(2, positions=np.zeros((2, 3), dtype=float))
+    tissue.threshold[:] = 512
+    tissue.connectivity = SparseConnectivity(
+        pre=np.array([0, 1], dtype=np.int32),
+        post=np.array([1, 0], dtype=np.int32),
+        weight=np.array([100, 100], dtype=np.int32),
+        delay=np.array([1, 1], dtype=np.int32)
+    )
+
+    stage_twitch = Stage(
+        name="twitch_refine",
+        operator="refine_by_activity",
+        params={
+            "ticks": Const(30),
+            "rule": Const("stdp"),
+            "A_plus": Const(5.0),
+            "A_minus": Const(1.0),
+            "twitches": {
+                "motor_cells": [0],
+                "sensory_cells": [1],
+                "delay": 2,
+                "gain": 3000,
+                "interval": 30,
+                "duration": 2,
+                "amplitude": 3000
+            }
+        }
+    )
+    t_twitch = stage_twitch.run(tissue, {}, {}, np.random.default_rng(42))
+    assert t_twitch.connectivity.weight[0] > 100, f"Expected weight > 100, got {t_twitch.connectivity.weight[0]}"
+

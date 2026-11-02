@@ -40,8 +40,8 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Python in a virtual environment (a self-hosted machine keeps its own Python untouched)
@@ -53,7 +53,7 @@ jobs:
       - name: Smoke test (empty environment)
         if: runner.os == matrix.os && runner.arch == matrix.arch
         run: python desktop/common/runtime/smoke_test.py build/runtime
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: runtime-manifest-${{ matrix.target }}
           path: build/runtime/runtime.json
@@ -74,8 +74,8 @@ jobs:
             exit 1
           fi
           { echo "KEYCHAIN=$RUNNER_TEMP/ng-build.keychain-db"; echo "MNT=$RUNNER_TEMP/ngdmg"; echo "RT=$RUNNER_TEMP/ngrt"; } >> "$GITHUB_ENV"
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Python in a virtual environment (a self-hosted Mac keeps its own Python untouched)
@@ -123,7 +123,7 @@ jobs:
             security list-keychains -d user -s $(security list-keychains -d user | tr -d '"' | grep -vF "$KEYCHAIN")
             security delete-keychain "$KEYCHAIN"
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: Neurogenesis-${{ matrix.target }}
           path: |
@@ -138,7 +138,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           pattern: Neurogenesis-*
           merge-multiple: true

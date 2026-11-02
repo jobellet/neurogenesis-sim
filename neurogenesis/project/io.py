@@ -18,12 +18,16 @@ class Project:
     plugins: List[str] = field(default_factory=list)
     neuron_model: str = "lif_int"
     metadata: Dict[str, Any] = field(default_factory=dict)
+    data_sources: Optional[Dict[str, Any]] = None      # 1.1.0: connectome datasets and filters (Phase I)
+    pharmacology: Optional[Dict[str, Any]] = None      # 1.1.0: transmitter / receptor profile (Phase P)
+    morphology: Optional[Dict[str, Any]] = None        # 1.1.0: arbor settings (Phase N)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert the project to a dictionary, removing None values where appropriate."""
         d = asdict(self)
-        if self.plan is None:
-            del d["plan"]
+        for k in ("plan",) + schema.OPTIONAL_SECTIONS:
+            if getattr(self, k) is None:
+                del d[k]
         return d
 
     def save(self, path: str | Path) -> None:

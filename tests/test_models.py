@@ -100,3 +100,42 @@ def test_register_a_new_model():
         assert get_model("frozen") is m
     finally:
         MODELS.pop("frozen")
+
+
+def test_conductance_based_synapses_reversal_potentials(tmp_path):
+    from neurogenesis.spiking.network import NeuronData, SNNNetwork, SynapseData
+    nd = lambda i: NeuronData(id=i, x=0.0, y=0.0, z=0.0, dir_x=1.0, dir_y=0.0, dir_z=0.0, mode=0, shift_v=5, shift_s=4,
+                              base_weight=1, threshold=1024, refractory=0)
+    net = SNNNetwork(neurons=[nd(0), nd(1), nd(2)],
+                     synapses=[SynapseData(pre=0, post=1, weight=1000, delay=1),
+                               SynapseData(pre=0, post=2, weight=1000, delay=1)])
+    net.neurons[0].mode = 1
+    net.neurons[0].poisson_hz = 500.0
+    p = tmp_path / "cond.npz"
+    net.save_npz(str(p))
+    net2 = SNNNetwork.load_npz(str(p))
+    net2.synapse_arrays["e_rev"] = np.array([0.0, -80.0], dtype=np.float32)
+    net2.synapse_arrays["tau_decay"] = np.array([5.0, 10.0], dtype=np.float32)
+    counts = simulate_counts([net2], [np.zeros((1, 3), np.int32)], ticks=100, model="two_compartment")[0]
+    assert counts[0, 1] > 0 and counts[0, 2] == 0
+    counts_hh = simulate_counts([net2], [np.zeros((1, 3), np.int32)], ticks=100, model="hh")[0]
+    assert counts_hh[0, 1] > 0 and counts_hh[0, 2] == 0
+
+
+def test_multi_channel_synaptic_currents(tmp_path):
+    from neurogenesis.spiking.network import NeuronData, SNNNetwork, SynapseData
+    nd = lambda i: NeuronData(id=i, x=0.0, y=0.0, z=0.0, dir_x=1.0, dir_y=0.0, dir_z=0.0, mode=0, shift_v=5, shift_s=4,
+                              base_weight=1, threshold=1024, refractory=0)
+    net = SNNNetwork(neurons=[nd(0), nd(1)], synapses=[SynapseData(pre=0, post=1, weight=500, delay=1)])
+    net.neurons[0].mode = 1
+    net.neurons[0].poisson_hz = 50.0
+    p = tmp_path / "chan.npz"
+    net.save_npz(str(p))
+    net2 = SNNNetwork.load_npz(str(p))
+    net2.synapse_arrays["channel"] = np.array([1], dtype=np.int32)
+    net2.neurons[0].shift_s_channels = np.array([4, 6], dtype=np.int32)
+    net2.neurons[1].shift_s_channels = np.array([4, 6], dtype=np.int32)
+    counts_slow = simulate_counts([net2], [np.zeros((1, 2), np.int32)], ticks=100, model="lif_int")[0]
+    net2.synapse_arrays["channel"] = np.array([0], dtype=np.int32)
+    counts_fast = simulate_counts([net2], [np.zeros((1, 2), np.int32)], ticks=100, model="lif_int")[0]
+    assert counts_slow[0, 1] >= counts_fast[0, 1]

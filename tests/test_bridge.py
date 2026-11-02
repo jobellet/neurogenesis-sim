@@ -169,7 +169,7 @@ def test_geometry():
     assert "error" in r
 
 
-@covers("stages", "run_schedule", "schedule_info")
+@covers("stages", "run_schedule", "schedule_info", "ui_schema")
 def test_stages_and_schedules():
     st = ok("stages")
     assert st["available"] and any(s["name"] == "bridge_toy_seed" and s["available"] for s in st["stages"])
@@ -180,6 +180,10 @@ def test_stages_and_schedules():
         "count": {"type": "Gene", "path": ["count", "map"], "lo": 1, "hi": 50, "integer": True}}}]}})
     assert info["gene_list"][0]["path"] == ["count", "map"]
     assert "error" in call("run_schedule", {"project": {"schedule": [{"operator": "not_a_stage"}]}})
+
+    schema = ok("ui_schema", {"project": project})
+    assert "format" in schema
+    assert schema["format"] == "neurogenesis-ui-schema"
 
 
 @covers("models", "simulate", "estimate", "fi_curve", "regularity")

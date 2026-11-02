@@ -57,18 +57,53 @@ export function stepKernel(mem: SharedSimulationMemory, numNeurons: number, prng
     } else {
       mem.vMem[i] = v;
     }
-    mem.spikeBitfield[i] = ((mem.spikeBitfield[i] << 1) | spiked) >>> 0;
+    const W = mem.W ?? 1;
+    if (W === 1) {
+      mem.spikeBitfield[i] = ((mem.spikeBitfield[i] << 1) | spiked) >>> 0;
+    } else {
+      const base = i * W;
+      for (let w = W - 1; w > 0; w--) {
+        const bfCurr = mem.spikeBitfield[base + w];
+        const bfPrev = mem.spikeBitfield[base + w - 1];
+        mem.spikeBitfield[base + w] = ((bfCurr << 1) | (bfPrev >>> 31)) >>> 0;
+      }
+      const bf0 = mem.spikeBitfield[base];
+      mem.spikeBitfield[base] = ((bf0 << 1) | spiked) >>> 0;
+    }
   }
 
   // 2. Synaptic propagation with bitwise delays via CSR
+  const W = mem.W ?? 1;
   for (let i = 0; i < numNeurons; i++) {
-    const bf = mem.spikeBitfield[i];
-    if (bf === 0) continue;
-    const start = mem.rowPtr[i];
-    const end = mem.rowPtr[i + 1];
-    for (let syn = start; syn < end; syn++) {
-      if ((bf >>> mem.delays[syn]) & 1) {
-        mem.iSyn[mem.colIdx[syn]] += mem.weights[syn];
+    if (W === 1) {
+      const bf = mem.spikeBitfield[i];
+      if (bf === 0) continue;
+      const start = mem.rowPtr[i];
+      const end = mem.rowPtr[i + 1];
+      for (let syn = start; syn < end; syn++) {
+        if ((bf >>> mem.delays[syn]) & 1) {
+          mem.iSyn[mem.colIdx[syn]] += mem.weights[syn];
+        }
+      }
+    } else {
+      const base = i * W;
+      let hasSpikes = false;
+      for (let w = 0; w < W; w++) {
+        if (mem.spikeBitfield[base + w] !== 0) {
+          hasSpikes = true;
+          break;
+        }
+      }
+      if (!hasSpikes) continue;
+      const start = mem.rowPtr[i];
+      const end = mem.rowPtr[i + 1];
+      for (let syn = start; syn < end; syn++) {
+        const delay = mem.delays[syn];
+        const w = delay >>> 5;
+        const bit = delay & 31;
+        if (w < W && ((mem.spikeBitfield[base + w] >>> bit) & 1)) {
+          mem.iSyn[mem.colIdx[syn]] += mem.weights[syn];
+        }
       }
     }
   }
