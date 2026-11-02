@@ -49,6 +49,12 @@ Built-in rules, each inactive unless its gene is present:
 | probability | `source_sign` | `guidance[p]["source"] = "exc" / "inh"` |
 | weight | `receptor_sign` | `guidance[p]["receptor"] = "inverting"` |
 
+In a Project, the `grow_axons` stage takes these genes from its `guidance` param, keyed `"src->dst"` (or a list of
+`{"src", "dst", ...}`); any value may be a `Gene` read from the genome, e.g.
+`"guidance": {"0->1": {"sigma": 0.3, "p0": 0.9, "w": {"type": "Gene", "path": ["axon", "w"], "lo": 10, "hi": 100}}}`.
+It does not read `genome["guidance"]`. A listed projection without guidance, or no `projections`/`guidance` at all,
+raises ValueError; `"projections": []` is the no-op.
+
 ## 2. A module project, step by step
 Recommended layout (one repository per module or family of modules):
 ```

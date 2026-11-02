@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from neurogenesis.analysis import fi_curve
-from neurogenesis.development import grow, region_of
+from neurogenesis.development import grow
 from neurogenesis.spiking.batch import simulate_counts
 from neurogenesis.spiking.models import MODELS, get_model, hh, register_model, two_compartment
 from neurogenesis.spiking.morphology import MorphogeneticEngine
@@ -55,7 +55,6 @@ def test_deterministic_and_batch_consistent(model):
 def test_hodgkin_huxley_known_properties():
     """Rest near -65 mV; repetitive firing from rest starts abruptly (type II) near 6.3 uA/cm2 at about 50-60 Hz, and is
     about 65-70 Hz at 10 uA/cm2 (Hodgkin & Huxley 1952 parameters)."""
-    import jax.numpy as jnp
     from neurogenesis.spiking.jax_backend import pack
     net = MorphogeneticEngine.generate_microcircuit(1, seed=0)
     net.neurons[0].mode = 0

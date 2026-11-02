@@ -3,34 +3,50 @@ import math
 from typing import Dict, Any, Tuple
 from neurogenesis.stages.base import register_stage
 from neurogenesis.tissue import Tissue
-from neurogenesis.params import resolve, Param
+from neurogenesis.params import resolve, Param, param_from_dict, Const, Gene, Fit
 from neurogenesis.spatial import CellList
+from neurogenesis.fields import Field
+from neurogenesis.geometry import Geometry
+from neurogenesis.expressions import eval_expr
+
+
+def _worst_case(param: Any, default: Any) -> Any:
+    """Value of a Param for cost estimates: a Const's value, the upper bound of a Gene or Fit, else `default`."""
+    if isinstance(param, dict):
+        param = param_from_dict(param)
+    if isinstance(param, Const):
+        return param.value
+    if isinstance(param, (Gene, Fit)):
+        return param.hi
+    if param is None or isinstance(param, Param.__args__):
+        return default
+    return param
+
+
+# Mean neighbours per cell assumed by the express cost when radius > 0 (cell-list bins of side radius).
+_EXPRESS_MEAN_NEIGHBOURS = 27
+
 
 @register_stage("express")
 class Express:
     @staticmethod
     def cost(N: int, E: int, params: Dict[str, Param]) -> Tuple[int, int]:
-        K_param = params.get("K")
-        K = getattr(K_param, "value", 0) if K_param is not None else 0
-        if not isinstance(K, int):
-            K = 0
-            
+        K = int(_worst_case(params.get("K"), 0))
         # O(N K^2) operations
         ops = N * K * K * 4
         bytes_cost = N * K * 8
+        if K > 0 and float(_worst_case(params.get("radius"), 0.0)) > 0:
+            nb = _EXPRESS_MEAN_NEIGHBOURS
+            cl_bytes, cl_ops = CellList.declared_cost(N, N, nb)
+            bytes_cost += cl_bytes + N * nb * K * 4 + N * K * 8
+            ops += cl_ops + N * nb * K + N * K * K * 2
         return (bytes_cost, ops)
 
     def run(self, tissue: Tissue, params: Dict[str, Param], genome: Dict[str, Any], fields: Dict[str, Any], rng: np.random.Generator) -> Tissue:
         N = len(tissue.alive)
         if N == 0:
             return tissue
-            
-        if not tissue.alive.all():
-            tissue.compact()
-            N = len(tissue.alive)
-            if N == 0:
-                return tissue
-                
+
         # Neutral parameters
         if not params:
             return tissue
@@ -50,20 +66,19 @@ class Express:
         W = resolve(W_param, genome, fields, None) if W_param is not None else None
         
         if W is None:
-            return tissue
-            
-        if isinstance(W, list):
+            W = np.zeros((K, K), dtype=np.float32)
+        elif isinstance(W, list):
             W = np.array(W, dtype=np.float32)
         elif isinstance(W, np.ndarray):
             W = W.astype(np.float32)
         else:
-            return tissue
+            W = np.zeros((K, K), dtype=np.float32)
             
         if W.shape != (K, K):
             if len(W.shape) == 1 and len(W) == K*K:
                 W = W.reshape(K, K)
             else:
-                return tissue
+                W = np.zeros((K, K), dtype=np.float32)
                 
         morphogens = params.get("morphogens")
         morphogens_val = resolve(morphogens, genome, fields, None) if morphogens is not None else []
@@ -123,12 +138,21 @@ class Express:
         
         return tissue
 
+# Per-cell attributes a type spec may set (besides sign and base_weight); each value may be a Param.
+_TYPE_FIELDS = ("mode", "shift_v", "shift_s", "conn_radius", "conn_prob", "burst_period", "burst_duty", "poisson_hz",
+                "refractory", "role", "compartment", "threshold", "region")
+
+
 @register_stage("differentiate")
 class Differentiate:
+    """Assigns cell types and their per-cell attributes to cells matching each type's condition.
+
+    Every attribute value in a type spec may be a Param (Const, Gene, Field, ...), so genes can control it.
+    """
     @staticmethod
     def cost(N: int, E: int, params: Dict[str, Any]) -> Tuple[int, int]:
-        types_param = params.get("types")
-        num_types = len(getattr(types_param, "value", [])) if types_param is not None else 0
+        types_val = _worst_case(params.get("types"), [])
+        num_types = len(types_val) if isinstance(types_val, list) else 0
         ops = N * num_types * 5
         bytes_cost = N * 4
         return (bytes_cost, ops)
@@ -154,8 +178,11 @@ class Differentiate:
 
         # Provide fields as arrays inside env
         for k, v in fields.items():
-            if hasattr(v, 'sample'):
-                env[f"field_{k}"] = v.sample(tissue.positions)
+            if isinstance(v, Field):
+                env[f"field_{k}"] = v.values(tissue.positions)
+            elif isinstance(v, Geometry):
+                env[f"geom_{k}"] = v.contains(tissue.positions)
+                env[f"field_{k}"] = v.contains(tissue.positions).astype(np.float32)
             elif callable(v):
                 env[f"field_{k}"] = v(tissue.positions)
             else:
@@ -167,54 +194,40 @@ class Differentiate:
             
             # evaluate condition
             if condition_expr:
-                try:
-                    mask = eval(condition_expr, {"__builtins__": {}}, env)
-                    if isinstance(mask, bool):
-                        mask = np.full(N, mask, dtype=bool)
-                except Exception as e:
-                    # In case of evaluation error, apply to none
-                    mask = np.zeros(N, dtype=bool)
+                mask = eval_expr(condition_expr, env)
+                if isinstance(mask, (bool, np.bool_)):
+                    mask = np.full(N, mask, dtype=bool)
+                else:
+                    mask = np.asarray(mask, dtype=bool)
+                    if mask.shape != (N,):
+                        raise ValueError(f"Condition '{condition_expr}' produced shape {mask.shape}, expected ({N},)")
             else:
                 mask = np.ones(N, dtype=bool)
                 
             if np.any(mask):
                 tissue.cell_type[mask] = type_id
+
+                def value(key):
+                    v = resolve(t_spec[key], genome, fields, tissue.positions)
+                    if isinstance(v, np.ndarray) and v.ndim >= 1 and v.shape[0] == N:
+                        v = v[mask]
+                    return np.asarray(v)
+
                 if "sign" in t_spec:
-                    tissue.sign[mask] = int(t_spec["sign"])
-                    
+                    tissue.sign[mask] = value("sign").astype(np.int32)
+
                 # Update base_weight according to Dale principle (magnitude * sign)
                 if "base_weight" in t_spec:
-                    bw = np.abs(int(t_spec["base_weight"]))
+                    bw = np.abs(value("base_weight").astype(np.int32))
                     tissue.base_weight[mask] = np.where(tissue.sign[mask] >= 0, bw, -bw)
-                else:
-                    # If base_weight isn't specified but sign is, update base_weight sign!
-                    if "sign" in t_spec:
-                        bw = np.abs(tissue.base_weight[mask])
-                        tissue.base_weight[mask] = np.where(tissue.sign[mask] >= 0, bw, -bw)
+                elif "sign" in t_spec:
+                    # If base_weight isn't specified but sign is, update base_weight sign
+                    bw = np.abs(tissue.base_weight[mask])
+                    tissue.base_weight[mask] = np.where(tissue.sign[mask] >= 0, bw, -bw)
 
-                if "mode" in t_spec:
-                    tissue.mode[mask] = int(t_spec["mode"])
-                if "shift_v" in t_spec:
-                    tissue.shift_v[mask] = int(t_spec["shift_v"])
-                if "shift_s" in t_spec:
-                    tissue.shift_s[mask] = int(t_spec["shift_s"])
-                if "conn_radius" in t_spec:
-                    tissue.conn_radius[mask] = float(t_spec["conn_radius"])
-                if "conn_prob" in t_spec:
-                    tissue.conn_prob[mask] = float(t_spec["conn_prob"])
-                if "burst_period" in t_spec:
-                    tissue.burst_period[mask] = int(t_spec["burst_period"])
-                if "burst_duty" in t_spec:
-                    tissue.burst_duty[mask] = int(t_spec["burst_duty"])
-                if "poisson_hz" in t_spec:
-                    tissue.poisson_hz[mask] = float(t_spec["poisson_hz"])
-                if "refractory" in t_spec:
-                    tissue.refractory[mask] = int(t_spec["refractory"])
-                if "role" in t_spec:
-                    tissue.role[mask] = int(t_spec["role"])
-                if "compartment" in t_spec:
-                    tissue.compartment[mask] = int(t_spec["compartment"])
-                if "threshold" in t_spec:
-                    tissue.threshold[mask] = int(t_spec["threshold"])
-                    
+                for key in _TYPE_FIELDS:
+                    if key in t_spec:
+                        arr = getattr(tissue, key)
+                        arr[mask] = value(key).astype(arr.dtype)
+
         return tissue

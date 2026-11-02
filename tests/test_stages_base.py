@@ -170,3 +170,49 @@ def test_checkpoints():
     assert len(checkpoints) == 2
     assert len(checkpoints[0].alive) == 2
     assert len(checkpoints[1].alive) == 5
+
+
+import copy
+import dataclasses
+import neurogenesis.stages  # noqa: F401  (registers every toolbox stage)
+import neurogenesis.development.legacy_compiler  # noqa: F401
+from neurogenesis.tissue import SparseConnectivity
+
+# Toolbox stages for which empty params cannot be a no-op: they must raise this error instead.
+_NOT_NEUTRAL = {"legacy_grow_stage": (KeyError, "plan"),                  # needs its "plan"
+                "grow_axons": (ValueError, "no projections given")}       # needs projections ([] is the no-op)
+_TOOLBOX_STAGES = sorted(k for k, c in STAGE_REGISTRY.items() if c.__module__.startswith("neurogenesis."))
+
+
+def _toy_tissue_with_synapses():
+    t = Tissue.empty(K=2)
+    t.add_cells(4, positions=np.array([[0.1, 0.2, 0.3], [0.5, 0.1, 0.9], [0.9, 0.8, 0.2], [0.4, 0.6, 0.7]]),
+                expression=np.array([[0.1, 0.9], [0.8, 0.2], [0.5, 0.5], [0.3, 0.7]], dtype=np.float32),
+                birth_stage=np.array([3, 1, 2, 0]), K=2)
+    t.connectivity = SparseConnectivity(np.array([0, 1, 2, 3], dtype=np.int32), np.array([1, 2, 0, 0], dtype=np.int32),
+                                        np.array([33, -12, 7, 20], dtype=np.int32), np.array([4, 9, 2, 12], dtype=np.int32))
+    t.alive[3] = False  # a dead cell: no stage may compact it away when its params are empty
+    return t
+
+
+def _snapshot(t):
+    snap = {f.name: copy.deepcopy(getattr(t, f.name)) for f in dataclasses.fields(t) if f.name != "connectivity"}
+    snap.update({f"syn_{k}": getattr(t.connectivity, k).copy() for k in ("pre", "post", "weight", "delay")})
+    return snap
+
+
+@pytest.mark.parametrize("operator", _TOOLBOX_STAGES)
+def test_every_stage_with_empty_params_is_a_no_op(operator):
+    t = _toy_tissue_with_synapses()
+    before = _snapshot(t)
+    stage = Stage(name=operator, operator=operator, params={})
+    if operator in _NOT_NEUTRAL:
+        error, message = _NOT_NEUTRAL[operator]
+        with pytest.raises(error, match=message):
+            stage.run(t, {}, {}, np.random.default_rng(0))
+        return
+    out = stage.run(t, {}, {}, np.random.default_rng(0))
+    after = _snapshot(out)
+    assert after.keys() == before.keys()
+    for k in before:
+        assert np.array_equal(np.asarray(after[k]), np.asarray(before[k])), f"{operator} changed {k} with empty params"

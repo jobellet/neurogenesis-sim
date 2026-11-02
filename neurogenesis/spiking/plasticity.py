@@ -49,35 +49,56 @@ class STDPRule:
             shift_plus = int(jnp.round(jnp.log2(self.tau_plus))) if self.tau_plus > 1 else 1
             shift_minus = int(jnp.round(jnp.log2(self.tau_minus))) if self.tau_minus > 1 else 1
             A_p = int(self.A_plus * 256)
-            A_m = int(self.A_minus * 256)
+            A_m = int(abs(self.A_minus) * 256)
             
             tr_pre_syn = _decay_integer(tr_pre_syn, shift_plus)
             tr_post_neuron = _decay_integer(tr_post_neuron, shift_minus)
             
             dw = jnp.where(spk_post_syn > 0, A_p * tr_pre_syn, 0) - jnp.where(arrivals_pre > 0, A_m * tr_post_neuron[post], 0)
-            weights = weights + (dw // 256)
-            weights = jnp.clip(weights, int(self.w_min), int(self.w_max))
+            
+            if original_weights is not None:
+                is_exc = original_weights >= 0
+                sign = jnp.where(is_exc, 1, -1)
+                w_min_mag = jnp.minimum(jnp.abs(self.w_min), jnp.abs(self.w_max))
+                w_max_mag = jnp.maximum(jnp.abs(self.w_min), jnp.abs(self.w_max))
+                mag = jnp.abs(weights) + (dw // 256)
+                mag = jnp.clip(mag, int(w_min_mag), int(w_max_mag))
+                weights = sign * mag
+            else:
+                weights = jnp.clip(weights + (dw // 256), int(self.w_min), int(self.w_max))
             
             tr_pre_syn = tr_pre_syn + (arrivals_pre > 0).astype(jnp.int32) * 256
             tr_post_neuron = tr_post_neuron.at[jnp.arange(N)].add((spikes_post * 256).astype(jnp.int32))
         else:
             tr_pre_syn = tr_pre_syn * self.decay_plus
             tr_post_neuron = tr_post_neuron * self.decay_minus
+            A_m = abs(self.A_minus)
             
-            if self.soft_bounds:
-                dw = spk_post_syn * self.A_plus * tr_pre_syn * (self.w_max - weights) - \
-                     arrivals_pre * self.A_minus * tr_post_neuron[post] * (weights - self.w_min)
-            else:
-                dw = spk_post_syn * self.A_plus * tr_pre_syn - arrivals_pre * self.A_minus * tr_post_neuron[post]
+            if original_weights is not None:
+                is_exc = original_weights >= 0
+                sign = jnp.where(is_exc, 1.0, -1.0)
+                w_min_mag = jnp.minimum(jnp.abs(self.w_min), jnp.abs(self.w_max))
+                w_max_mag = jnp.maximum(jnp.abs(self.w_min), jnp.abs(self.w_max))
+                mag = jnp.abs(weights)
                 
-            weights = jnp.clip(weights + dw, self.w_min, self.w_max)
+                if self.soft_bounds:
+                    dw = spk_post_syn * self.A_plus * tr_pre_syn * (w_max_mag - mag) - \
+                         arrivals_pre * A_m * tr_post_neuron[post] * (mag - w_min_mag)
+                else:
+                    dw = spk_post_syn * self.A_plus * tr_pre_syn - arrivals_pre * A_m * tr_post_neuron[post]
+                    
+                mag = jnp.clip(mag + dw, w_min_mag, w_max_mag)
+                weights = sign * mag
+            else:
+                if self.soft_bounds:
+                    dw = spk_post_syn * self.A_plus * tr_pre_syn * (self.w_max - weights) - \
+                         arrivals_pre * A_m * tr_post_neuron[post] * (weights - self.w_min)
+                else:
+                    dw = spk_post_syn * self.A_plus * tr_pre_syn - arrivals_pre * A_m * tr_post_neuron[post]
+                weights = jnp.clip(weights + dw, self.w_min, self.w_max)
             
             tr_pre_syn = tr_pre_syn + arrivals_pre
             tr_post_neuron = tr_post_neuron.at[jnp.arange(N)].add(spikes_post)
-            
-        if original_weights is not None:
-            is_exc = original_weights >= 0
-            weights = jnp.where(is_exc, jnp.maximum(weights, 0), jnp.minimum(weights, 0))
             
         return weights, tr_pre_syn, tr_post_neuron
 
@@ -86,14 +107,19 @@ class STDPRule:
         T, N = spikes.shape
         E = weights.shape[0]
 
+        is_exc = original_weights >= 0
+        w_min_mag = jnp.minimum(jnp.abs(self.w_min), jnp.abs(self.w_max))
+        w_max_mag = jnp.maximum(jnp.abs(self.w_min), jnp.abs(self.w_max))
+
         if self.integer_traces:
             shift_plus = int(jnp.round(jnp.log2(self.tau_plus))) if self.tau_plus > 1 else 1
             shift_minus = int(jnp.round(jnp.log2(self.tau_minus))) if self.tau_minus > 1 else 1
             A_p = int(self.A_plus * 256)
-            A_m = int(self.A_minus * 256)
+            A_m = int(abs(self.A_minus) * 256)
+            sign = jnp.where(is_exc, 1, -1)
 
             def step(carry, t):
-                w, tr_pre_syn, tr_post_neuron = carry
+                mag, tr_pre_syn, tr_post_neuron = carry
                 idx_t_minus_d = t - delays
                 valid_pre = idx_t_minus_d >= 0
                 arr_pre = jnp.where(valid_pre, spikes[idx_t_minus_d, pre], 0).astype(jnp.int32)
@@ -103,16 +129,21 @@ class STDPRule:
                 tr_post_neuron = _decay_integer(tr_post_neuron, shift_minus)
                 
                 dw = jnp.where(spk_post_now, A_p * tr_pre_syn, 0) - jnp.where(arr_pre, A_m * tr_post_neuron[post], 0)
-                w = w + (dw // 256)
+                mag = jnp.clip(mag + (dw // 256), int(w_min_mag), int(w_max_mag))
                 
                 tr_pre_syn = tr_pre_syn + arr_pre * 256
                 tr_post_neuron = tr_post_neuron.at[jnp.arange(N)].add((spikes[t] * 256).astype(jnp.int32))
-                return (w, tr_pre_syn, tr_post_neuron), None
+                return (mag, tr_pre_syn, tr_post_neuron), None
 
-            init_carry = (weights.astype(jnp.int32), jnp.zeros(E, dtype=jnp.int32), jnp.zeros(N, dtype=jnp.int32))
+            init_carry = (jnp.abs(weights).astype(jnp.int32), jnp.zeros(E, dtype=jnp.int32), jnp.zeros(N, dtype=jnp.int32))
+            (final_mag, _, _), _ = jax.lax.scan(step, init_carry, jnp.arange(T))
+            final_w = sign * jnp.clip(final_mag, int(w_min_mag), int(w_max_mag))
         else:
+            sign = jnp.where(is_exc, 1.0, -1.0)
+            A_m = abs(self.A_minus)
+
             def step(carry, t):
-                w, tr_pre_syn, tr_post_neuron = carry
+                mag, tr_pre_syn, tr_post_neuron = carry
                 idx_t_minus_d = t - delays
                 valid_pre = idx_t_minus_d >= 0
                 arr_pre = jnp.where(valid_pre, spikes[idx_t_minus_d, pre], 0.0)
@@ -122,27 +153,21 @@ class STDPRule:
                 tr_post_neuron = tr_post_neuron * self.decay_minus
                 
                 if self.soft_bounds:
-                    dw = spk_post_now * self.A_plus * tr_pre_syn * (self.w_max - w) - \
-                         arr_pre * self.A_minus * tr_post_neuron[post] * (w - self.w_min)
+                    dw = spk_post_now * self.A_plus * tr_pre_syn * (w_max_mag - mag) - \
+                         arr_pre * A_m * tr_post_neuron[post] * (mag - w_min_mag)
                 else:
-                    dw = spk_post_now * self.A_plus * tr_pre_syn - arr_pre * self.A_minus * tr_post_neuron[post]
+                    dw = spk_post_now * self.A_plus * tr_pre_syn - arr_pre * A_m * tr_post_neuron[post]
                 
-                w = jnp.clip(w + dw, self.w_min, self.w_max)
+                mag = jnp.clip(mag + dw, w_min_mag, w_max_mag)
                 tr_pre_syn = tr_pre_syn + arr_pre
                 tr_post_neuron = tr_post_neuron.at[jnp.arange(N)].add(spikes[t])
-                return (w, tr_pre_syn, tr_post_neuron), None
+                return (mag, tr_pre_syn, tr_post_neuron), None
 
-            init_carry = (weights, jnp.zeros(E, dtype=jnp.float32), jnp.zeros(N, dtype=jnp.float32))
+            init_carry = (jnp.abs(weights).astype(jnp.float32), jnp.zeros(E, dtype=jnp.float32), jnp.zeros(N, dtype=jnp.float32))
+            (final_mag, _, _), _ = jax.lax.scan(step, init_carry, jnp.arange(T))
+            final_w = sign * jnp.clip(final_mag, w_min_mag, w_max_mag)
 
-        (final_w, _, _), _ = jax.lax.scan(step, init_carry, jnp.arange(T))
-        
-        if not self.soft_bounds and not self.integer_traces:
-             final_w = jnp.clip(final_w, self.w_min, self.w_max)
-        elif self.integer_traces:
-             final_w = jnp.clip(final_w, int(self.w_min), int(self.w_max))
-
-        is_exc = original_weights >= 0
-        final_w = jnp.where(is_exc, jnp.maximum(final_w, 0), jnp.minimum(final_w, 0))
+        final_w = jnp.where(is_exc, jnp.maximum(final_w, 0.0), jnp.minimum(final_w, 0.0))
         return final_w
 
     def declared_cost(self, num_neurons: int, num_synapses: int, ticks: int) -> Tuple[int, int]:
@@ -181,11 +206,14 @@ class HebbianRule:
                 deg = jnp.zeros(num_neurons).at[post].add(1.0)
                 deg_post = deg[post]
                 sub = jnp.where(deg_post > 0, diff / deg_post, 0.0)
-                w_new = jnp.maximum(0.0, w_new - sub)
+                w_new = w_new - sub
                 
         if original_weights is not None:
             is_exc = original_weights >= 0
-            w_new = jnp.where(is_exc, jnp.maximum(w_new, 0), jnp.minimum(w_new, 0))
+            sign = jnp.where(is_exc, 1.0, -1.0)
+            w_new = sign * jnp.maximum(0.0, jnp.abs(w_new))
+        else:
+            w_new = jnp.maximum(0.0, w_new)
             
         return w_new
 
@@ -201,8 +229,10 @@ class HebbianRule:
             return self.step(w, pre, post, spikes[t], arr_pre, N, original_weights), None
 
         final_w, _ = jax.lax.scan(step, weights.astype(jnp.float32), jnp.arange(T))
-        is_exc = original_weights >= 0
-        final_w = jnp.where(is_exc, jnp.maximum(final_w, 0), jnp.minimum(final_w, 0))
+        if original_weights is not None:
+            is_exc = original_weights >= 0
+            sign = jnp.where(is_exc, 1.0, -1.0)
+            final_w = sign * jnp.maximum(0.0, jnp.abs(final_w))
         return final_w
 
     def declared_cost(self, num_neurons: int, num_synapses: int, ticks: int) -> Tuple[int, int]:
