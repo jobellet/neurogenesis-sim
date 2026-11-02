@@ -1,4 +1,4 @@
-# Bridge protocol, version 1.0
+# Bridge protocol, version 1.1
 
 The desktop apps drive the toolbox through one server, which ships with the toolbox:
 
@@ -41,7 +41,9 @@ a Python that has the toolbox installed, or with its checkout first on `PYTHONPA
 ## 4. Capability discovery
 The server reports what the installed toolbox provides, so features merged later appear in the apps without changing
 them.
-- **`capabilities`** returns `{tasks: [{task, name, available}], python, executable, repo, platform, protocol, ngb}`.
+- **`capabilities`** returns `{tasks: [{task, name, available, status, note?}], python, executable, repo, platform, protocol, ngb}`.
+  `available` is true when the task's code is present in this checkout. `status` (since 1.1) is `"done"`, `"partial"`
+  (code present but incomplete; `note` says what is missing) or `"missing"`. Clients of 1.0 ignore `status` and `note`.
   `task` is a roadmap id ("A4", "C2", …, or "core"). `repo` is where the toolbox is imported from.
 - **`stages`** returns `{available, stages: [{name, task, available, doc, params: [{name, default}], has_cost}]}`. This
   is the roadmap's catalogue (C1–C13) merged with the registered stages. `available` at the top is true when the

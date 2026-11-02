@@ -235,3 +235,15 @@ def test_server_process_round_trip():
     msgs = [json.loads(l) for l in p.stdout.splitlines()]
     assert msgs[0]["event"] == "ready" and msgs[0]["data"]["protocol"] == PROTOCOL_VERSION
     assert {"id": 5, "result": "pong"} in msgs
+
+
+def test_capabilities_report_status_for_every_roadmap_phase():
+    """Protocol 1.1: each task has a status; partial tasks say what is missing; every roadmap phase is listed."""
+    tasks = server.m_capabilities({})["tasks"]
+    assert all(t["status"] in ("done", "partial", "missing") for t in tasks)
+    assert all(t["available"] == (t["status"] != "missing") for t in tasks)
+    assert all(t.get("note") for t in tasks if t["status"] == "partial")
+    phases = {t["task"].rstrip("0123456789") for t in tasks}
+    assert {"A", "B", "C", "D", "E", "F", "G", "H", "K", "I", "P", "N"} <= phases
+    by = {t["task"]: t for t in tasks}
+    assert by["E3"]["status"] == "done" and by["C8"]["status"] == "partial" and by["D4"]["status"] == "missing"

@@ -29,7 +29,7 @@ import numpy as np
 
 from .ngb import NGB_VERSION, read_network, write_network as _write_network
 
-PROTOCOL_VERSION = "1.0"
+PROTOCOL_VERSION = "1.1"
 
 _OUT = sys.__stdout__
 _LOCK = threading.Lock()
@@ -240,8 +240,28 @@ STAGE_TASKS = [("C1", "seed_cells"), ("C2", "proliferate"), ("C3", "apoptosis"),
                ("C12", "myelinate"), ("C13", "freeze")]
 
 
+# Tasks whose code is present but incomplete, with what is missing (kept in step with docs/ROADMAP.md, section 3).
+PARTIAL = {
+    "C8": "the cell-list search above 2048 cells per side supports 3 probability rules",
+    "D1": "NumPy only, no JAX path",
+    "D2": "the sparse mode draws different random numbers from the dense one; legacy grow() stays dense",
+    "E2": "gradient-free (CMA-ES) only, no JAX gradients",
+    "F7": "development checkpoints and job progress events; no live streaming of simulation activity",
+    "H7": "the release workflow builds the macOS app; Windows and Linux builds wait for H5",
+    "G3": "tutorials and the stage reference exist; no generated stage reference",
+    "I3": "affine registration and clipped delays; no ROI-mask or column adapters",
+    "P3": "signed integer weights per context; reversal potentials wait for P4",
+}
+
+
+def _repo_has(*parts):
+    import neurogenesis
+    return (Path(neurogenesis.__file__).resolve().parents[1].joinpath(*parts)).exists()
+
+
 def m_capabilities(p):
-    """Every roadmap task with whether its code is present in this checkout."""
+    """Every roadmap task with whether its code is present in this checkout (`available`) and its `status`: "done",
+    "partial" (with a `note` on what is missing) or "missing"."""
     reg = stage_registry()
     stages = set(reg or {})
     T = [
@@ -261,24 +281,62 @@ def m_capabilities(p):
     T += [
         ("D1", "Cell lists / spatial hash", _has("neurogenesis.spatial", "CellList")),
         ("D2", "Sparse guidance", _any(("neurogenesis.development.sparse_guidance", "sparse_guidance"), ("neurogenesis.development.grow", "sparse_guidance"))),
-        ("D3", "Development cost model", _any(("neurogenesis.cost", "estimate_project"), ("neurogenesis.cost", "stage_cost"),
-                                              ("neurogenesis.stages.base", "schedule_cost"))),
+        ("D3", "Development cost model", _any(("neurogenesis.devcost", "estimate_development"), ("neurogenesis.cost", "estimate_project"),
+                                              ("neurogenesis.cost", "stage_cost"))),
         ("D4", "Chunked growth", _any("neurogenesis.development.chunked", "neurogenesis.chunked")),
+        ("D5", "Performance regression checks", _repo_has("scripts", "benchmark_performance.py")),
         ("E1", "Plasticity", _has("neurogenesis.spiking.plasticity", "STDPRule")),
         ("E2", "Supervised fitting", _any("neurogenesis.fitting", "neurogenesis.fit", "neurogenesis.optim")),
-        ("E3", "Semi-supervised workflows", _any("neurogenesis.evolution.semi", "neurogenesis.evolution.pareto")),
+        ("E3", "Semi-supervised workflows", _any("neurogenesis.evolution.semi_supervised", "neurogenesis.evolution.semi",
+                                                 "neurogenesis.evolution.pareto")),
         ("E4", "Validation harness", _any("neurogenesis.validation", "neurogenesis.validate")),
-        ("F7", "Bridge server", _any(("neurogenesis.bridge.server", "m_capabilities"), "neurogenesis.serve")),
+        ("F7", "Bridge streaming", _any(("neurogenesis.bridge.server", "m_capabilities"), "neurogenesis.serve")),
         ("G1", "Module registry", _any("neurogenesis.modules.registry", "neurogenesis.registry")),
+        ("G2", "Worked examples", all(_repo_has("examples", f) for f in ("hand_drawn_column.py", "pinwheel_sheet.py",
+                                                                         "evolved_development.py", "hand_built_network.py"))),
+        ("G3", "Documentation", _repo_has("docs", "index.md")),
+        ("H1", "Bridge in the package", _has("neurogenesis.bridge.server")),
+        ("H2", "Portable C kernel nglif", _repo_has("desktop", "common", "native", "nglif")),
+        ("H3", "UI schema export", _any("neurogenesis.ui_schema", ("neurogenesis.bridge.server", "m_ui_schema"))),
+        ("H4", "Embedded Python runtime", _repo_has("desktop", "common", "runtime")),
+        ("H5", "Windows and Linux app", _repo_has("desktop", "avalonia")),
+        ("H7", "Release workflow", _repo_has(".github", "workflows", "release.yml")),
+        ("K1", "Project schema 1.1.0", _has("neurogenesis.project.schema", "migrate_100_to_110")),
+        ("K2", "Tissue extensions", _has("neurogenesis.tissue", "_SYNAPSE_OPTIONAL")),
+        ("K3", "uint32 synapse store", False),
+        ("K4", "Delays over 31 ticks", False),
+        ("I1", "Dataset manifests and download", _has("neurogenesis.data.catalogue", "fetch")),
+        ("I2", "Streaming connectome import", _has("neurogenesis.data.importer", "import_connectome")),
+        ("I3", "Coordinate registration", _has("neurogenesis.data.importer", "transform_positions")),
+        ("I4", "Synapse count to weight", _has("neurogenesis.data.importer", "map_weights")),
+        ("I5", "Cell-type statistical targets", _has("neurogenesis.data.targets")),
+        ("I6", "Column benchmark example", _repo_has("examples", "column_benchmark.py")),
+        ("P1", "Pharmacology profiles", _has("neurogenesis.pharmacology", "Profile")),
+        ("P2", "Receptor expression and assignment", "assign_receptors" in stages),
+        ("P3", "Developmental switches", "pharmacology" in stages),
+        ("P4", "Multi-channel kernels", False),
+        ("P5", "Neuromodulation", False),
+        ("N1", "Arbor store and SWC", _has("neurogenesis.arbors", "ArborStore")),
+        ("N2", "Stage grow_arbors", "grow_arbors" in stages),
+        ("N3", "Arbor synapses and path-length delays", "arbor_synapses" in stages),
+        ("N4", "Connectome skeleton import", False),
+        ("N5", "Dendritic attenuation", False),
         ("core", "Spiking kernel and models", _has("neurogenesis.spiking.models", "MODELS")),
         ("core", "Body plans and growth", _has("neurogenesis.development", "grow")),
         ("core", "Evolution", _has("neurogenesis.evolution", "evolve")),
         ("core", "Modules", _has("neurogenesis.modules", "Module")),
         ("core", "Cost estimates", _has("neurogenesis.cost", "estimate")),
     ]
+    tasks = []
+    for t, n, a in T:
+        status = "missing" if not a else ("partial" if t in PARTIAL else "done")
+        e = dict(task=t, name=n, available=bool(a), status=status)
+        if status == "partial":
+            e["note"] = PARTIAL[t]
+        tasks.append(e)
     import platform
     import neurogenesis
-    return dict(tasks=[dict(task=t, name=n, available=bool(a)) for t, n, a in T], python=sys.version.split()[0],
+    return dict(tasks=tasks, python=sys.version.split()[0],
                 executable=sys.executable, repo=str(Path(neurogenesis.__file__).resolve().parents[1]),
                 platform=platform.platform(), protocol=PROTOCOL_VERSION, ngb=NGB_VERSION)
 
