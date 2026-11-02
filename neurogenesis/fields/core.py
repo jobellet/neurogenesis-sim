@@ -25,6 +25,10 @@ class Field(ABC):
         """Backward compatibility alias for values."""
         return self.values(points)
 
+    def bind(self, genome: Dict[str, Any]) -> 'Field':
+        """Field with its genome-dependent parameters resolved (itself if it has none)."""
+        return self
+
     def to_dict(self) -> Dict[str, Any]:
         raise NotImplementedError
 
@@ -167,38 +171,73 @@ class AnalyticField(Field):
         return cls(d['expr'])
 
 
+def _is_number(x: Any) -> bool:
+    return isinstance(x, (int, float, np.integer, np.floating)) and not isinstance(x, bool)
+
+
 @register_field('LayerStackField')
 class LayerStackField(Field):
-    def __init__(self, base_field: Field, thicknesses: List[float], labels: Optional[List[int]] = None):
+    """Layer label and relative depth w in [0, 1] within the layer, from a depth field.
+
+    ``thicknesses`` entries are numbers or Params (``Const``, ``Gene``, ``Expr`` objects or
+    their dicts); Gene-controlled thicknesses are resolved by ``bind(genome)``, which
+    ``run_schedule`` calls with the run's genome.
+    """
+
+    def __init__(self, base_field: Field, thicknesses: List[Any], labels: Optional[List[int]] = None):
         self.base_field = base_field
-        self.thicknesses = np.array(thicknesses, dtype=float)
-        self.boundaries = np.concatenate([[0.0], np.cumsum(self.thicknesses)])
+        self.thickness_params = list(thicknesses)
         if labels is None:
-            labels = list(range(len(thicknesses)))
+            labels = list(range(len(self.thickness_params)))
         self.labels = np.array(labels, dtype=int)
-        
+        numeric = [self._const(t) for t in self.thickness_params]
+        if all(t is not None for t in numeric):
+            self.thicknesses = np.array(numeric, dtype=float)
+            self.boundaries = np.concatenate([[0.0], np.cumsum(self.thicknesses)])
+        else:
+            self.thicknesses = None
+            self.boundaries = None
+
+    @staticmethod
+    def _const(t: Any) -> Optional[float]:
+        from .. import params as P
+        if isinstance(t, dict):
+            t = P.param_from_dict(t)
+        if isinstance(t, P.Const):
+            t = t.value
+        return float(t) if _is_number(t) else None
+
+    def bind(self, genome: Dict[str, Any]) -> 'Field':
+        from .. import params as P
+        resolved = [float(P.resolve(t, genome, {})) for t in self.thickness_params]
+        return LayerStackField(self.base_field.bind(genome), resolved, self.labels.tolist())
+
     def values(self, points: np.ndarray) -> np.ndarray:
+        if self.thicknesses is None:
+            raise ValueError("LayerStackField thicknesses depend on genes; call bind(genome) first")
         depth = self.base_field.values(points)
-        
+
         idx = np.digitize(depth, self.boundaries) - 1
         idx = np.clip(idx, 0, len(self.thicknesses) - 1)
-        
+
         layer_start = self.boundaries[idx]
         layer_thickness = self.thicknesses[idx]
-        
+
         label = self.labels[idx]
         w = np.zeros_like(depth)
         mask = layer_thickness > 0
         w[mask] = (depth[mask] - layer_start[mask]) / layer_thickness[mask]
         w = np.clip(w, 0.0, 1.0)
-        
+
         return np.stack([label, w], axis=-1)
 
     def to_dict(self) -> Dict[str, Any]:
+        from .. import params as P
         return {
             'type': 'LayerStackField',
             'base_field': self.base_field.to_dict(),
-            'thicknesses': self.thicknesses.tolist(),
+            'thicknesses': [float(t) if _is_number(t) else (t if isinstance(t, dict) else P.param_to_dict(t))
+                            for t in self.thickness_params],
             'labels': self.labels.tolist()
         }
 
@@ -207,3 +246,63 @@ class LayerStackField(Field):
         labels = d.get('labels', None)
         return cls(field_from_dict(d['base_field']), d['thicknesses'], labels)
 
+
+@register_field('VectorField')
+class VectorField(Field):
+    """Vector field whose components are scalar fields; values have shape (..., n_components)."""
+
+    def __init__(self, components: List[Field]):
+        self.components = list(components)
+
+    def bind(self, genome: Dict[str, Any]) -> 'Field':
+        return VectorField([c.bind(genome) for c in self.components])
+
+    def values(self, points: np.ndarray) -> np.ndarray:
+        return np.stack([np.asarray(c.values(points), dtype=float) for c in self.components], axis=-1)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {'type': 'VectorField', 'components': [c.to_dict() for c in self.components]}
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> 'Field':
+        return cls([field_from_dict(c) for c in d['components']])
+
+
+@register_field('LabelField')
+class LabelField(Field):
+    """Integer labels on a 2D / 3D grid; cell (i, j[, k]) spans origin + [i, i+1) * spacing.
+
+    Sampling is nearest-cell (labels are never interpolated); points outside the grid get
+    ``background``. ``names`` optionally maps labels to region names.
+    """
+
+    def __init__(self, data: Union[np.ndarray, list], origin: Union[List[float], np.ndarray],
+                 spacing: Union[List[float], np.ndarray], background: int = -1,
+                 names: Optional[Dict[str, str]] = None):
+        self.data = np.asarray(data, dtype=np.int32)
+        self.origin = np.asarray(origin, dtype=float)
+        self.spacing = np.asarray(spacing, dtype=float)
+        self.background = int(background)
+        self.names = {str(k): v for k, v in (names or {}).items()}
+        if self.data.ndim != len(self.spacing):
+            raise ValueError("LabelField data must have one axis per spatial dimension")
+
+    def values(self, points: np.ndarray) -> np.ndarray:
+        points = np.asarray(points, dtype=float)[..., :self.data.ndim]
+        idx = np.floor((points - self.origin) / self.spacing).astype(np.int64)
+        shape = np.array(self.data.shape)
+        inside = np.all((idx >= 0) & (idx < shape), axis=-1)
+        idx = np.clip(idx, 0, shape - 1)
+        out = self.data[tuple(np.moveaxis(idx, -1, 0))]
+        return np.where(inside, out, self.background).astype(np.int32)
+
+    def to_dict(self) -> Dict[str, Any]:
+        d = {'type': 'LabelField', 'data': self.data.tolist(), 'origin': self.origin.tolist(),
+             'spacing': self.spacing.tolist(), 'background': self.background}
+        if self.names:
+            d['names'] = dict(self.names)
+        return d
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> 'Field':
+        return cls(d['data'], d['origin'], d['spacing'], d.get('background', -1), d.get('names'))

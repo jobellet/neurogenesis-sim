@@ -77,6 +77,12 @@ def _get_guidance(guidance_source: Any, src: Any, dst: Any) -> Optional[Dict[str
     return None
 
 
+# Largest population (max(Ns, Nd)) for which the default dense Ns x Nd probability path is used, and largest number
+# of pairs Ns * Nd that exact=True may allocate (each dense pass holds a few float64 Ns x Nd x 3 temporaries).
+DENSE_MAX_CELLS = 2048
+EXACT_MAX_PAIRS = 1 << 24
+
+
 class _PlanRulesAdapter:
     def __init__(self, prob_rules: List[str]):
         self.rules = {"probability": prob_rules}
@@ -84,9 +90,46 @@ class _PlanRulesAdapter:
 
 @register_stage("grow_axons")
 class GrowAxons:
-    """Axon guidance and synaptogenesis between candidate populations using sparse guidance principles.
+    """Axon guidance and synaptogenesis between region populations (chemoaffinity: Sperry, 1963, PNAS).
 
-    No dense Ns x Nd arrays except when exact=True below documented threshold (max(Ns, Nd) <= 2048).
+    For each projection src->dst, every source cell aims at a target point in the destination's local box,
+    ``target = sigmoid(4 (x_src - 0.5) @ B.T + c)`` (after the shift and target rules), and connects to each
+    destination cell with probability ``p0 exp(-|x_dst - target|^2 / (2 sigma^2))`` (then the probability rules).
+    Weights are ``w`` times uniform noise in [0.9, 1.1], negated and scaled by ``inh`` for inhibitory sources, then the
+    weight rules, rounding and clipping to [-wc, wc]. Delays are distance / conduction_velocity, clipped to [1, 31].
+
+    Params (each a Param; nested guidance values may themselves be Params, e.g. a Gene):
+        projections: list of "src->dst" strings (also "src,dst", "src:dst") or [src, dst] pairs. If absent, the
+            projections are the keys (or src/dst entries) of ``guidance``. An explicit empty list is the neutral
+            no-op. Missing both ``projections`` and ``guidance`` raises ValueError.
+        guidance: per-projection genes, either a dict keyed "src->dst" or a list of dicts with "src"/"dst" (or
+            "source"/"target") plus the genes; a single flat gene dict applies to every listed projection.
+            Each listed projection must have an entry, else ValueError. Keys:
+                B: 3x3 matrix mapping the centred local source position to target logits (default identity).
+                c: 3-vector shift of the target logits (default 0).
+                sigma: width of the connection kernel, in local box units [0, 1] (default 0.1).
+                p0: peak connection probability (default 0, i.e. no synapses).
+                w: mean weight, toolbox current units (default 1).
+                wc: weight clip, overrides ``w_clip``; inh: inhibitory factor, overrides ``inh_weight_factor``.
+                rules_shift / rules_target / rules_probability / rules_weight: per-projection rule lists.
+                plus the genes read by the rules (type_c, type_s, topographic, lamina, source, receptor, ...).
+        rules_shift, rules_target, rules_probability, rules_weight: rule names from ``RULES`` (default none).
+        conduction_velocity: space units per tick (1 tick = 1 ms), default 1.
+        max_delay: ticks, default 31 (kernel maximum; larger values are capped and clipped delays warned).
+        w_clip: integer weight clip, default 512. inh_weight_factor: default 1.
+        exact: unset (default): dense Ns x Nd probabilities when max(Ns, Nd) <= DENSE_MAX_CELLS (2048), else the
+            sparse cell-list candidate search (radius 5 sigma; only the identity_expression, no_autapse and source_sign
+            probability rules). True: always dense, ValueError if Ns * Nd > EXACT_MAX_PAIRS (2^24). False: always sparse
+            (except sigma > 1 below DENSE_MAX_CELLS, where the kernel covers the whole box and dense is used).
+        region_map: name -> region id, for projections written with region names (an unknown name raises).
+        bounds_min, bounds_size: per projection end name, box origin and size in space units; otherwise the
+            population's bounding box defines its local coordinates.
+        identities: per source name, identity per source cell (else cell_type or argmax expression).
+
+    A projection whose source or destination region has no alive cells is a no-op for that projection (an empty
+    population is legitimate); a tissue with no alive cells is returned unchanged.
+
+    No dense Ns x Nd arrays except below max(Ns, Nd) <= 2048, or with exact=True below Ns * Nd <= 2^24.
     """
     @classmethod
     def cost(cls, N: int, E: int, params: Dict[str, Param]) -> tuple[int, int]:
@@ -100,38 +143,33 @@ class GrowAxons:
         guidance_param = resolve(params.get("guidance"), genome, fields)
 
         projections: List[Tuple[Any, Any]] = []
-        if projections_param:
+        if projections_param is not None:
             for p in projections_param:
-                if isinstance(p, str):
-                    parsed = _normalize_proj_key(p)
-                    if parsed:
-                        projections.append(parsed)
-                elif isinstance(p, (list, tuple)) and len(p) >= 2:
-                    projections.append((p[0], p[1]))
-        elif guidance_param and isinstance(guidance_param, dict):
+                parsed = _normalize_proj_key(p) if isinstance(p, str) else None
+                if parsed is None and isinstance(p, (list, tuple)) and len(p) == 2:
+                    parsed = (p[0], p[1])
+                if parsed is None:
+                    raise ValueError(f"grow_axons: cannot parse projection {p!r}; use 'src->dst' or [src, dst]")
+                projections.append(parsed)
+            if not projections:
+                return tissue
+        elif isinstance(guidance_param, dict) and guidance_param:
             for k in guidance_param.keys():
                 parsed = _normalize_proj_key(k)
-                if parsed:
-                    projections.append(parsed)
-                elif isinstance(k, tuple) and len(k) == 2:
-                    projections.append(k)
-        elif guidance_param and isinstance(guidance_param, list):
+                if parsed is None:
+                    raise ValueError(f"grow_axons: guidance key {k!r} is not a projection; use 'src->dst' keys "
+                                     f"or give 'projections'")
+                projections.append(parsed)
+        elif isinstance(guidance_param, list) and guidance_param:
             for item in guidance_param:
-                if isinstance(item, dict):
-                    item_src = item.get("src", item.get("source"))
-                    item_dst = item.get("dst", item.get("target"))
-                    if item_src is not None and item_dst is not None:
-                        projections.append((item_src, item_dst))
-        elif genome.get("guidance"):
-            for k in genome["guidance"].keys():
-                parsed = _normalize_proj_key(k)
-                if parsed:
-                    projections.append(parsed)
-                elif isinstance(k, tuple) and len(k) == 2:
-                    projections.append(k)
-
-        if not projections:
-            return tissue
+                item_src = item.get("src", item.get("source")) if isinstance(item, dict) else None
+                item_dst = item.get("dst", item.get("target")) if isinstance(item, dict) else None
+                if item_src is None or item_dst is None:
+                    raise ValueError(f"grow_axons: guidance entry {item!r} needs 'src' and 'dst'")
+                projections.append((item_src, item_dst))
+        else:
+            raise ValueError("grow_axons: no projections given; set 'projections' (an empty list is a no-op) "
+                             "or 'guidance' keyed by 'src->dst'")
             
         shift_rules = resolve(params.get("rules_shift", []), genome, fields)
         target_rules = resolve(params.get("rules_target", []), genome, fields)
@@ -142,7 +180,7 @@ class GrowAxons:
         max_delay = resolve(params.get("max_delay", 31), genome, fields)
         global_w_clip = int(resolve(params.get("w_clip", 512), genome, fields))
         global_inh = float(resolve(params.get("inh_weight_factor", 1.0), genome, fields))
-        exact = bool(resolve(params.get("exact", True), genome, fields))
+        exact = resolve(params.get("exact"), genome, fields)
         
         region_map = resolve(params.get("region_map", {}), genome, fields)
         bounds_min = resolve(params.get("bounds_min", {}), genome, fields)
@@ -164,34 +202,24 @@ class GrowAxons:
             dst_reg = region_map.get(dst_str, dst_str) if isinstance(dst_str, str) else dst_str
             
             try:
-                src_reg_int = int(src_reg)
+                src_mask = region_ids == int(src_reg)
+                dst_mask = region_ids == int(dst_reg)
             except (ValueError, TypeError):
-                src_reg_int = None
+                raise ValueError(f"grow_axons: projection {src_str!r}->{dst_str!r} does not name region ids; "
+                                 f"use integer regions or add the names to 'region_map'") from None
 
-            try:
-                dst_reg_int = int(dst_reg)
-            except (ValueError, TypeError):
-                dst_reg_int = None
+            gd = _get_guidance(guidance_param, src_str, dst_str)
+            if not isinstance(gd, dict):
+                raise ValueError(f"grow_axons: no guidance dict for projection {src_str!r}->{dst_str!r}; add it to "
+                                 f"the 'guidance' param (keys: B, c, sigma, p0, w, ...)")
 
-            src_mask = (region_ids == src_reg_int) if src_reg_int is not None else (region_ids == src_reg)
-            dst_mask = (region_ids == dst_reg_int) if dst_reg_int is not None else (region_ids == dst_reg)
-            
             src_indices = alive_idx[src_mask]
             dst_indices = alive_idx[dst_mask]
             
             if len(src_indices) == 0 or len(dst_indices) == 0:
                 continue
-                
-            gd = None
-            if guidance_param is not None:
-                gd = _get_guidance(guidance_param, src_str, dst_str)
-            if gd is None and genome.get("guidance"):
-                gd = _get_guidance(genome["guidance"], src_str, dst_str)
-            if gd is None:
-                continue
 
-            if isinstance(gd, dict):
-                gd = {k: resolve(v, genome, fields) for k, v in gd.items()}
+            gd = {k: resolve(v, genome, fields) for k, v in gd.items()}
             
             # Local positions
             if src_str in bounds_min and src_str in bounds_size:
@@ -253,7 +281,16 @@ class GrowAxons:
             
             p_prob_rules = gd.get("rules_probability", prob_rules)
 
-            if exact or sigma > 1.0:
+            n_src, n_dst = len(src_indices), len(dst_indices)
+            if exact:
+                if n_src * n_dst > EXACT_MAX_PAIRS:
+                    raise ValueError(f"grow_axons: exact=True for {src_str!r}->{dst_str!r} needs {n_src} x {n_dst} "
+                                     f"dense pairs, above the limit {EXACT_MAX_PAIRS}; leave 'exact' unset to use the "
+                                     f"sparse candidate search")
+                dense = True
+            else:
+                dense = max(n_src, n_dst) <= DENSE_MAX_CELLS and (exact is None or sigma > 1.0)
+            if dense:
                 d2 = ((local_dst[None, :, :] - ctx.target[:, None, :]) ** 2).sum(-1)
                 ctx.p = p0 * np.exp(-d2 / (2 * sigma ** 2))
                 
@@ -266,6 +303,7 @@ class GrowAxons:
                 p_ij = ctx.p
                 edges_pre, edges_post = np.nonzero(rng.random(p_ij.shape) < p_ij)
             else:
+                ctx.gd = {**gd, "sigma": sigma, "p0": p0}
                 edges_pre, edges_post, _ = sparse_guidance(
                     ctx, _PlanRulesAdapter(p_prob_rules), rng, c=5.0, exact=False
                 )

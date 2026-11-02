@@ -7,7 +7,7 @@ from neurogenesis.fields import AnalyticField
 from neurogenesis.stages.differentiation import Differentiate
 from neurogenesis.stages.base import run_schedule
 from neurogenesis.tissue import Tissue
-from neurogenesis.params import Expr, resolve, Const
+from neurogenesis.params import Const
 
 
 def test_eval_expr_arithmetic_and_power():

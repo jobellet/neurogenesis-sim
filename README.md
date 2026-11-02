@@ -75,6 +75,7 @@ build it locally: `pip install -r docs/requirements.txt && sphinx-build -b html 
   the task list.
 - `AGENTS.md`: rules for contributors and agents (determinism, backward compatibility, low compute, tests).
 - `docs/EXTENDING.md`: rules, plugins, knockouts, tonic currents, module projects.
+- `docs/STAGES.md`: the registered stages, geometries, fields and sparse guidance: parameters, defaults, limits.
 - `docs/NEURON_MODELS.md`: neuron models, units, cost estimates.
 - `CONTRIBUTING.md`: code and module contributions.
 - `docs/THIRD_PARTY.md`: software used and the literature behind each mechanism.
@@ -83,6 +84,7 @@ build it locally: `pip install -r docs/requirements.txt && sphinx-build -b html 
 GitHub Actions (`.github/workflows/ci.yml`), on every push:
 - every test on Python 3.10 and 3.12;
 - the browser kernel compiled, so that the Python / JAX / browser equivalence tests run and are never skipped;
+- fixed CPU performance benchmarks on main, reported against the previous main run on the same machine type (report only; a regression above 30% is flagged);
 - the cost estimator from the command line;
 - the viewer type-checked and built.
 

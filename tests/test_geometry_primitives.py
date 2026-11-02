@@ -117,6 +117,17 @@ def test_curved_sheet(rng):
     s2 = geometry_from_dict(d)
     assert s2.thickness == s.thickness
 
+def test_curved_sheet_expressions_are_restricted(tmp_path):
+    s = CurvedSheet("cos(pi * u)", "np.sin(v)", "0.5 * exp(-u^2)", thickness=0.1)
+    p = s.surface_points[-1]
+    assert np.allclose(p, [np.cos(np.pi), np.sin(1.0), 0.5 * np.exp(-1.0)], atol=1e-6)
+    marker = tmp_path / "pwned"
+    for bad in (f"__import__('os').system('touch {marker}')", "u.__class__", "open('x')"):
+        with pytest.raises(Exception):
+            CurvedSheet("u", "v", bad, thickness=0.1)
+    assert not marker.exists()
+
+
 def test_csg_union(rng):
     b1 = Box([0, 0, 0], [2, 2, 2])
     b2 = Box([1, 1, 1], [2, 2, 2])

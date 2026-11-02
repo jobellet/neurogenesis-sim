@@ -1,6 +1,5 @@
 """Project I/O for reading and writing projects."""
 import json
-import os
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional

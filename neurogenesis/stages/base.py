@@ -148,6 +148,7 @@ def run_schedule(
     raw_fields = project.get("fields", {})
     combined_raw = {**raw_geoms, **raw_fields}
     fields = _instantiate_fields(combined_raw)
+    fields = {k: (v.bind(genome) if isinstance(v, Field) else v) for k, v in fields.items()}
     
     tissue = Tissue.empty()
     checkpoints_list = []
