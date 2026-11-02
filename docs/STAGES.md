@@ -245,16 +245,19 @@ each field to the run's genome (`Field.bind`), so `Param` values inside a field 
 - **`LayerStackField(base_field, thicknesses, labels=None)`** (B3): the base field is a depth; returns `(label, w)` per
   point, `w` in [0, 1] the relative depth inside the layer. Thicknesses are numbers or `Param`s.
 - **Point patterns and maps** (B4, `maps.py`): `regular_points`, `jittered_points`, `poisson_disc_points` (minimum
-  distance `radius`) return point arrays; **`PinwheelField`** gives an orientation angle in [0, π) from singularities
-  with charges (`pinwheel_map` returns it sampled on a grid); `pinwheel_charges` measures the charge around given
-  centres; `bandpass_pinwheels` returns an angle grid from band-pass filtered noise. **Not implemented:** registered
-  field types for point sets, and locating the pinwheels of a band-pass map.
-- **Operations** (B5, `ops.py`, NumPy only): `Add(a, b)` (fields or constants), `Threshold(field, threshold, below,
-  above)`, `GaussianSmooth(grid_field, sigma)`, `DistanceTransform(bounds, spacing, target_points)` (distance to a
-  point set on a grid), `Gradient` (of a grid field, or central differences for any field), `DistanceToBoundary`
-  (distance to a geometry's or a label region's boundary, optionally signed, grid-based with error under one spacing).
-  Large operations work in blocks of at most 2²⁰ pairs. **Not implemented:** subtraction and multiplication fields;
-  `Add` and `Threshold` do not pass `bind` on to their children; `collect_genes` does not find `Gene`s inside fields.
+  distance `radius`) return point arrays; **`PointSetField`** registers a point set as a field (given `points`, or a
+  `pattern` with `bounds`, `spacing` / `jitter` / `radius` and its own `seed`, regenerated identically on load); its
+  values are the distance to the nearest point (cell list), and `seed_cells` accepts it as `points`.
+  **`PinwheelField`** gives an orientation angle in [0, π) from singularities with charges (`pinwheel_map` returns it
+  sampled on a grid); `pinwheel_charges` measures the charge around given centres; `find_pinwheels(angles, origin,
+  spacing)` locates the pinwheels of any 2D angle grid (winding of 2θ around each grid square, charge ±1/2);
+  `bandpass_pinwheels(..., return_pinwheels=True)` also returns the positions and charges of its pinwheels.
+- **Operations** (B5, `ops.py`, NumPy only): `Add(a, b)`, `Subtract(a, b)`, `Multiply(a, b)` (fields or constants),
+  `Threshold(field, threshold, below, above)`, `GaussianSmooth(grid_field, sigma)`, `DistanceTransform(bounds, spacing,
+  target_points)` (distance to a point set on a grid), `Gradient` (of a grid field, or central differences for any
+  field), `DistanceToBoundary` (distance to a geometry's or a label region's boundary, optionally signed, grid-based
+  with error under one spacing). Composite fields pass `bind(genome)` to their sub-fields, and
+  `collect_project_genes` finds `Gene`s inside field definitions. Large operations work in blocks of at most 2²⁰ pairs.
 
 ## Sparse guidance (D2, `neurogenesis/development/sparse_guidance.py`)
 `sparse_guidance(ctx, plan, rng, c=5.0, exact=False)` returns `(pre, post, p)` for one projection. With `exact=True` it

@@ -86,7 +86,7 @@ GUI (viz/): geometry and field editor, schedule editor, step-by-step development
 | Area | Present | Missing |
 |---|---|---|
 | Spiking | integer LIF kernel, bit-identical in Python, JAX and the browser; `two_compartment` and `hh` models; batched runs; cost estimator with machine calibration | plasticity during simulation as a reusable component (STDP, three-factor); per-region choice of model |
-| Development | `BodyPlan` (regions, projections), one fixed growth order (placement → sign → differentiation → identity → axons), rule registry in 5 phases (placement, shift, target, probability, weight), knockouts, tonic currents; geometry, fields, `Tissue`, stage schedule (A1–A5, B1–B5, C1–C13, D2, D3; see `docs/STAGES.md`) | chunked growth (D4), and the parts of B4, B5, C8, D1 and D2 marked partial below |
+| Development | `BodyPlan` (regions, projections), one fixed growth order (placement → sign → differentiation → identity → axons), rule registry in 5 phases (placement, shift, target, probability, weight), knockouts, tonic currents; geometry, fields, `Tissue`, stage schedule (A1–A5, B1–B5, C1–C13, D2, D3; see `docs/STAGES.md`) | chunked growth (D4), and the parts of C8, D1 and D2 marked partial below |
 | Genome / evolution | gene paths, [0, 1] coding, gene groups, JSON; island model, robust fitness, audits; `Param` sources (A3) | supervised fitting (`Fit` params resolve to their initial value); multi-objective |
 | Modules | save / load, composition, plugins, neuron model recorded | module registry and versioning; validation harness |
 | GUI | 3D viewer and per-neuron editing of a finished network | geometry and field editor, schedule editor, development preview, Project import / export |
@@ -180,18 +180,18 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 - **Orientation maps:** pinwheel maps from hand-placed singularities with given charges (±1/2), or from band-pass noise. Output: a vector or angle field and the pinwheel positions.
 - **Tests:** pinwheel charges recovered; minimum distances respected.
 - **Dependencies:** B3.
-- **Status:** partial: regular, jittered and Poisson-disc point patterns are functions returning arrays (not field
-  types); `PinwheelField` (hand-placed singularities) and `pinwheel_charges`; band-pass maps do not return their
-  pinwheel positions.
+- **Status:** done: regular, jittered and Poisson-disc point patterns (functions and the registered `PointSetField`);
+  `PinwheelField` (hand-placed singularities), `pinwheel_charges`, `find_pinwheels`; band-pass maps return their
+  pinwheel positions and charges.
 
 **B5. Field operations.**
 - Arithmetic, thresholding, smoothing, distance transforms (distance to a boundary or a point set), gradients.
 - Everything must be usable as a `Field` param.
 - **Tests:** against analytic results.
 - **Dependencies:** B3.
-- **Status:** partial: `Add`, `Threshold`, `GaussianSmooth`, `DistanceTransform` (distance to a point set),
-  `Gradient` and `DistanceToBoundary`, in NumPy (no SciPy); composite fields pass `bind(genome)` to their sub-fields.
-  Missing: subtraction / multiplication fields.
+- **Status:** done: `Add`, `Subtract`, `Multiply`, `Threshold`, `GaussianSmooth`, `DistanceTransform` (distance to a
+  point set), `Gradient` and `DistanceToBoundary`, in NumPy (no SciPy); composite fields pass `bind(genome)` to their
+  sub-fields.
 
 ### Phase C: developmental stages (parallel after A4; each a registered stage with tests and cost declaration)
 
