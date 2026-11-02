@@ -46,7 +46,7 @@ def evolve(base, genes, evaluate, island=0, pop=64, gens=150, seeds_per_gen=6, e
     return P, hist
 
 
-def choose(base, genes, P, evaluate, seeds, integer_roots=INTEGER_ROOTS, top=None, fitness_of=None):
+def choose(base, genes, P, evaluate, seeds, integer_roots=INTEGER_ROOTS, top=None):
     """Best genome of a final population on given (validation) seeds. Returns (genome, its evaluation info)."""
     gs = [from_unit(base, genes, u, integer_roots) for u in (P if top is None else P[:top])]
     fit, info = evaluate(gs, seeds)

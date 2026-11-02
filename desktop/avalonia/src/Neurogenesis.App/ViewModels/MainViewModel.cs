@@ -62,7 +62,7 @@ public sealed partial class MainViewModel : ObservableObject
         };
 
         // Load bundled / fallback UI schema
-        var (success, error, doc, _) = UiSchemaLoader.LoadDefault();
+        var (success, error, doc, isExample) = UiSchemaLoader.LoadDefault();
         if (success && doc != null)
         {
             UiSchema = doc;
@@ -74,6 +74,10 @@ public sealed partial class MainViewModel : ObservableObject
             {
                 var firstAvailable = doc.Stages.FirstOrDefault(st => st.Available) ?? doc.Stages[0];
                 Project.AddStage(firstAvailable);
+            }
+            if (isExample)
+            {
+                SceneNote = "Using bundled example UI schema";
             }
         }
         else if (!string.IsNullOrEmpty(error))
@@ -90,28 +94,35 @@ public sealed partial class MainViewModel : ObservableObject
             if (!string.IsNullOrEmpty(py))
             {
                 Bridge = new BridgeClient(py);
+                Bridge.StatusChanged += status =>
+                {
+                    Dispatcher.UIThread.Post(() => Status = status);
+                };
+                Bridge.ReadyReceived += async _ =>
+                {
+                    await RefreshSchemaFromBridgeAsync();
+                };
+
                 _ = Task.Run(async () =>
                 {
                     try
                     {
-                        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                        await Bridge.StartAsync(cts.Token);
-                        await RefreshSchemaFromBridgeAsync();
+                        await Bridge.StartAsync();
                     }
-                    catch
+                    catch (Exception ex)
                     {
-                        // Bridge startup is optional during initial launch
+                        Dispatcher.UIThread.Post(() => Status = $"Bridge error: {ex.Message}");
                     }
                 });
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Python runtime not configured yet
+            Status = $"Python runtime error: {ex.Message}";
         }
     }
 
-    private async Task RefreshSchemaFromBridgeAsync()
+    public async Task RefreshSchemaFromBridgeAsync()
     {
         if (Bridge == null || !Bridge.IsReady) return;
         try
@@ -127,6 +138,8 @@ public sealed partial class MainViewModel : ObservableObject
                     Dispatcher.UIThread.Post(() =>
                     {
                         UiSchema = dynamicDoc;
+                        SceneNote = "";
+                        Status = "Live UI schema loaded from bridge.";
                         UpdateModelNative();
                     });
                 }
@@ -136,22 +149,32 @@ public sealed partial class MainViewModel : ObservableObject
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Bridge does not implement ui_schema yet; fall back to embedded schema
+            // Bridge does not implement ui_schema or call failed; keep current schema
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (ex is not BridgeException be || !be.Message.Contains("no_such_method", StringComparison.OrdinalIgnoreCase))
+                {
+                    Status = $"Bridge ui_schema note: {ex.Message}";
+                }
+            });
         }
     }
 
     private void UpdateModelNative()
     {
-        if (UiSchema != null && !string.IsNullOrEmpty(Project.NeuronModel))
+        if (UiSchema != null)
         {
-            var model = UiSchema.Models.FirstOrDefault(m => string.Equals(m.Name, Project.NeuronModel, StringComparison.OrdinalIgnoreCase));
+            string targetModel = !string.IsNullOrEmpty(Project.NeuronModel)
+                ? Project.NeuronModel
+                : (UiSchema.Models.FirstOrDefault()?.Name ?? "");
+            var model = UiSchema.Models.FirstOrDefault(m => string.Equals(m.Name, targetModel, StringComparison.OrdinalIgnoreCase));
             IsModelNative = model?.Native ?? false;
         }
         else
         {
-            IsModelNative = string.IsNullOrEmpty(Project.NeuronModel) || Project.NeuronModel == "lif_int";
+            IsModelNative = false;
         }
     }
 

@@ -279,3 +279,43 @@ def test_pinwheel_field_and_charges():
     np.testing.assert_allclose(pinwheel_charges(grid, sing + 0.1, radius=2.0), charges, atol=1e-9)
     # no singularity enclosed: charge 0
     np.testing.assert_allclose(pinwheel_charges(grid, [[10.0, 10.0]], radius=2.0), [0.0], atol=1e-9)
+
+
+def test_composite_fields_bind_sub_fields():
+    genome = {"layers": {"t0": 2.0}}
+    layers = LayerStackField(AnalyticField("z"), thicknesses=[Gene(("layers", "t0"), 0.5, 4.0), 3.0], labels=[10, 20])
+    pts = np.array([[0, 0, 1.0], [0, 0, 3.5]])
+    field = Threshold(Add(layers, 1.0), threshold=15.0)
+    with pytest.raises(ValueError, match="bind"):
+        field.values(pts)
+    bound = field.bind(genome)
+    np.testing.assert_allclose(bound.base_field.values(pts), layers.bind(genome).values(pts) + 1.0)
+    np.testing.assert_allclose(bound.values(pts), [[0, 0], [1, 0]])
+    np.testing.assert_allclose(Add(1.0, layers).bind(genome).values(pts), [[11, 1.5], [21, 1.5]])
+    dtb = DistanceToBoundary(layers, ([0.0, 0.0, 0.0], [1.0, 1.0, 5.0]), 0.5, label=10)
+    with pytest.raises(ValueError, match="bind"):
+        dtb.values(pts)
+    dtb_bound = dtb.bind(genome)
+    np.testing.assert_allclose(dtb_bound.values(pts), DistanceToBoundary(layers.bind(genome), ([0.0, 0.0, 0.0], [1.0, 1.0, 5.0]), 0.5, label=10).values(pts))
+    # composites without genome-dependent parameters bind to themselves
+    grid = GridField(np.arange(27.0).reshape(3, 3, 3), [0, 0, 0], [1, 1, 1])
+    for f in (Add(grid, AnalyticField("x")), Threshold(grid, 3.0), GaussianSmooth(grid, 1.0),
+              DistanceToBoundary(Sphere([1, 1, 1], 1.0), ([0, 0, 0], [2, 2, 2]), 0.5)):
+        assert f.bind(genome) is f
+
+
+def test_grid_shape_follows_generated_nodes():
+    # The grid shape is the number of np.arange nodes per axis, whatever the bounds' type or the spacing.
+    for bounds, spacing in [((np.array([0.0, 0.0]), np.array([0.3, 0.3])), 0.1),
+                            (([0.0, 0.1], [0.7, 0.7]), 0.1),
+                            ((np.array([0.0, -0.3]), np.array([1.1, 0.3])), [0.1, 0.2])]:
+        nodes = regular_points(bounds, spacing)
+        sp = [spacing] * 2 if np.isscalar(spacing) else spacing
+        shape = tuple(len(np.arange(lo, hi, s)) for lo, hi, s in zip(bounds[0], bounds[1], sp))
+        points, angles, _ = pinwheel_map(bounds, spacing, np.array([[0.05, 0.05]]), np.array([0.5]))
+        assert angles.shape == shape and points.shape == shape + (2,)
+        np.testing.assert_array_equal(points.reshape(-1, 2), nodes)
+        dt = DistanceTransform(bounds, spacing, np.array([[0.05, 0.05]]))
+        assert dt.grid_field.data.shape == shape
+        expected = np.linalg.norm(nodes - [0.05, 0.05], axis=-1)
+        np.testing.assert_allclose(dt.values(nodes), expected, atol=1e-12)

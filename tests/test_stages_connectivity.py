@@ -200,3 +200,34 @@ def test_grow_axons_large_populations_stay_sparse():
     stage = Stage(name="g", operator="grow_axons", params={"guidance": Const({"0->1": gd}), "exact": Const(True)})
     with pytest.raises(ValueError, match="exact=True"):
         stage.run(t, {}, {}, np.random.default_rng(0))
+
+
+def test_grow_axons_declared_memory_matches_measurement():
+    import tracemalloc
+    from neurogenesis.stages.base import STAGE_REGISTRY
+    gd = {"sigma": 0.02, "p0": 0.5, "w": 10.0}
+    for n in (1000, 3000):  # dense path below DENSE_MAX_CELLS cells per side, sparse above
+        pos = np.random.default_rng(2).uniform(0.0, 1.0, (2 * n, 3))
+        tracemalloc.start()
+        try:
+            _grow(n, n, pos, gd)
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+        declared, _ = STAGE_REGISTRY["grow_axons"].cost(2 * n, 0, {"guidance": Const({"0->1": gd})})
+        assert peak / 3 <= declared <= 3 * peak, (n, declared, peak)
+
+
+def test_grow_axons_cost_resolves_region_map_aliases():
+    from neurogenesis.stages.base import STAGE_REGISTRY
+    gd = {"sigma": 0.05, "p0": 0.5, "w": 1.0}
+    c_self, _ = STAGE_REGISTRY["grow_axons"].cost(1000, 0, {"guidance": Const({"0->0": gd})})
+    c_aliased, _ = STAGE_REGISTRY["grow_axons"].cost(
+        1000, 0, {"guidance": Const({"A->B": gd}), "region_map": Const({"A": 0, "B": 0})}
+    )
+    c_distinct, _ = STAGE_REGISTRY["grow_axons"].cost(
+        1000, 0, {"guidance": Const({"A->B": gd}), "region_map": Const({"A": 0, "B": 1})}
+    )
+    assert c_aliased == c_self
+    assert c_distinct < c_self
+

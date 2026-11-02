@@ -5,10 +5,12 @@ import numpy as np
 from typing import Dict, Any, List, Optional, Tuple, Union
 
 from neurogenesis.tissue import Tissue, SparseConnectivity
-from neurogenesis.params import Param, resolve
+from neurogenesis.params import Param, resolve, worst_case
 from neurogenesis.stages.base import register_stage
 from neurogenesis.development.rules import RULES, GuidanceContext, WeightContext
 from neurogenesis.development.sparse_guidance import sparse_guidance
+from neurogenesis.spatial import CHUNK_PAIRS, _BYTES_PER_PAIR, CellList
+from neurogenesis.expressions import eval_expr
 
 def _sigmoid(x: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-np.clip(x, -30.0, 30.0)))
@@ -83,6 +85,46 @@ DENSE_MAX_CELLS = 2048
 EXACT_MAX_PAIRS = 1 << 24
 
 
+# Declared cost of grow_axons: bytes and operations per cell, per (source, destination) pair on the dense path (float64
+# Ns x Nd x 3 difference, distances, probabilities, uniform draws; measured peak 32 B per pair), and per sparse candidate pair within
+# 5 sigma (cell-list output, distances, probabilities, draws).
+_CELL_BYTES, _CELL_OPS = 256, 100
+_DENSE_PAIR_BYTES, _DENSE_PAIR_OPS = 32, 30
+_SPARSE_PAIR_BYTES, _SPARSE_PAIR_OPS = 48, 20
+
+
+def _cost_projections(params: Dict[str, Param]) -> Tuple[int, bool, List[float]]:
+    """Worst-case view of grow_axons params for its cost: number of projections, whether every projection joins two
+    different ends (then Ns + Nd <= N), and the sigma upper bounds found in the guidance (default 0.1)."""
+    guidance = worst_case(params.get("guidance"), None)
+    entries = []
+    if isinstance(guidance, dict):
+        entries = [(k, v) for k, v in guidance.items() if isinstance(v, dict)] or [(None, guidance)]
+    elif isinstance(guidance, list):
+        entries = [((g.get("src", g.get("source")), g.get("dst", g.get("target"))), g)
+                   for g in guidance if isinstance(g, dict)]
+    projections = worst_case(params.get("projections"), None)
+    if isinstance(projections, (list, tuple)):
+        keys = list(projections)
+    else:
+        keys = [k for k, _ in entries]
+    pairs = [_normalize_proj_key(k) if isinstance(k, str) else (tuple(k) if isinstance(k, (list, tuple))
+             and len(k) == 2 else None) for k in keys]
+    region_map = worst_case(params.get("region_map"), None)
+    rmap = region_map if isinstance(region_map, dict) else {}
+
+    def _res(end: Any) -> str:
+        if end in rmap:
+            return str(rmap[end])
+        if str(end) in rmap:
+            return str(rmap[str(end)])
+        return str(end)
+
+    distinct = bool(pairs) and all(p is not None and _res(p[0]) != _res(p[1]) for p in pairs)
+    sigmas = [float(worst_case(g.get("sigma"), 0.1)) for _, g in entries] or [0.1]
+    return max(1, len(keys)), distinct, sigmas
+
+
 class _PlanRulesAdapter:
     def __init__(self, prob_rules: List[str]):
         self.rules = {"probability": prob_rules}
@@ -133,8 +175,23 @@ class GrowAxons:
     """
     @classmethod
     def cost(cls, N: int, E: int, params: Dict[str, Param]) -> tuple[int, int]:
-        return (N * 64, N * 100)
-    
+        """Cost of the largest projection, taken as Ns = Nd = N / 2 when every projection joins two different ends,
+        else N: below DENSE_MAX_CELLS cells per side (or with exact=True) the dense path holds all Ns x Nd pairs,
+        above it the sparse path holds the pairs within 5 sigma (a fraction 4/3 pi (5 sigma)^3 of the unit box,
+        sigma the largest upper bound in the guidance) plus one cell-list chunk. Memory is that of one projection,
+        operations the sum over projections."""
+        n_proj, distinct, sigmas = _cost_projections(params)
+        exact = worst_case(params.get("exact"), None)
+        side = N // 2 if distinct else N
+        sigma = max(sigmas)
+        if exact or (side <= DENSE_MAX_CELLS and (exact is None or sigma > 1.0)):
+            pairs = min(side * side, EXACT_MAX_PAIRS) if exact else side * side
+            nbytes, ops = pairs * _DENSE_PAIR_BYTES, pairs * _DENSE_PAIR_OPS
+        else:
+            pairs = int(side * side * min(1.0, 4.0 / 3.0 * np.pi * (5.0 * sigma) ** 3))
+            nbytes, ops = pairs * _SPARSE_PAIR_BYTES + CHUNK_PAIRS * _BYTES_PER_PAIR, pairs * _SPARSE_PAIR_OPS
+        return int(N * _CELL_BYTES + nbytes), int(N * _CELL_OPS + n_proj * ops)
+
     def run(self, tissue: Tissue, params: Dict[str, Param], genome: Dict[str, Any], fields: Dict[str, Any], rng: np.random.Generator) -> Tissue:
         if not tissue.alive.any():
             return tissue
@@ -303,7 +360,6 @@ class GrowAxons:
                 p_ij = ctx.p
                 edges_pre, edges_post = np.nonzero(rng.random(p_ij.shape) < p_ij)
             else:
-                ctx.gd = {**gd, "sigma": sigma, "p0": p0}
                 edges_pre, edges_post, _ = sparse_guidance(
                     ctx, _PlanRulesAdapter(p_prob_rules), rng, c=5.0, exact=False
                 )
@@ -347,11 +403,12 @@ class GrowAxons:
             )
 
         if new_pre_list:
-            final_pre = np.concatenate([tissue.connectivity.pre] + new_pre_list)
-            final_post = np.concatenate([tissue.connectivity.post] + new_post_list)
-            final_w = np.concatenate([tissue.connectivity.weight] + new_weight_list)
-            final_delay = np.concatenate([tissue.connectivity.delay] + new_delay_list)
-            tissue.connectivity = SparseConnectivity(final_pre, final_post, final_w, final_delay)
+            c = tissue.connectivity
+            tissue.connectivity = SparseConnectivity.concat([c, SparseConnectivity(
+                np.concatenate(new_pre_list), np.concatenate(new_post_list), np.concatenate(new_weight_list),
+                np.concatenate(new_delay_list))])
+            for k, ref in (("pre", c.pre), ("post", c.post), ("weight", c.weight), ("delay", c.delay)):
+                setattr(tissue.connectivity, k, getattr(tissue.connectivity, k).astype(ref.dtype, copy=False))
 
         return tissue
 
@@ -372,12 +429,12 @@ class PlaceByHand:
         else:
             region = np.asarray(region, dtype=np.int32)
             
-        kwargs = {"positions": pos, "region": region}
+        kwargs = {"positions": pos, "region": region, "cycling": np.zeros(len(pos), dtype=bool)}
         
-        for k in ["cell_type", "birth_stage", "sign", "mode", "shift_v", "shift_s", "base_weight", "threshold", "directions"]:
+        for k in ["cell_type", "birth_stage", "sign", "mode", "shift_v", "shift_s", "base_weight", "threshold", "directions", "cycling"]:
             val = resolve(params.get(k), genome, fields)
             if val is not None:
-                if isinstance(val, (int, float, np.integer, np.floating)):
+                if isinstance(val, (int, float, bool, np.integer, np.floating, np.bool_)):
                     kwargs[k] = np.full(len(pos), val)
                 else:
                     kwargs[k] = np.asarray(val)
@@ -385,19 +442,103 @@ class PlaceByHand:
         tissue.add_cells(len(pos), **kwargs)
         return tissue
 
+# Mean synapses per cell assumed by the connect_by_hand cost for connection rules.
+_RULE_MEAN_SYNAPSES = 100
+# Largest N for which connect_by_hand accepts a dense N x N connection matrix.
+DENSE_MATRIX_MAX_CELLS = 2048
+
+
+def _select_cells(tissue: Tissue, selector: Any) -> np.ndarray:
+    """Indices of the living cells a rule side selects: None (all), a dict of `region` / `cell_type` values (ints or
+    lists, all keys must match), or a boolean expression over `cell_type`, `region`, `birth_stage`, `generation`,
+    `sign`, `x`, `y`, `z` (restricted evaluator)."""
+    mask = tissue.alive.copy()
+    if selector is None:
+        return np.flatnonzero(mask)
+    if isinstance(selector, str):
+        env = {"cell_type": tissue.cell_type, "region": tissue.region, "birth_stage": tissue.birth_stage,
+               "generation": tissue.generation, "sign": tissue.sign, "x": tissue.positions[:, 0],
+               "y": tissue.positions[:, 1], "z": tissue.positions[:, 2], "np": np}
+        m = np.asarray(eval_expr(selector, env), dtype=bool)
+        return np.flatnonzero(mask & np.broadcast_to(m, mask.shape))
+    if isinstance(selector, dict):
+        for key in ("region", "cell_type"):
+            if key in selector:
+                mask &= np.isin(getattr(tissue, key), np.asarray(selector[key]).ravel())
+        return np.flatnonzero(mask)
+    raise ValueError(f"connect_by_hand: invalid cell selector {selector!r}")
+
+
+def _rule_synapses(tissue: Tissue, rule: Dict[str, Any], genome: Dict[str, Any], fields: Dict[str, Any],
+                   rng: np.random.Generator) -> Tuple[np.ndarray, ...]:
+    """(pre, post, weight, delay) of one connection rule; O(E) memory (no Npre x Npost array)."""
+    val = lambda k, d: resolve(rule.get(k, d), genome, fields)
+    pre_idx = _select_cells(tissue, rule.get("pre"))
+    post_idx = _select_cells(tissue, rule.get("post"))
+    prob = float(val("prob", 1.0))
+    empty = (np.zeros(0, np.int32),) * 4
+    if len(pre_idx) == 0 or len(post_idx) == 0 or prob <= 0:
+        return empty
+    max_d = rule.get("max_distance")
+    if max_d is not None:
+        r = float(resolve(max_d, genome, fields))
+        q, c, d = CellList(tissue.positions[post_idx], r).query_radius(tissue.positions[pre_idx], r, return_distances=True)
+        pre, post = pre_idx[q], post_idx[c]
+        p = np.full(len(pre), prob)
+        if rule.get("sigma") is not None:
+            sigma = float(resolve(rule["sigma"], genome, fields))
+            p = p * np.exp(-d ** 2 / (2 * sigma ** 2))
+        keep = rng.random(len(pre)) < p
+        pre, post = pre[keep], post[keep]
+    else:
+        n_pairs = len(pre_idx) * len(post_idx)
+        k = int(rng.binomial(n_pairs, min(prob, 1.0)))
+        flat = rng.choice(n_pairs, size=k, replace=False) if k < n_pairs else np.arange(n_pairs)
+        flat = np.sort(flat)
+        pre, post = pre_idx[flat // len(post_idx)], post_idx[flat % len(post_idx)]
+    if not bool(val("allow_autapse", False)):
+        keep = pre != post
+        pre, post = pre[keep], post[keep]
+    E = len(pre)
+    w = np.full(E, int(val("weight", 1)), dtype=np.int32)
+    if bool(val("dale", False)):
+        w = np.abs(w) * np.where(tissue.sign[pre] < 0, -1, 1).astype(np.int32)
+    if rule.get("velocity") is not None:
+        dist = np.linalg.norm(tissue.positions[post] - tissue.positions[pre], axis=1)
+        delay = np.round(dist / float(val("velocity", 1.0))).astype(np.int64)
+        n_clip = int(np.sum(delay > 31))
+        if n_clip:
+            warnings.warn(f"connect_by_hand: {n_clip} synapses clipped to maximum delay 31 ticks (kernel limit)", UserWarning, stacklevel=3)
+        delay = np.clip(delay, 1, 31).astype(np.int32)
+    else:
+        delay = np.full(E, int(val("delay", 1)), dtype=np.int32)
+    return pre.astype(np.int32), post.astype(np.int32), w, delay
+
+
 @register_stage("connect_by_hand")
 class ConnectByHand:
     @classmethod
     def cost(cls, N: int, E: int, params: Dict[str, Param]) -> tuple[int, int]:
-        return (N * 32, N * 10)
-        
+        b, ops = N * 32, N * 10
+        if params.get("matrix") is not None:
+            b, ops = b + N * N * 8, ops + N * N
+        if params.get("rules"):
+            b, ops = b + N * _RULE_MEAN_SYNAPSES * 40, ops + N * _RULE_MEAN_SYNAPSES * 30
+        return (b, ops)
+
     def run(self, tissue: Tissue, params: Dict[str, Param], genome: Dict[str, Any], fields: Dict[str, Any], rng: np.random.Generator) -> Tissue:
         pre = np.asarray(resolve(params.get("pre", []), genome, fields), dtype=np.int32)
         post = np.asarray(resolve(params.get("post", []), genome, fields), dtype=np.int32)
-        
+        if params.get("matrix") is not None:
+            self._add_matrix(tissue, params, genome, fields)
+        if params.get("rules"):
+            rules = resolve(params["rules"], genome, fields)
+            for rule in (rules if isinstance(rules, list) else [rules]):
+                self._append(tissue, *_rule_synapses(tissue, rule, genome, fields, rng))
+
         if len(pre) == 0 or len(post) == 0:
             return tissue
-            
+
         N = len(tissue.alive)
         if np.any(pre < 0) or np.any(pre >= N):
             raise ValueError(f"connect_by_hand: pre index out of range [0, {N - 1}]")
@@ -419,10 +560,25 @@ class ConnectByHand:
         if np.any(delay < 1) or np.any(delay > 31):
             raise ValueError(f"connect_by_hand: delay out of kernel limit [1, 31]: range [{np.min(delay)}, {np.max(delay)}]")
 
-        new_pre = np.concatenate([tissue.connectivity.pre, pre])
-        new_post = np.concatenate([tissue.connectivity.post, post])
-        new_weight = np.concatenate([tissue.connectivity.weight, weight])
-        new_delay = np.concatenate([tissue.connectivity.delay, delay])
-        
-        tissue.connectivity = SparseConnectivity(new_pre, new_post, new_weight, new_delay)
+        self._append(tissue, pre, post, weight, delay)
         return tissue
+
+    @staticmethod
+    def _append(tissue: Tissue, pre, post, weight, delay) -> None:
+        tissue.connectivity = tissue.connectivity.append(pre, post, weight, delay)
+
+    def _add_matrix(self, tissue, params, genome, fields) -> None:
+        """Synapses from a dense N x N weight matrix (row = pre, column = post; 0 = no synapse), N <= 2048."""
+        W = np.asarray(resolve(params["matrix"], genome, fields), dtype=np.float64)
+        N = len(tissue.alive)
+        if W.shape != (N, N):
+            raise ValueError(f"connect_by_hand: matrix shape {W.shape} != ({N}, {N})")
+        if N > DENSE_MATRIX_MAX_CELLS:
+            raise ValueError(f"connect_by_hand: dense matrices are limited to {DENSE_MATRIX_MAX_CELLS} cells; use 'rules' or index lists")
+        pre, post = np.nonzero(W)
+        D = resolve(params.get("delay_matrix", params.get("delay", 1)), genome, fields)
+        D = np.asarray(D, dtype=np.int64)
+        delay = D[pre, post] if D.ndim == 2 else np.full(len(pre), int(D), dtype=np.int64)
+        if len(delay) and (delay.min() < 1 or delay.max() > 31):
+            raise ValueError("connect_by_hand: delay out of kernel limit [1, 31]")
+        self._append(tissue, pre, post, np.trunc(W[pre, post]).astype(np.int32), delay)

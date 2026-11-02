@@ -24,10 +24,21 @@ class IntegerSNNSimulator:
         self.num_neurons = network.num_neurons
         self.seed = seed
 
+        # CSR Graph
+        row_ptr, col_idx, weights, delays = network.to_csr()
+        self.row_ptr = row_ptr.astype(np.uint32)
+        self.col_idx = col_idx.astype(np.uint32)
+        self.weights = weights.astype(np.int16)
+        self.delays = delays.astype(np.uint8)
+
+        # History words
+        max_delay = int(np.max(self.delays)) if len(self.delays) > 0 else 0
+        self.W = max(1, (max_delay + 32) // 32)
+
         # State arrays
         self.v_mem = np.zeros(self.num_neurons, dtype=np.int16)
         self.i_syn = np.zeros(self.num_neurons, dtype=np.int32)
-        self.spike_bitfield = np.zeros(self.num_neurons, dtype=np.uint32)
+        self.spike_bitfield = np.zeros((self.num_neurons, self.W), dtype=np.uint32) if self.W > 1 else np.zeros(self.num_neurons, dtype=np.uint32)
         self.burst_phase = np.zeros(self.num_neurons, dtype=np.uint16)
         self.refr_count = np.zeros(self.num_neurons, dtype=np.uint8)
 
@@ -45,9 +56,6 @@ class IntegerSNNSimulator:
             [min(4294967295, int((n.poisson_hz / 1000.0) * 4294967296)) for n in network.neurons],
             dtype=np.uint32,
         )
-
-        # CSR Graph
-        self.row_ptr, self.col_idx, self.weights, self.delays = network.to_csr()
 
         # Telemetry
         self.tick = 0
@@ -118,23 +126,48 @@ class IntegerSNNSimulator:
             else:
                 self.v_mem[i] = v
 
-            # 32-bit temporal shift register update
-            bf = int(self.spike_bitfield[i])
-            self.spike_bitfield[i] = np.uint32(((bf << 1) | spiked) & 0xFFFFFFFF)
+            # temporal shift register update
+            if self.W == 1:
+                bf = int(self.spike_bitfield[i])
+                self.spike_bitfield[i] = np.uint32(((bf << 1) | spiked) & 0xFFFFFFFF)
+            else:
+                for w in range(self.W - 1, 0, -1):
+                    bf_curr = int(self.spike_bitfield[i, w])
+                    bf_prev = int(self.spike_bitfield[i, w - 1])
+                    self.spike_bitfield[i, w] = np.uint32(((bf_curr << 1) | (bf_prev >> 31)) & 0xFFFFFFFF)
+                bf = int(self.spike_bitfield[i, 0])
+                self.spike_bitfield[i, 0] = np.uint32(((bf << 1) | spiked) & 0xFFFFFFFF)
 
         # Step 2: Synaptic Propagation via CSR with Bitwise Delays
         for i in range(n):
-            bf = int(self.spike_bitfield[i])
-            if bf == 0:
-                continue
-
-            start = int(self.row_ptr[i])
-            end = int(self.row_ptr[i + 1])
-            for syn in range(start, end):
-                delay = int(self.delays[syn])
-                if (bf >> delay) & 1:
-                    target = int(self.col_idx[syn])
-                    self.i_syn[target] += int(self.weights[syn])
+            if self.W == 1:
+                bf = int(self.spike_bitfield[i])
+                if bf == 0:
+                    continue
+                start = int(self.row_ptr[i])
+                end = int(self.row_ptr[i + 1])
+                for syn in range(start, end):
+                    delay = int(self.delays[syn])
+                    if (bf >> delay) & 1:
+                        target = int(self.col_idx[syn])
+                        self.i_syn[target] += int(self.weights[syn])
+            else:
+                has_spikes = False
+                for w in range(self.W):
+                    if self.spike_bitfield[i, w] != 0:
+                        has_spikes = True
+                        break
+                if not has_spikes:
+                    continue
+                start = int(self.row_ptr[i])
+                end = int(self.row_ptr[i + 1])
+                for syn in range(start, end):
+                    delay = int(self.delays[syn])
+                    w = delay >> 5
+                    bit = delay & 31
+                    if w < self.W and (int(self.spike_bitfield[i, w]) >> bit) & 1:
+                        target = int(self.col_idx[syn])
+                        self.i_syn[target] += int(self.weights[syn])
 
         self.tick += 1
         return tick_spikes

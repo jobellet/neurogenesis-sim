@@ -82,7 +82,11 @@ export function safeSub(arr: Int32Array, idx: number, val: number): number {
   return old;
 }
 
-export function createSharedSimulationMemory(existingBuffer?: SharedArrayBuffer | ArrayBuffer): SharedSimulationMemory {
+export function createSharedSimulationMemory(existingBuffer?: SharedArrayBuffer | ArrayBuffer, initialW: number = 1): SharedSimulationMemory {
+  // We need to deduce W if an existing buffer is passed. We can compute what totalByteLength would be for a given W.
+  // Alternatively, just use the passed initialW and assume the caller knows.
+  let W = initialW;
+
   // Compute required layout offsets
   let offset = 0;
 
@@ -128,8 +132,35 @@ export function createSharedSimulationMemory(existingBuffer?: SharedArrayBuffer 
   const baseWeightOffset = offset;
   offset = align8(offset + MAX_NEURONS * Int16Array.BYTES_PER_ELEMENT);
 
+  // If existingBuffer is provided, deduce W by solving totalByteLength for W.
+  // The only W-dependent term is spikeBitfield, which uses MAX_NEURONS * W * 4 bytes.
+  // Since we align8, the deduction might be tricky, but let's assume the caller provides correct initialW
+  // or we can just leave it up to the caller to provide it if W > 1.
+  if (existingBuffer && existingBuffer.byteLength > 0) {
+      // Find W such that the total size matches
+      // This is a bit complex due to alignment, so we'll just check if initialW is correct, or find it.
+      for (let w = 1; w <= 8; w++) {
+          let testOffset = align8(offset + MAX_NEURONS * w * Uint32Array.BYTES_PER_ELEMENT);
+          testOffset = align8(testOffset + MAX_NEURONS * Uint8Array.BYTES_PER_ELEMENT);
+          testOffset = align8(testOffset + MAX_NEURONS * Uint8Array.BYTES_PER_ELEMENT);
+          testOffset = align8(testOffset + MAX_NEURONS * Uint8Array.BYTES_PER_ELEMENT);
+          testOffset = align8(testOffset + MAX_NEURONS * Uint8Array.BYTES_PER_ELEMENT);
+          testOffset = align8(testOffset + MAX_NEURONS * Int16Array.BYTES_PER_ELEMENT);
+          testOffset = align8(testOffset + (MAX_NEURONS + 1) * Uint32Array.BYTES_PER_ELEMENT);
+          testOffset = align8(testOffset + MAX_SYNAPSES * Uint32Array.BYTES_PER_ELEMENT);
+          testOffset = align8(testOffset + MAX_SYNAPSES * Int16Array.BYTES_PER_ELEMENT);
+          testOffset = align8(testOffset + MAX_SYNAPSES * Uint8Array.BYTES_PER_ELEMENT);
+          testOffset = align8(testOffset + 64 * Int32Array.BYTES_PER_ELEMENT);
+          testOffset = align8(testOffset + CMD_QUEUE_CAPACITY * 4 * Int32Array.BYTES_PER_ELEMENT);
+          if (testOffset === existingBuffer.byteLength) {
+              W = w;
+              break;
+          }
+      }
+  }
+
   const spikeBitfieldOffset = offset;
-  offset = align8(offset + MAX_NEURONS * Uint32Array.BYTES_PER_ELEMENT);
+  offset = align8(offset + MAX_NEURONS * W * Uint32Array.BYTES_PER_ELEMENT);
 
   const visualFlashOffset = offset;
   offset = align8(offset + MAX_NEURONS * Uint8Array.BYTES_PER_ELEMENT);
@@ -150,7 +181,7 @@ export function createSharedSimulationMemory(existingBuffer?: SharedArrayBuffer 
   offset = align8(offset + (MAX_NEURONS + 1) * Uint32Array.BYTES_PER_ELEMENT);
 
   const colIdxOffset = offset;
-  offset = align8(offset + MAX_SYNAPSES * Uint16Array.BYTES_PER_ELEMENT);
+  offset = align8(offset + MAX_SYNAPSES * Uint32Array.BYTES_PER_ELEMENT);
 
   const weightsOffset = offset;
   offset = align8(offset + MAX_SYNAPSES * Int16Array.BYTES_PER_ELEMENT);
@@ -202,7 +233,7 @@ export function createSharedSimulationMemory(existingBuffer?: SharedArrayBuffer 
   const connRadius = new Float32Array(buffer, connRadiusOffset, MAX_NEURONS);
   const connProb = new Float32Array(buffer, connProbOffset, MAX_NEURONS);
   const baseWeight = new Int16Array(buffer, baseWeightOffset, MAX_NEURONS);
-  const spikeBitfield = new Uint32Array(buffer, spikeBitfieldOffset, MAX_NEURONS);
+  const spikeBitfield = new Uint32Array(buffer, spikeBitfieldOffset, MAX_NEURONS * W);
   const visualFlash = new Uint8Array(buffer, visualFlashOffset, MAX_NEURONS);
 
   const refractory = new Uint8Array(buffer, refractoryOffset, MAX_NEURONS);
@@ -212,7 +243,7 @@ export function createSharedSimulationMemory(existingBuffer?: SharedArrayBuffer 
   if (!existingBuffer) threshold.fill(1024);                      // default firing threshold for every slot
 
   const rowPtr = new Uint32Array(buffer, rowPtrOffset, MAX_NEURONS + 1);
-  const colIdx = new Uint16Array(buffer, colIdxOffset, MAX_SYNAPSES);
+  const colIdx = new Uint32Array(buffer, colIdxOffset, MAX_SYNAPSES);
   const weights = new Int16Array(buffer, weightsOffset, MAX_SYNAPSES);
   const delays = new Uint8Array(buffer, delaysOffset, MAX_SYNAPSES);
 
@@ -222,6 +253,7 @@ export function createSharedSimulationMemory(existingBuffer?: SharedArrayBuffer 
   return {
     buffer,
     isShared,
+    W,
     posXYZ,
     axonDirXYZ,
     vMem,

@@ -25,6 +25,7 @@ jobs:
       vars.LINUX_RUNNER == '' || github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
     permissions:
+      contents: read        # checkout of a private repository
       pull-requests: read
     outputs:
       python: ${{ steps.filter.outputs.python }}
@@ -32,8 +33,8 @@ jobs:
       nglif: ${{ steps.filter.outputs.nglif }}
       mac-app: ${{ steps.filter.outputs.mac-app }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
+      - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -69,13 +70,13 @@ jobs:
       matrix:
         python-version: ["3.10", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "22"
       - name: Install (in a virtual environment, so a self-hosted machine keeps its own Python untouched)
         run: |
           python -m venv "$RUNNER_TEMP/venv"
@@ -114,8 +115,8 @@ jobs:
       actions: read
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install (in a virtual environment, so a self-hosted machine keeps its own Python untouched)
@@ -141,7 +142,7 @@ jobs:
           --baseline performance-baseline/performance.json
       - name: Save the result as the next baseline
         if: github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: performance-baseline
           path: performance.json
@@ -154,10 +155,10 @@ jobs:
       (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ${{ fromJSON(vars.LINUX_RUNNER || '"ubuntu-latest"') }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "22"
       - name: Type-check and build the 3D viewer
         working-directory: viz
         run: |
@@ -172,7 +173,7 @@ jobs:
       (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ${{ fromJSON(vars.LINUX_RUNNER || '"ubuntu-latest"') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build nglif and its fixture test
         run: |
           cmake -S desktop/common/native/nglif -B build/nglif -DCMAKE_BUILD_TYPE=Release
@@ -191,7 +192,7 @@ jobs:
          (vars.MAC_RUNNER == '' && contains(github.event.pull_request.labels.*.name, 'full-ci')))))
     runs-on: ${{ fromJSON(vars.MAC_RUNNER || '"macos-latest"') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build nglif and its fixture test
         run: |
           cmake -S desktop/common/native/nglif -B build/nglif -DCMAKE_BUILD_TYPE=Release
@@ -210,7 +211,7 @@ jobs:
          (vars.WINDOWS_RUNNER == '' && contains(github.event.pull_request.labels.*.name, 'full-ci')))))
     runs-on: ${{ fromJSON(vars.WINDOWS_RUNNER || '"windows-latest"') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build nglif and its fixture test
         run: |
           cmake -S desktop/common/native/nglif -B build/nglif -DCMAKE_BUILD_TYPE=Release
@@ -229,8 +230,8 @@ jobs:
          (vars.MAC_RUNNER == '' && contains(github.event.pull_request.labels.*.name, 'full-ci')))))
     runs-on: ${{ fromJSON(vars.MAC_RUNNER || '"macos-latest"') }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install the toolbox (in a virtual environment, so a self-hosted Mac keeps its own Python untouched)

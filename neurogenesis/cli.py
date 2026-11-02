@@ -6,6 +6,11 @@ Usage:
   python -m neurogenesis stats --network network.json
   python -m neurogenesis export-presets --out-dir presets/
   python -m neurogenesis generate --neurons 500 --weight-scale 0.2 --refractory 3 --out column_unsaturated.json
+  python -m neurogenesis estimate --project project.json
+  python -m neurogenesis fit --project project.json --targets targets.json --out genome.json
+  python -m neurogenesis validate module.json
+  python -m neurogenesis install module.json
+  python -m neurogenesis data fetch <dataset_id> --target <dir>
 """
 
 from __future__ import annotations
@@ -108,7 +113,21 @@ def cmd_export_presets(args: argparse.Namespace) -> None:
 
 
 def cmd_estimate(args: argparse.Namespace) -> None:
-    """Memory and time of a simulation for each neuron model, on this machine (calibrates once per model and device)."""
+    """Memory and time of a simulation for each neuron model, on this machine (calibrates once per model and device);
+    with --project, of a development schedule (per stage)."""
+    if args.project:
+        from .devcost import estimate_development, format_rows
+        from .project.io import Project
+        project = Project.load(args.project).to_dict()
+        e = estimate_development(project, calibrated=not args.no_calibrate)
+        print(format_rows(e))
+        print(e["verdict"])
+        if not e["fits"]:
+            raise SystemExit(2)
+        if not args.neurons:
+            return
+    if not args.neurons:
+        raise SystemExit("estimate: give --neurons or --project")
     from .cost import estimate
     n = int(float(args.neurons))
     e = int(n * float(args.synapses_per_neuron))
@@ -118,6 +137,93 @@ def cmd_estimate(args: argparse.Namespace) -> None:
     for m in models:
         r = estimate(m, n, e, ticks)
         print(f"  {m:16s} {r['verdict']}")
+
+def cmd_ui_schema(args: argparse.Namespace) -> None:
+    """Exports the UI schema."""
+    from .project.ui_schema import export_ui_schema
+    project = None
+    if args.project:
+        with open(args.project, "r") as f:
+            project = json.load(f)
+            
+    doc = export_ui_schema(project=project, calibrated=args.calibrated)
+    print(json.dumps(doc, indent=2))
+
+def cmd_fit(args: argparse.Namespace) -> None:
+    """Fits a Project's Fit params to targets (E2); writes the genome with the fitted values."""
+    from .fitting import fit
+    from .genome.io import from_json, to_json
+    from .project.io import Project
+    project = Project.load(args.project)
+    targets = json.loads(Path(args.targets).read_text())
+    targets = targets.get("targets", targets) if isinstance(targets, dict) else targets
+    seeds = [int(s) for s in args.seeds.split(",")]
+    r = fit(project.to_dict(), targets, seeds=seeds, genome=project.genome, iterations=args.iterations, seed=args.seed,
+            log=lambda h: print(f"  iteration {h['iteration']:3d}  best loss {h['best']:.4g}"))
+    for k, v in r.values.items():
+        print(f"{k} = {v:.6g}")
+    print(f"loss {r.loss:.4g}; metrics per seed: {r.metrics}")
+    Path(args.out).write_text(json.dumps(to_json(r.genome), indent=1))
+    print(f"✓ genome with fitted values saved to {Path(args.out).resolve()}")
+
+
+def cmd_validate(args: argparse.Namespace) -> None:
+    """Reruns the assays stored in a module (E4); exit status 1 if any fails."""
+    from .modules.module import Module
+    from .validation import validate_module
+    module = Module.load(args.module)
+    assays = None
+    if args.assays:
+        a = json.loads(Path(args.assays).read_text())
+        assays = a.get("assays", a) if isinstance(a, dict) else a
+    results = validate_module(module, assays)
+    if not results:
+        print(f"{module.name}: no assays (add them to validation['assays'])")
+    for r in results:
+        print(f"{'PASS' if r['ok'] else 'FAIL'}  {r['name']}: pass fraction {r['pass_fraction']:.2f}, values {r['values']}")
+    if any(not r["ok"] for r in results):
+        raise SystemExit(1)
+
+
+def cmd_install(args: argparse.Namespace) -> None:
+    from .modules.registry import install
+    e = install(args.module, catalogue=args.catalogue, force=args.force)
+    print(f"✓ installed {e['name']} {e['version']} (toolbox {e['toolbox']})")
+
+
+def cmd_modules(args: argparse.Namespace) -> None:
+    from .modules.registry import list_modules
+    for e in list_modules(args.catalogue):
+        print(f"{e['name']:24s} {e['version']:10s} toolbox {e['toolbox']:14s} {e.get('description', '')[:60]}")
+
+
+def cmd_data(args: argparse.Namespace) -> None:
+    """Dataset manifests (I1): info, fetch (prints size and license first; resumable, checksum-verified)."""
+    from .data.catalogue import describe, fetch, load_manifest
+    m = load_manifest(args.manifest or args.dataset)
+    if args.data_command == "info":
+        print(describe(m))
+        return
+    confirm = None
+    if not args.yes:
+        confirm = lambda text: input("Download? [y/N] ").strip().lower() in ("y", "yes")
+    d = fetch(m, target=args.target, confirm=confirm)
+    print(f"✓ {m['id']} in {d}")
+
+
+def cmd_export(args: argparse.Namespace) -> None:
+    """Write a network (JSON or NGB1) in another simulator's format, and print what was kept."""
+    from .interop import export_network
+    report = export_network(args.network, args.format, args.out)
+    print(report)
+
+
+def cmd_import(args: argparse.Namespace) -> None:
+    """Read a network written in another format and save it as network JSON."""
+    from .interop import import_network
+    net = import_network(args.format, args.path)
+    net.save_json(args.out)
+    print(f"✓ {net.num_neurons:,} neurons, {net.num_synapses:,} synapses -> {Path(args.out).resolve()}")
 
 
 def main() -> None:
@@ -169,11 +275,66 @@ def main() -> None:
 
     # Subcommand: estimate
     p_est = subparsers.add_parser("estimate", help="Memory and time of a simulation per neuron model, before running it")
-    p_est.add_argument("--neurons", required=True, help="number of neurons (e.g. 3e8)")
+    p_est.add_argument("--neurons", help="number of neurons (e.g. 3e8)")
+    p_est.add_argument("--project", help="Project JSON: estimate its development schedule, stage by stage")
+    p_est.add_argument("--no-calibrate", action="store_true", help="do not run the development benchmark (time unknown until calibrated)")
     p_est.add_argument("--synapses-per-neuron", default="1000", help="mean number of synapses per neuron")
     p_est.add_argument("--seconds", default="1", help="simulated seconds")
     p_est.add_argument("--model", action="append", help="neuron model (repeatable; default: all)")
     p_est.set_defaults(func=cmd_estimate)
+
+    p_fit = subparsers.add_parser("fit", help="Fit a Project's Fit params to data targets (CMA-ES)")
+    p_fit.add_argument("--project", required=True, help="Project JSON")
+    p_fit.add_argument("--targets", required=True, help="JSON list of targets (or {\"targets\": [...]})")
+    p_fit.add_argument("--seeds", default="0,1,2", help="development seeds per evaluation (comma-separated)")
+    p_fit.add_argument("--iterations", type=int, default=30)
+    p_fit.add_argument("--seed", type=int, default=0, help="optimiser seed")
+    p_fit.add_argument("--out", default="fitted_genome.json")
+    p_fit.set_defaults(func=cmd_fit)
+
+    p_val = subparsers.add_parser("validate", help="Rerun the validation assays of a module")
+    p_val.add_argument("module", help="module JSON")
+    p_val.add_argument("--assays", help="JSON list of assays to run instead of the module's own")
+    p_val.set_defaults(func=cmd_validate)
+
+    p_ins = subparsers.add_parser("install", help="Install a module into the local catalogue")
+    p_ins.add_argument("module", help="module JSON")
+    p_ins.add_argument("--catalogue", help="catalogue directory (default $NEUROGENESIS_MODULES or ~/.cache/neurogenesis/modules)")
+    p_ins.add_argument("--force", action="store_true", help="replace an installed module of the same version")
+    p_ins.set_defaults(func=cmd_install)
+
+    p_mod = subparsers.add_parser("modules", help="List installed modules")
+    p_mod.add_argument("--catalogue", help="catalogue directory")
+    p_mod.set_defaults(func=cmd_modules)
+
+    p_data = subparsers.add_parser("data", help="Connectome datasets: info and fetch (manifests in datasets/<id>.json)")
+    data_sub = p_data.add_subparsers(dest="data_command", required=True)
+    for name, text in (("info", "show size, license and citation"), ("fetch", "download and verify a dataset")):
+        q = data_sub.add_parser(name, help=text)
+        q.add_argument("dataset", help="dataset id (or a manifest path)")
+        q.add_argument("--manifest", help="manifest JSON (instead of looking the id up)")
+        q.add_argument("--target", help="data directory (default $NEUROGENESIS_DATA or ~/.cache/neurogenesis/data)")
+        q.add_argument("--yes", action="store_true", help="do not ask before downloading")
+        q.set_defaults(func=cmd_data)
+
+    # Subcommand: ui-schema
+    p_ui = subparsers.add_parser("ui-schema", help="Export UI schema for desktop apps")
+    p_ui.add_argument("--project", type=str, default=None, help="Path to a project JSON file")
+    p_ui.add_argument("--calibrated", action="store_true", help="Include real time estimates if calibrated")
+    p_ui.set_defaults(func=cmd_ui_schema)
+
+    # Subcommands: export / import (roadmap phase J)
+    from .interop import formats
+    p_exp = subparsers.add_parser("export", help="Write a network in another simulator's format (e.g. SONATA)")
+    p_exp.add_argument("network", help="network JSON or NGB1 file")
+    p_exp.add_argument("--format", required=True, choices=formats())
+    p_exp.add_argument("--out", required=True, help="output path (a directory for SONATA)")
+    p_exp.set_defaults(func=cmd_export)
+    p_imp = subparsers.add_parser("import", help="Read a network from another format into network JSON")
+    p_imp.add_argument("path", help="input path (for SONATA: a directory with circuit_config.json, or the config)")
+    p_imp.add_argument("--format", required=True, choices=formats())
+    p_imp.add_argument("--out", default="network.json", help="output network JSON (default: network.json)")
+    p_imp.set_defaults(func=cmd_import)
 
     args = parser.parse_args()
     args.func(args)

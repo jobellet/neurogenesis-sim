@@ -26,16 +26,26 @@ public sealed class SchedulePanelControl : UserControl
     {
         var root = new DockPanel { Margin = new Thickness(6) };
 
-        // Top toolbar: Add stage from catalogue
+        // Top toolbar: Add stage from catalogue (available stages only)
         var addBar = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
         DockPanel.SetDock(_addStageBtn, Dock.Right);
         _addStageBtn.Click += (s, e) =>
         {
             if (_stageCataloguePicker.SelectedItem is StageSpec sel && _vm != null)
             {
+                if (!sel.Available)
+                {
+                    _vm.Status = $"Cannot add stage '{sel.Title}': planned stage is not runnable.";
+                    return;
+                }
                 _vm.AddStage(sel);
             }
         };
+        _stageCataloguePicker.SelectionChanged += (s, e) =>
+        {
+            _addStageBtn.IsEnabled = (_stageCataloguePicker.SelectedItem as StageSpec)?.Available ?? false;
+        };
+
         addBar.Children.Add(_addStageBtn);
         addBar.Children.Add(_stageCataloguePicker);
         DockPanel.SetDock(addBar, Dock.Top);
@@ -56,20 +66,41 @@ public sealed class SchedulePanelControl : UserControl
             if (_vm != null)
             {
                 _vm.Project.DocumentChanged -= OnDocumentChanged;
+                _vm.PropertyChanged -= OnViewModelPropertyChanged;
             }
 
             _vm = DataContext as MainViewModel;
             if (_vm != null)
             {
                 _vm.Project.DocumentChanged += OnDocumentChanged;
-                if (_vm.UiSchema != null)
-                {
-                    _stageCataloguePicker.ItemsSource = _vm.UiSchema.Stages;
-                    _stageCataloguePicker.SelectedItem = _vm.UiSchema.Stages.FirstOrDefault();
-                }
+                _vm.PropertyChanged += OnViewModelPropertyChanged;
+                PopulatePicker();
                 RebuildList();
             }
         };
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainViewModel.UiSchema))
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                PopulatePicker();
+                RebuildList();
+            });
+        }
+    }
+
+    private void PopulatePicker()
+    {
+        if (_vm?.UiSchema != null)
+        {
+            var availableStages = _vm.UiSchema.Stages.Where(st => st.Available).ToList();
+            _stageCataloguePicker.ItemsSource = availableStages;
+            _stageCataloguePicker.SelectedItem = availableStages.FirstOrDefault();
+            _addStageBtn.IsEnabled = availableStages.Count > 0;
+        }
     }
 
     private void OnDocumentChanged(object? sender, EventArgs e)

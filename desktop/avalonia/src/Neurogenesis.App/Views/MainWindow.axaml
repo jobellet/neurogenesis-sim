@@ -16,8 +16,8 @@
       <Button Content="Redo" Click="OnRedo" HotKey="Ctrl+Y" IsEnabled="{Binding CanRedo}" />
       <Separator Width="1" Height="20" Margin="4,0" />
       <Button Content="Frame (F)" Click="OnFrame" />
-      <Button x:Name="PlayButton" Content="{Binding SimButtonText}" Click="OnToggleSim" />
-      <Button Content="Step" Click="OnStepSim" />
+      <Button x:Name="PlayButton" Content="{Binding SimButtonText}" Click="OnToggleSim" IsEnabled="{Binding CanSimulateNative}" />
+      <Button Content="Step" Click="OnStepSim" IsEnabled="{Binding CanSimulateNative}" />
       <Separator Width="1" Height="20" Margin="4,0" />
       <TextBlock Text="Colour by" VerticalAlignment="Center" Margin="4,0,0,0" />
       <ComboBox x:Name="ColorModeBox" ItemsSource="{Binding ColorModes}" SelectedItem="{Binding ColorMode}" MinWidth="130" />
