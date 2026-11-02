@@ -263,6 +263,8 @@ class RefineByActivityStage:
         wave_currents = None
         if "waves" in params:
             wave_cfg = params["waves"]
+            if isinstance(wave_cfg, Const):          # run_schedule wraps dict params in Const
+                wave_cfg = wave_cfg.value
             if isinstance(wave_cfg, dict):
                 w_sources = resolve(wave_cfg.get("sources", [0]), genome, fields)
                 w_speed = float(resolve(wave_cfg.get("speed", 1.0), genome, fields))
@@ -308,6 +310,8 @@ class RefineByActivityStage:
 
         # C) Motor twitches with sensory feedback
         twitch_cfg = params.get("twitches")
+        if isinstance(twitch_cfg, Const):            # run_schedule wraps dict params in Const
+            twitch_cfg = twitch_cfg.value
         has_twitches = twitch_cfg is not None
         if has_twitches:
             if isinstance(twitch_cfg, dict):
