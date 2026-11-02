@@ -88,23 +88,22 @@ the roadmap (e.g. "C4 migrate"), and stay within its scope.**
   - currents in toolbox units unless a model states its physical mapping.
 - Commit messages: imperative summary line, a body saying what changed and how it was tested.
 
-## CI minute conservation (strictly enforced until Dec 1 or repo is public)
-GitHub Actions minutes for the account are exhausted (macOS minutes count 10×, Windows 2×).
-Until Dec 1 (or until the repo is public), CI is blocked:
-- **Run the test suite locally before pushing**: never push unverified code or rely on CI for feedback.
-- **Batch commits**: one push per finished step, not per commit.
-- **Use `[skip ci]`** in commit titles/bodies for docs-only, comment, or roadmap changes.
-- **Paste local test run into PR**: PR merges require local test runs pasted into the PR description (exact command + summary line, e.g. `JAX_PLATFORMS=cpu pytest -q -ra` and `204 passed in 216s`), instead of green checks.
-- **macOS and Windows CI jobs** (`mac-app`, `nglif` macOS/Windows, release macOS builds, Avalonia Windows) run only on:
-  - pushes to `main`;
-  - `workflow_dispatch`;
-  - PRs explicitly labeled `full-ci`.
-- **Ubuntu jobs** run on every PR, skipping draft PRs for everything except the Ubuntu Python tests (`if: github.event.pull_request.draft == false`).
+## Continuous integration
+The repository is public, so GitHub-hosted CI is free: every pull request runs the jobs its changes touch (path
+filters), and merges to `main` rebuild and publish the documentation site and the AI context files.
+- **Do not use `[skip ci]`**, in pull-request commits or in squash-merge titles: every pull request is checked, and
+  `main` must be built and its site published after every merge.
+- Run the tests locally before pushing anyway (CI is the check, not the debugger), and batch commits: one push per
+  finished step.
+- macOS and Windows jobs run on pull requests only with the label `full-ci` (they are slower); they always run on
+  `main` and by hand (`workflow_dispatch`).
+- A pull request merges with green checks. Paste the local test summary in the description only when a check cannot
+  run (e.g. a macOS-only step).
 
 ## Testing checklist for a pull request
 - [ ] `JAX_PLATFORMS=cpu pytest -q` passes locally, with nothing skipped (kernel tests need `npm run build:kernel`).
-- [ ] Local test command and summary line pasted into the PR description (replaces CI check until Dec 1).
-- [ ] Commits batched (one push per finished step); `[skip ci]` used if docs-only.
+- [ ] CI checks green (or, for a step CI cannot run, the local command and summary line in the description).
+- [ ] Commits batched (one push per finished step); no `[skip ci]` in the squash title.
 - [ ] New code has tests: determinism; neutral parameters = no-op; the documented behaviour; the cost declaration.
 - [ ] Existing networks unchanged (development fingerprints).
 - [ ] `cd viz && npm run build` passes if `viz/` changed.
