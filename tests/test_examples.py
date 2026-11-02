@@ -130,3 +130,35 @@ def test_evolved_development_example(tmp_path):
     assert stats["final_best"] > stats["first_best"] + 0.3
     assert ["div"] in stats["genes"] and ["p0"] in stats["genes"] and ["div2"] in stats["genes"]
     assert stats["cells_type1"] > 0 and stats["synapses"] > 0
+
+
+def test_retinothalamic_example(tmp_path):
+    """Retina -> relay example: the four conditions develop (small tissue, 2 seeds) and every metric is finite."""
+    import json
+    r = subprocess.run([sys.executable, str(ROOT / "examples" / "retinothalamic.py"), "--cpu", "--small", "--seeds", "2",
+                        "--out", str(tmp_path)], capture_output=True, text=True, cwd=tmp_path)
+    assert r.returncode == 0, r.stderr
+    stats = json.loads((tmp_path / "stats.json").read_text())
+    assert (tmp_path / "project.json").exists()
+    assert set(stats["summary"]) == {"WT", "b2KO", "TTX", "EphAKO"}
+    for cond, rows in stats["per_seed"].items():
+        assert len(rows) == 2
+        for row in rows:
+            assert all(np.isfinite(row[k]) for k in ("mosaic_nnri", "r_x", "r_y", "topo_error", "separation")), (cond, row)
+            assert row["n_rgc"] > 10 and row["n_retinal_synapses"] > 0
+    assert stats["summary"]["WT"]["r_x"][0] > 0.5 and abs(stats["summary"]["EphAKO"]["r_x"][0]) < 0.3
+
+
+def test_retinothalamic_waves_reach_the_stage():
+    """The example's refinement stage honours its `waves` settings from a schedule (wave speed changes the weights)."""
+    sys.path.insert(0, str(ROOT))
+    from examples.retinothalamic import build_project
+    from neurogenesis.stages.base import run_schedule
+    sums = []
+    for speed in (0.4, 100.0):
+        p = build_project("WT", 0, n_prog=45, n_relay=100, n_waves=1, wave_ticks=250).to_dict()
+        names = [s["name"] for s in p["schedule"]]
+        p["schedule"] = p["schedule"][:names.index("refine_0") + 1]
+        p["schedule"][-1]["params"]["waves"]["speed"] = speed
+        sums.append(int(np.abs(run_schedule(p, p["genome"], 0).connectivity.weight).sum()))
+    assert sums[0] != sums[1]
