@@ -3,11 +3,11 @@ from __future__ import annotations
 import copy
 import importlib
 import zlib
-from dataclasses import dataclass, field
-from typing import Callable, Dict, Any, List, Optional, Union, Tuple
+from dataclasses import dataclass
+from typing import Dict, Any, List, Optional, Union, Tuple
 import numpy as np
 
-from neurogenesis.params import Param, param_from_dict, param_to_dict, resolve
+from neurogenesis.params import Param, param_from_dict
 from neurogenesis.tissue import Tissue
 from neurogenesis.geometry import Geometry, geometry_from_dict, _GEOMETRY_REGISTRY
 from neurogenesis.fields import Field, field_from_dict, _FIELD_REGISTRY
