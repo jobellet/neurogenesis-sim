@@ -95,8 +95,9 @@ filters), and merges to `main` rebuild and publish the documentation site and th
   `main` must be built and its site published after every merge.
 - Run the tests locally before pushing anyway (CI is the check, not the debugger), and batch commits: one push per
   finished step.
-- macOS and Windows jobs run on pull requests only with the label `full-ci` (they are slower); they always run on
-  `main` and by hand (`workflow_dispatch`).
+- All jobs (Python, viewer, `nglif` on Ubuntu / macOS / Windows, `mac-app`) run on every non-draft pull request whose
+  files they cover, on `main` and by hand (`workflow_dispatch`); draft pull requests run the Python tests only.
+  Runners and their variables are described in `.github/RUNNERS.md`.
 - A pull request merges with green checks. Paste the local test summary in the description only when a check cannot
   run (e.g. a macOS-only step).
 

@@ -1,3 +1,4 @@
+"""Geometries (B1-B2): primitives, set operations, triangle meshes and voxel masks, with a JSON registry."""
 from .primitives import (
     Geometry,
     Box,

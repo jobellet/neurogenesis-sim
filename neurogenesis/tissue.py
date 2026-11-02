@@ -1,3 +1,10 @@
+"""Tissue state (A2): the struct-of-arrays state that stages read and write.
+
+`Tissue` holds per-cell arrays (positions, lineage, type, region, expression, sign, alive, birth time, transmitters,
+receptors, morphology) and a `SparseConnectivity` (pre, post, weight, delay, receptor class, and optional morphology
+and conductance arrays). Helpers add, compact, subset and concatenate cells with every array kept aligned, and
+`to_network` compiles a tissue to a simulation network.
+"""
 from __future__ import annotations
 import numpy as np
 from dataclasses import dataclass, field
@@ -724,3 +731,17 @@ class Tissue:
             total += self.morphology.nbytes()
 
         return total
+
+
+MAX_DELAY_TICKS = 255  # storage bound of synaptic delays (uint8 in SNNNetwork); needs (255 + 32) // 32 = 8 history words per neuron
+
+
+def effective_max_delay(max_delay=None) -> int:
+    """Largest delay (ticks) a stage may write: `max_delay` if given, else `MAX_DELAY_TICKS`. Delays above 31 use
+    multi-word spike history in all four kernels (cost: (max_delay + 32) // 32 words per neuron). Raises above the bound."""
+    if max_delay is None:
+        return MAX_DELAY_TICKS
+    m = int(max_delay)
+    if m < 1 or m > MAX_DELAY_TICKS:
+        raise ValueError(f"max_delay must be in [1, {MAX_DELAY_TICKS}] ticks, got {m}")
+    return m

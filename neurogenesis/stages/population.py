@@ -1,3 +1,11 @@
+"""Population stages (C1-C3, C14).
+
+`seed_cells`: progenitors in a geometry or at given points, with a density `Param` (thinning; Lewis, 1979, Naval
+Research Logistics Quarterly). `proliferate`: symmetric or asymmetric divisions (Gotz, 2005, Nature Reviews Molecular
+Cell Biology). `apoptosis`: death by probability, density or neurotrophic support. `cell_cycle_clock`: progenitor
+cell-cycle exit by cycle number (Takahashi, 1995, Journal of Neuroscience). `geometry_volume` estimates a geometry's
+volume by Monte Carlo.
+"""
 from __future__ import annotations
 
 import numpy as np

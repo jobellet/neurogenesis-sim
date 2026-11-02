@@ -1,3 +1,7 @@
+"""UI schema export (H3): `export_ui_schema` describes the stage registry (Params, kinds, bounds, docs, cost
+samples), the neuron models with cost estimates, the guidance and placement rules, the genes of a Project and its
+schema as JSON for the desktop apps (`python -m neurogenesis ui-schema`, bridge method `ui_schema`).
+"""
 import datetime
 import inspect
 import platform

@@ -1,3 +1,7 @@
+"""Geometry primitives (B1): the `Geometry` interface (`contains`, `sample_points`, `to_dict`), `Box`, `Sphere`,
+`Ellipsoid`, `Cylinder`, `Sheet2D`, `CurvedSheet`, the set operations `Union` and `Difference`, and the JSON registry
+(`register_geometry`, `geometry_from_dict`).
+"""
 import numpy as np
 from abc import ABC, abstractmethod
 from typing import Dict, Type, Callable, Any, Tuple, Optional, List

@@ -360,6 +360,10 @@ field or fit can replace; values are about the cited species and ages, and resul
     TrkB → KCC2). Default rule: E_Cl(cell) moves from E_Cl,immature to E_Cl,mature with the cell's age (a sigmoid with
     midpoint and width as `Param`s), and its accumulated activity shifts the midpoint earlier (gain `Param`, 0 = purely
     programmed).
+  - **Status:** done: `transporter_switch` in `neurogenesis/stages/pharmacology.py` (per-synapse `e_rev` from the
+    postsynaptic cell's E_Cl; signed weights for `lif_int` with `v_rest`), reference profile
+    `examples/profiles/transporter_switch.json`, tests in `tests/test_stages_transporter_switch.py`. Activity is a
+    `Param` (`refine_by_activity` does not record per-cell activity yet).
 - **C22 `competitive_elimination`** — neonatal rat and mouse neuromuscular junction, P0 (poly-innervated) to P14
   (single input), and climbing fibres on Purkinje cells (P0–P20) (Willshaw 1981, Proc R Soc Lond B 212:401–419; Gouzé,
   Lasry and Changeux 1983, Biol Cybern 46:207–215; Balice-Gordon and Lichtman 1994, Nature 372:519–524).
@@ -536,7 +540,10 @@ Before implementing Phase I, P, and N, core contracts are updated in dedicated, 
 `connect_by_hand`, `myelinate` and `dendritic_attenuate` still clip computed delays at 31. Replace the hard-coded bound
 with the `max_delay` Param (default: no clip, or a documented bound tied to the cost model), warn only when a
 user-set bound clips, and test that a long projection keeps its delay and simulates identically in the four kernels.
-- **Status:** not done.
+- **Status:** partial (#72): `grow_axons` (and its streamed variant), `connect_by_hand`, `myelinate`,
+  `dendritic_attenuate` and `freeze` use the `max_delay` Param, default the storage bound of 255 ticks
+  (`MAX_DELAY_TICKS`), and warn only when clipping. Still clipped at 31: `arbor_synapses`
+  (`neurogenesis/stages/arbors.py`) and the connectome importer (`neurogenesis/data/importer.py`).
 
 ### Phase I: Connectome Data Layer
 
@@ -616,7 +623,7 @@ Transmitter action depends on receptors and developmental context, never a stati
 
 **P5. Neuromodulation & volume transmission.**
 - Diffuse neuromodulatory fields acting on plasticity eligibility traces (interfacing Phase E `ThreeFactorRule`).
-- **Status:** done: `neurogenesis.neuromodulation` (`VolumeModulator`, `apply_modulated_plasticity`, `neuromodulate` stage).
+- **Status:** done: `neurogenesis.neuromodulation` (`VolumeModulator`, `apply_modulated_plasticity`, `neuromodulate` stage; every parameter a `Param`, see `docs/STAGES.md`).
 
 ### Phase N: Branching Neurites & Arbor Morphology
 
