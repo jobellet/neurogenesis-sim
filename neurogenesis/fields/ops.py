@@ -165,7 +165,7 @@ class DistanceTransform(Field):
         
     def _compute_distance_field(self) -> GridField:
         """Exact nearest-target distance at each grid node, O(G * T) in blocks of MAX_PAIRS pairs."""
-        from .maps import regular_points
+        from .maps import _regular_axes, regular_points
 
         points = regular_points(self.bounds, self.spacing)
         targets = np.asarray(self.target_points, dtype=float)
@@ -175,13 +175,13 @@ class DistanceTransform(Field):
             diff = points[i:i + step, None, :] - targets[None, :, :]
             distances[i:i + step] = np.sqrt(np.min(np.sum(diff * diff, axis=-1), axis=1))
         
-        min_b, max_b = self.bounds
+        min_b = self.bounds[0]
         if isinstance(self.spacing, (float, int)):
             spacing = np.array([self.spacing] * len(min_b))
         else:
             spacing = np.array(self.spacing)
             
-        grid_shape = np.ceil((max_b - min_b) / spacing).astype(int)
+        grid_shape = [len(a) for a in _regular_axes(self.bounds, self.spacing)]
         dist_grid = distances.reshape(*grid_shape)
         
         return GridField(dist_grid, min_b, spacing, method='trilinear')

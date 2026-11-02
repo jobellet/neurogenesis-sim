@@ -297,3 +297,20 @@ def test_composite_fields_bind_sub_fields():
     for f in (Add(grid, AnalyticField("x")), Threshold(grid, 3.0), GaussianSmooth(grid, 1.0),
               DistanceToBoundary(Sphere([1, 1, 1], 1.0), ([0, 0, 0], [2, 2, 2]), 0.5)):
         assert f.bind(genome) is f
+
+
+def test_grid_shape_follows_generated_nodes():
+    # The grid shape is the number of np.arange nodes per axis, whatever the bounds' type or the spacing.
+    for bounds, spacing in [((np.array([0.0, 0.0]), np.array([0.3, 0.3])), 0.1),
+                            (([0.0, 0.1], [0.7, 0.7]), 0.1),
+                            ((np.array([0.0, -0.3]), np.array([1.1, 0.3])), [0.1, 0.2])]:
+        nodes = regular_points(bounds, spacing)
+        sp = [spacing] * 2 if np.isscalar(spacing) else spacing
+        shape = tuple(len(np.arange(lo, hi, s)) for lo, hi, s in zip(bounds[0], bounds[1], sp))
+        points, angles, _ = pinwheel_map(bounds, spacing, np.array([[0.05, 0.05]]), np.array([0.5]))
+        assert angles.shape == shape and points.shape == shape + (2,)
+        np.testing.assert_array_equal(points.reshape(-1, 2), nodes)
+        dt = DistanceTransform(bounds, spacing, np.array([[0.05, 0.05]]))
+        assert dt.grid_field.data.shape == shape
+        expected = np.linalg.norm(nodes - [0.05, 0.05], axis=-1)
+        np.testing.assert_allclose(dt.values(nodes), expected, atol=1e-12)
