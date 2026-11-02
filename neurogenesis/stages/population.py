@@ -313,6 +313,9 @@ class Proliferate:
             compartment=tissue.compartment[div_indices].copy(),
             threshold=tissue.threshold[div_indices].copy()
         )
+        exited = getattr(tissue, "_clock_exited_mask", None)
+        if exited is not None and len(exited) == N:
+            tissue._clock_exited_mask = np.concatenate([exited, exited[div_indices].copy()])
         return tissue
 
 @register_stage("apoptosis")
@@ -502,4 +505,5 @@ class CellCycleClock:
 
         leaving = cycling_mask & (rng.random(N) < q_prob)
         tissue.cycling[leaving] = False
+        tissue._clock_exited_mask = leaving.copy()
         return tissue
