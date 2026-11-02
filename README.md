@@ -41,15 +41,19 @@ The toolbox makes no assumption about species, organ, task or environment. Proje
 geometries, stages, stimuli and objectives, and can publish working circuits (for example a retina with ON/OFF ganglion
 cells) as modules that others reuse as-is.
 
-**Status (2026-11-01).** The spiking kernel, neuron models, cost estimates, body plans with a fixed growth procedure,
-genomes, evolution, modules and a 3D viewer exist and are tested. Geometries, fields, configurable developmental stages,
-supervised fitting and the GUI editors are planned: see `docs/ROADMAP.md`, written as tasks for parallel development
-(and `AGENTS.md` for the rules every contributor follows).
+**Status (2026-11-02).** Implemented and tested: the spiking kernels and neuron models, cost estimates, genomes and
+evolution, modules with a registry and validation assays, geometries and fields, a configurable schedule of developmental
+stages (`docs/STAGES.md`), supervised fitting (CMA-ES), connectome data import, pharmacology profiles, branching arbors
+with SWC I/O, SONATA export / import, the bridge, the browser viewer and the macOS app. In progress: the Windows / Linux
+app. Planned: the remaining stages of the second wave (C16–C24), further export formats (NIR, PyNN, NeuroML 2), and
+lifting the 31-tick delay clip in the developmental stages (the kernels already accept longer delays). Configurable stages are
+young and their API may still change. Everything open is in `docs/ROADMAP.md` (tasks for parallel development, rules in
+`AGENTS.md`); the generated status section of the AI context file (`scripts/build_context.py`) lists it in one place.
 
 ## What exists today
 | Piece | Module | What it is |
 |---|---|---|
-| Spiking kernel | `neurogenesis.spiking` | Integer LIF neurons (bit-shift leak and synaptic decay, per-neuron threshold, refractory period, Poisson drivers, bursters, axonal delays up to 31 ticks of 1 ms). Identical spikes in Python (`reference`), JAX (`jax_backend`, CPU or GPU) and the browser. `batch.simulate_counts` runs many networks on sequences of stimuli. |
+| Spiking kernel | `neurogenesis.spiking` | Integer LIF neurons (bit-shift leak and synaptic decay, per-neuron threshold, refractory period, Poisson drivers, bursters, axonal delays of any length through a multi-word spike history, neuron indices up to 2³², an array-backed synapse store). Identical spikes in Python (`reference`), JAX (`jax_backend`, CPU or GPU), the browser and the C library `nglif`. Developmental stages still clip delays at 31 ticks (to be lifted). `batch.simulate_counts` runs many networks on sequences of stimuli. |
 | Neuron models | `neurogenesis.spiking.models` | `lif_int` (default), `two_compartment` (soma + dendrite) and `hh` (Hodgkin–Huxley), switchable per simulation on the same network, sharing synapses, delays and drivers. See `docs/NEURON_MODELS.md`. |
 | Cost estimates | `neurogenesis.cost` | Memory and time per model before running, calibrated on the actual machine (`python -m neurogenesis estimate --neurons 3e8 --synapses-per-neuron 5000`). Every simulation refuses networks that cannot fit. |
 | Body plans and growth | `neurogenesis.development` | Regions (fixed or grown placement, roles, imposed sign) and allowed projections; one growth procedure: placement and sign → lateral-inhibition differentiation → molecular identity → axon guidance. Deterministic per development seed; parallel growth. |
@@ -62,6 +66,9 @@ supervised fitting and the GUI editors are planned: see `docs/ROADMAP.md`, writt
 | Fitting | `neurogenesis.fitting`, `neurogenesis.evolution.semi_supervised` | `Fit` params fitted to data targets (cell counts, densities, layer thickness, connection statistics, firing rates) with CMA-ES over several development seeds (`python -m neurogenesis fit`); genes evolved with an inner fitting loop; Pareto evolution. |
 | Development schedule | `neurogenesis.stages`, `neurogenesis.devcost` | A Project's ordered stages (seed, cell_cycle_clock, proliferate, apoptosis, migrate, sort, mosaic, express, temporal_competence, differentiate, grow_axons, place / connect by hand, prune, scale, refine_by_activity, myelinate, freeze), each parameter a `Param`; cost per stage before running (`python -m neurogenesis estimate --project p.json`). See `docs/STAGES.md`. |
 | Arbors, pharmacology, data | `neurogenesis.arbors`, `neurogenesis.pharmacology`, `neurogenesis.data` | Branching arbors (SWC I/O, `grow_arbors`, synapses with path-length delays); transmitter / receptor profiles compiled to signed weights by developmental context; connectome manifests, verified downloads and streaming import (`python -m neurogenesis data fetch`). |
+| Geometry and fields | `neurogenesis.geometry`, `neurogenesis.fields` | Primitives, CSG, meshes and voxel masks (`.npz`); grid, analytic, vector, label, layer-stack and pinwheel fields, gradients and distances; every field usable as a `Param`. |
+| Interoperability | `neurogenesis.interop` | Export / import with a report of what is exact, approximated or dropped: SONATA (`python -m neurogenesis export net.json --format sonata --out dir`), exact round trip; one shared translation of the integer neuron into a current-based exponential LIF. |
+| Bridge and apps | `neurogenesis.bridge`, `desktop/` | JSON-lines server (`python -m neurogenesis.bridge`), NGB1 binary networks, UI schema export (`python -m neurogenesis ui-schema`); native macOS app; Windows / Linux app in progress. |
 | Analysis | `neurogenesis.analysis` | Frequency–current curves (from rest), mosaic regularity. |
 | Viewer | `viz/` | Browser 3D viewer and sandbox (three.js): imports network JSON, shows neurons by role and sign, rasters, per-neuron inspection and editing. |
 

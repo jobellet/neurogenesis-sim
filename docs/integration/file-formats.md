@@ -9,6 +9,7 @@
 | Genome JSON | genome with `"src->dst"` projection keys | `neurogenesis.genome.to_json`, `from_json` | {doc}`../getting-started/concepts` |
 | CSR arrays | `row_ptr`, `col_idx`, `weights`, `delays` | `net.to_csr()` | kernels |
 | SONATA | nodes / edges HDF5, type tables, circuit config, for BMTK, NEST, NEURON, libsonata | `neurogenesis.interop` (`export_network(net, "sonata", dir)`, `import_network`) | {doc}`other-simulators` |
+| SWC | neuron morphologies (skeletons) | `neurogenesis.arbors.read_swc`, `write_swc`; connectome skeletons with simplification: `neurogenesis.data.skeletons` | {doc}`../reference/stages` (arbors) |
 
 ## Exchanging networks
 ```python
@@ -21,6 +22,6 @@ graph library.
 
 ```{admonition} PLACEHOLDER
 :class: placeholder
-Further formats (roadmap phase J): NIR, PyNN scripts, NeuroML 2 / LEMS (Gleeson et al. 2010), SWC morphologies
-(with N4), gene-expression atlas grids as fields, NWB / neo recordings as fitting targets.
+Further formats (roadmap phase J): NIR, PyNN scripts, NeuroML 2 / LEMS (Gleeson et al. 2010), gene-expression atlas
+grids as fields, NWB / neo recordings as fitting targets.
 ```
