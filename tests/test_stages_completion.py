@@ -253,7 +253,7 @@ def test_freeze_validates_and_compiles(tmp_path):
     _run("freeze", t, {"path": Const(str(tmp_path / "n.json"))})
     _run("freeze", t, {"path": Const(str(tmp_path / "n.ngb"))})
     assert (tmp_path / "n.json").exists() and (tmp_path / "n.ngb").exists()
-    t.connectivity.delay[0] = 40
+    t.connectivity.delay[0] = 300
     t.connectivity.post[1] = 9
     with pytest.raises(FreezeError, match="delays.*indices|indices.*delays"):
         _run("freeze", t, {})

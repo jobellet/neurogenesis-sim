@@ -1,3 +1,11 @@
+"""Connectome skeleton import and simplification (N4).
+
+`simplify_arbor_rdp` drops nodes of an `ArborStore` within `tolerance` of the line between kept nodes (Ramer, 1972,
+Computer Graphics and Image Processing; Douglas, 1973, Cartographica), keeping roots, branch points,
+terminals and compartment boundaries.
+`import_connectome_skeletons` reads SWC skeletons (a directory or zip) for given source ids into one store, in the
+toolbox frame (`data.importer.transform_positions`); `attach_connectome_skeletons` sets them as a tissue's morphology.
+"""
 from __future__ import annotations
 
 import zipfile

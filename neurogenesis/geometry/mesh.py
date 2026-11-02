@@ -1,3 +1,8 @@
+"""Closed triangle meshes as geometries (B2): `MeshGeometry` with `from_obj` / `from_stl`.
+
+Point-in-mesh by ray parity with vectorised Moller-Trumbore intersections (Moller, 1997, Journal of Graphics Tools),
+plus an occupancy voxel cache for uniform sampling.
+"""
 import numpy as np
 from typing import Dict, Type, Callable, Any, Tuple, Optional, List
 from .primitives import Geometry, register_geometry, Box

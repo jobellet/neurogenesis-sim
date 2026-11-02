@@ -1,3 +1,10 @@
+"""Param sources (A3): how a stage parameter gets its value.
+
+`Const`, `Gene` (a genome entry between `lo` and `hi`), `Field` (a field sampled at cell positions), `Fit` (fitted by
+`neurogenesis.fitting`, `init` until then) and `Expr` (a formula). `resolve` gives a Param's value for a genome and
+fields, `worst_case` its value for cost estimates, `param_from_dict` / `param_to_dict` the JSON form, and
+`collect_genes`, `collect_project_genes` and `collect_fits` list the genes and fits of a schedule or Project.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass

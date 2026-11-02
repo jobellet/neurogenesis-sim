@@ -1,3 +1,8 @@
+"""Cell lists (D1): O(N) fixed-radius neighbour queries without a dense distance matrix.
+
+`CellList` bins points in cubes of side `cutoff` (CSR layout) and answers radius and k-nearest queries by scanning the
+neighbouring cells, vectorised in chunks of bounded memory (Allen, 1987, Computer Simulation of Liquids). No scipy.
+"""
 import numpy as np
 import math
 from typing import Tuple, Optional

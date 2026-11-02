@@ -18,13 +18,14 @@ They show what a mechanism can do in the simulation. Statements should be phrase
 claims need biological evidence.
 
 **How long can delays be?**
-The four kernels keep a spike history of as many 32-bit words as the longest delay needs (roadmap task K4), so
-networks can carry any delay. The developmental stages that compute delays (`grow_axons`, `myelinate`,
-`connect_by_hand`, dendritic delays) still clip them at 31 ticks with a warning; lifting that is an open task.
+Up to 255 ticks (the storage bound of the delay column). The kernels keep a multi-word spike history, (max_delay + 32) // 32
+words per neuron (8 words at 255), and give identical spikes in Python, JAX, the browser and `nglif`. Developmental stages
+write the distance-derived delay unchanged unless you set a `max_delay` Param, in which case clipped synapses are counted
+in a warning.
 
 **How large can networks be?**
-Neuron indices are 32-bit everywhere and synapses are stored as arrays (roadmap task K3), so the limit is memory:
-ask `python -m neurogenesis estimate` before running. Very large networks are saved as NGB1 or `.npz`, not JSON.
+The CSR conversion and the browser kernel currently use 16-bit column indices (at most 65,535 neurons); NGB1 and
+`nglif` already use 32-bit indices. Lifting the limit everywhere is roadmap task K3.
 
 **My results changed after updating the toolbox.**
 Freeze network fingerprints in your project ({doc}`integration/python-dependency`) and pin the toolbox commit.
