@@ -263,6 +263,8 @@ class RefineByActivityStage:
         wave_currents = None
         if "waves" in params:
             wave_cfg = params["waves"]
+            if isinstance(wave_cfg, Const):          # run_schedule wraps dict params in Const
+                wave_cfg = wave_cfg.value
             if isinstance(wave_cfg, dict):
                 w_sources = resolve(wave_cfg.get("sources", [0]), genome, fields)
                 w_speed = float(resolve(wave_cfg.get("speed", 1.0), genome, fields))
@@ -308,6 +310,8 @@ class RefineByActivityStage:
 
         # C) Motor twitches with sensory feedback
         twitch_cfg = params.get("twitches")
+        if isinstance(twitch_cfg, Const):            # run_schedule wraps dict params in Const
+            twitch_cfg = twitch_cfg.value
         has_twitches = twitch_cfg is not None
         if has_twitches:
             if isinstance(twitch_cfg, dict):
@@ -448,7 +452,10 @@ class RefineByActivityStage:
         post = packed["post"]
         weight = packed["weight"]
         delay = packed["delay"]
-        
+        if resolve(params.get("record", False), genome, fields):
+            # Off by default: keep the (ticks, N) raster for later stages (e.g. `competitive_elimination`, C22)
+            tissue._activity_spikes = np.asarray(spikes_out, dtype=np.uint8)[:, :len(tissue.alive)]
+
         # Select rule
         if rule_type == "stdp":
             A_plus = float(resolve(params.get("A_plus", 1.0), genome, fields))

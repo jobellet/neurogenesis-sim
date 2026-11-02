@@ -245,9 +245,21 @@ rule of `neurogenesis.spiking.plasticity` once to the weights. Dead cells are co
 | `spikes` | none | a (ticks, N) spike raster used instead of simulating |
 | `waves` | none | spontaneous waves: `sources` (cell ids or points), `speed` (space units per tick), `interval`, `duration` (ticks), `amplitude` (current) |
 | `twitches` | none | motor twitches with sensory feedback: `motor_cells`, `sensory_cells`, `interval`, `duration`, `amplitude`, feedback `delay` and `gain` |
+| `record` | false | keep the (ticks, N) spike raster on the tissue (`_activity_spikes`, in memory only) for `competitive_elimination` |
 
 Without `rule` the stage is a no-op . Limits: plasticity acts on magnitudes and keeps synapse signs; weights
 are cast to integers. The three-factor eligibility counts arrivals that coincide with a postsynaptic spike in the same tick. **Not implemented:** pruning inside the stage (follow with `prune`), other neuron models.
+
+**`competitive_elimination` (C22, `neurogenesis/stages/competition.py`).** Competitive synapse elimination (Willshaw
+1981, Proc R Soc Lond B; Gouzé, Lasry & Changeux 1983, Biol Cybern; Balice-Gordon & Lichtman 1994, Nature). Each
+input's score is its coactivity with its target (presynaptic spikes, after the delay, followed by a target spike within
+`window` ticks, default 5). On every target that spiked at least `min_target_spikes` times (default 1), inputs scoring
+below `fraction` (default 0 = no-op) of the best input onto that target lose `delta` (default 0) of their magnitude
+(sign kept, floored at 0) or, with `remove` (default false), are removed. Silent targets change nothing; synchronous
+inputs score alike and are all kept; non-plastic synapses (K6) compete but are never changed. Activity: `spikes` (a
+(T, N) raster) or the raster recorded by `refine_by_activity` with `record: true`; without either it is a no-op
+(`ticks`, default 100, only sizes the cost). Grouping by target: one sort and `np.maximum.reduceat`; cost O(T · E).
+Differs from `prune` (absolute weight or coactivity thresholds).
 
 **`critical_period_gate` (C23, `neurogenesis/stages/critical_period.py`).** Opens and closes a critical period of
 plasticity by setting the K6 `plastic` mask of the gated synapses (those onto `target_type` cells, all by default):

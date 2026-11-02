@@ -323,3 +323,26 @@ def test_motor_twitches_with_sensory_feedback_potentiates_loop():
     t_twitch = stage_twitch.run(tissue, {}, {}, np.random.default_rng(42))
     assert t_twitch.connectivity.weight[0] > 100, f"Expected weight > 100, got {t_twitch.connectivity.weight[0]}"
 
+
+
+def _line_project(drive):
+    """Three cells in a chain refined with STDP under one driver config, through run_schedule (dict params)."""
+    return {"schedule": [
+        {"name": "cells", "operator": "place_by_hand", "params": {
+            "positions": [[0, 0, 0], [10, 0, 0], [20, 0, 0]], "threshold": 512}},
+        {"name": "wire", "operator": "connect_by_hand", "params": {"pre": [0, 1], "post": [1, 2], "weight": 200}},
+        {"name": "refine", "operator": "refine_by_activity", "params": {
+            "ticks": 40, "rule": "stdp", "A_plus": 5.0, "A_minus": 1.0, **drive}}]}
+
+
+def test_waves_and_twitches_settings_reach_the_stage_from_a_schedule():
+    """Regression: dict params arrive wrapped in Const; their settings must be read, not replaced by defaults."""
+    from neurogenesis.stages.base import run_schedule
+    wave = {"sources": [0], "speed": 1.0, "interval": 50, "duration": 3}
+    on = run_schedule(_line_project({"waves": dict(wave, amplitude=3000)}), {}, 0).connectivity.weight
+    off = run_schedule(_line_project({"waves": dict(wave, amplitude=0)}), {}, 0).connectivity.weight
+    assert on[0] > 200 and off.tolist() == [200, 200]
+    tw = {"motor_cells": [0], "sensory_cells": [1], "delay": 2, "gain": 3000, "interval": 30, "duration": 2}
+    on = run_schedule(_line_project({"twitches": dict(tw, amplitude=3000)}), {}, 0).connectivity.weight
+    off = run_schedule(_line_project({"twitches": dict(tw, amplitude=0, gain=0)}), {}, 0).connectivity.weight
+    assert on[0] > 200 and off.tolist() == [200, 200]
