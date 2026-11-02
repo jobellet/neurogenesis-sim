@@ -85,10 +85,10 @@ GUI (viz/): geometry and field editor, schedule editor, step-by-step development
 ## 3. Current state (2026-11-01)
 | Area | Present | Missing |
 |---|---|---|
-| Spiking | integer LIF kernel, bit-identical in Python, JAX and the browser; `two_compartment` and `hh` models; batched runs; cost estimator with machine calibration | plasticity during simulation as a reusable component (STDP, three-factor); per-region choice of model |
+| Spiking | integer LIF kernel, bit-identical in Python, JAX and the browser; `two_compartment` and `hh` models; batched runs; cost estimator with machine calibration; STDP, Hebbian and three-factor plasticity (E1) | per-region choice of model |
 | Development | `BodyPlan` (regions, projections), one fixed growth order (placement → sign → differentiation → identity → axons), rule registry in 5 phases (placement, shift, target, probability, weight), knockouts, tonic currents; geometry, fields, `Tissue`, stage schedule (A1–A5, B1–B5, C1–C13, D2, D3; see `docs/STAGES.md`) | chunked growth (D4), and the parts of C8, D1 and D2 marked partial below |
-| Genome / evolution | gene paths, [0, 1] coding, gene groups, JSON; island model, robust fitness, audits; `Param` sources (A3) | supervised fitting (`Fit` params resolve to their initial value); multi-objective |
-| Modules | save / load, composition, plugins, neuron model recorded | module registry and versioning; validation harness |
+| Genome / evolution | gene paths, [0, 1] coding, gene groups, JSON; island model, robust fitness, audits; `Param` sources (A3); fitting of `Fit` params (E2), inner-loop fitting and Pareto evolution (E3) | gradient-based fitting |
+| Modules | save / load, composition, plugins, neuron model recorded; versions, local registry (G1); validation assays (E4) | a shared online catalogue |
 | GUI | 3D viewer and per-neuron editing of a finished network | geometry and field editor, schedule editor, development preview, Project import / export |
 | CI | GitHub Actions: tests on Python 3.10 and 3.12, browser-kernel equivalence, viewer build, cost command line, fixed CPU performance benchmarks (report only, regressions above 30% flagged) | coverage |
 
@@ -284,21 +284,29 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 - STDP, Hebbian with normalisation, and three-factor (eligibility × modulator) rules, usable during simulation and in C11.
 - Integer-friendly versions for `lif_int`.
 - **Tests:** classic STDP window shape; weight bounds; determinism.
+- **Status:** done: `STDPRule`, `HebbianRule` (normalised) and `ThreeFactorRule` in `neurogenesis.spiking.plasticity`,
+  with integer traces for `lif_int`; used by `refine_by_activity` (C11).
 
 **E2. Supervised fitting of `Fit` params.**
 - Targets: cell density per region, layer thickness, connection probability vs distance, receptive-field metrics, firing rates.
 - Optimisers: CMA-ES or another gradient-free method (default, robust to stochastic development); JAX gradients where a stage is differentiable.
 - Multiple development seeds per evaluation (robustness).
 - **Dependencies:** A3, A4.
+- **Status:** done: `neurogenesis.fitting` (fitted values in `genome["__fit__"]`, metric registry, CMA-ES, multi-seed
+  loss, `python -m neurogenesis fit`). Not done: JAX gradients, receptive-field metrics (add them as registered metrics).
 
 **E3. Semi-supervised workflows.**
 - Evolution of `Gene` params with `Fit` params refitted in an inner loop, or fixed.
 - Multi-objective (Pareto) option.
 - **Dependencies:** E2.
+- **Status:** done: `neurogenesis.evolution.semi_supervised` (`inner_fit_evaluator` with refit or fixed `Fit` params,
+  `evolve_pareto`, `pareto_front`).
 
 **E4. Validation harness.**
 - A declarative assay description (stimuli, readout, metric, gate), stored in modules and rerun by `neurogenesis validate module.json`.
 - Knockout assays included.
+- **Status:** done: `neurogenesis.validation` and `python -m neurogenesis validate module.json` (stimuli per region,
+  rate or fraction-active readout, metrics, gates, pass fraction, knockouts).
 
 ### Phase F: Browser Viewer & Web Demo (viz/, TypeScript + three.js)
 
@@ -460,6 +468,8 @@ Grow realistic arbor morphologies and calculate conduction delays based on neuri
 ### Phase G: modules, docs and examples
 
 **G1. Module registry.** Versioned modules (semantic version, toolbox version range), a local catalogue file, `neurogenesis install module.json`, compatibility checks.
+- **Status:** done: `neurogenesis.modules.registry` (`version` and `toolbox` range on `Module`, catalogue with
+  checksums, `install`, `modules`, `get` of the latest compatible version).
 
 **G2. Worked examples**, each runnable on a laptop in minutes, each with a test:
 1. a hand-built cortical column, with layers drawn by hand and genes deciding cell types within layers (semi-supervised);

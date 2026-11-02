@@ -24,7 +24,9 @@ A valid version 1.0.0 Project dictionary must contain the following keys:
 - **`geometry`** (`dict`): Defines the shapes in 2D or 3D, such as primitives, meshes, or voxel masks.
 - **`fields`** (`dict`): Hand-made or generated data on the geometry (scalar fields like morphogen gradients, vector fields like orientation, or point sets).
 - **`schedule`** (`list`): An ordered list of Stage configuration dictionaries, possibly repeated or looped.
-- **`genome`** (`dict`): A nested dictionary of genes, compatible with `neurogenesis.genome`.
+- **`genome`** (`dict`): A nested dictionary of genes, compatible with `neurogenesis.genome`. The optional key
+  `"__fit__"` holds fitted values of `Fit` params, `{target: value}` (written by `neurogenesis.fitting`); a `Fit` whose
+  target is absent resolves to its `init`, so projects without this key develop exactly as before.
 - **`plan`** (`dict`, optional): A legacy `BodyPlan` dictionary, used for backward compatibility.
 - **`plugins`** (`list` of `str`): A list of Python module names that register rules, stages, or models to be imported on load.
 - **`neuron_model`** (`str`): The neuron model used. Defaults to `"lif_int"`.

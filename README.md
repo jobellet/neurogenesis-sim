@@ -41,7 +41,10 @@ supervised fitting and the GUI editors are planned: see `docs/ROADMAP.md`, writt
 | Knockouts, tonic currents | `neurogenesis.development` | `knockout(genome, regions, projections)`; standing currents per cell type (`genome["tonic"]`). |
 | Genomes | `neurogenesis.genome` | Nested dicts; genes addressed by paths (into arrays too), coded in [0, 1] for evolution, grouped by mechanism, saved as JSON. |
 | Evolution | `neurogenesis.evolution` | Island model with fresh development seeds each generation; choice on validation seeds; audits on held-out seeds (fitness = worst + 0.25 × mean − cost). |
-| Modules | `neurogenesis.modules` | `Module` = plan + genome + inputs / outputs + validation + provenance + neuron model, saved as JSON; `compose` assembles modules (prefixed names, each keeps its genes, plugins and rules merged). |
+| Modules | `neurogenesis.modules` | `Module` = plan + genome + inputs / outputs + validation + provenance + neuron model + version, saved as JSON; `compose` assembles modules (prefixed names, each keeps its genes, plugins and rules merged); a local registry (`python -m neurogenesis install`, `registry.get`). |
+| Validation | `neurogenesis.validation` | Declarative assays stored in modules (stimuli per region, readout, metric, gate, knockouts), rerun by `python -m neurogenesis validate module.json`. |
+| Fitting | `neurogenesis.fitting`, `neurogenesis.evolution.semi_supervised` | `Fit` params fitted to data targets (cell counts, densities, layer thickness, connection statistics, firing rates) with CMA-ES over several development seeds (`python -m neurogenesis fit`); genes evolved with an inner fitting loop; Pareto evolution. |
+| Development schedule | `neurogenesis.stages`, `neurogenesis.devcost` | A Project's ordered stages (seed, proliferate, apoptosis, migrate, sort, mosaic, express, differentiate, grow_axons, place / connect by hand, prune, scale, refine_by_activity, myelinate, freeze), each parameter a `Param`; cost per stage before running (`python -m neurogenesis estimate --project p.json`). See `docs/STAGES.md`. |
 | Analysis | `neurogenesis.analysis` | Frequency–current curves (from rest), mosaic regularity. |
 | Viewer | `viz/` | Browser 3D viewer and sandbox (three.js): imports network JSON, shows neurons by role and sign, rasters, per-neuron inspection and editing. |
 

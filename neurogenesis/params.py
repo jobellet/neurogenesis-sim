@@ -85,6 +85,9 @@ class Expr:
 
 Param = Union[Const, Gene, Field, Fit, Expr]
 
+# Genome key holding fitted values of Fit params, {target: value}; absent = every Fit resolves to its init.
+FIT_KEY = "__fit__"
+
 
 # Keys of each Param source: (needed with an explicit "type", needed to read an untyped dict as this source, allowed).
 _PARAM_KEYS = {
@@ -234,6 +237,10 @@ def resolve(
         return _apply_transform(val, param.transform)
 
     elif isinstance(param, Fit):
+        # Fitted values live in the genome under FIT_KEY, keyed by the Fit's target name (neurogenesis.fitting)
+        fitted = genome.get(FIT_KEY) if isinstance(genome, dict) else None
+        if isinstance(fitted, dict) and param.target in fitted:
+            return float(np.clip(float(fitted[param.target]), param.lo, param.hi))
         return float(param.init)
 
     elif isinstance(param, Expr):
@@ -292,3 +299,31 @@ def collect_project_genes(project: Dict[str, Any]) -> List[Tuple[Tuple, float, f
         _walk_genes(list(config.get("params", {}).values()), genes)
     _walk_genes(list(project.get("fields", {}).values()), genes)
     return _sorted_genes(genes)
+
+
+def _walk_fits(value: Any, fits: Dict[str, Tuple[str, float, float, float]]) -> None:
+    """Adds every Fit inside a param value (nested dicts, lists and Const values included) to ``fits`` by target."""
+    if isinstance(value, dict):
+        param = param_from_dict(value)
+        if isinstance(param, Const) and param.value is value:
+            for v in value.values():
+                _walk_fits(v, fits)
+            return
+        value = param
+    if isinstance(value, Fit):
+        fits.setdefault(value.target, (value.target, float(value.init), float(value.lo), float(value.hi)))
+    elif isinstance(value, Const):
+        _walk_fits(value.value, fits)
+    elif isinstance(value, (list, tuple)):
+        for v in value:
+            _walk_fits(v, fits)
+
+
+def collect_fits(project: Dict[str, Any]) -> List[Tuple[str, float, float, float]]:
+    """All Fit params of a Project (schedule and field definitions) as (target, init, lo, hi), sorted by target.
+    Fits sharing a target share one fitted value (bounds and init of the first use in schedule order)."""
+    fits: Dict[str, Tuple[str, float, float, float]] = {}
+    for config in project.get("schedule", []):
+        _walk_fits(list(config.get("params", {}).values()), fits)
+    _walk_fits(list(project.get("fields", {}).values()), fits)
+    return [fits[k] for k in sorted(fits)]

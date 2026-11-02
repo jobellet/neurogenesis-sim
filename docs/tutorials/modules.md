@@ -46,3 +46,8 @@ planned (roadmap task E4).
 A module registry (roadmap G1): `neurogenesis install <module>`, semantic versions, compatibility with toolbox
 versions, and a browsable gallery of published modules with their validation reports and screenshots.
 ```
+
+## Versions, registry and validation
+`Module` has a semantic `version` and a `toolbox` range. `python -m neurogenesis install module.json` copies it into
+the local catalogue, and `neurogenesis.modules.registry.get(name)` loads the latest compatible version. Assays stored
+in `validation["assays"]` are rerun by `python -m neurogenesis validate module.json`. See {doc}`fitting-validation`.

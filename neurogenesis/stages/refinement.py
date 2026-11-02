@@ -13,7 +13,8 @@ _COACT_CHUNK = 1 << 22
 
 def simulate_tissue(tissue: Tissue, ticks: int, seed: int, ext_current: Optional[np.ndarray] = None) -> np.ndarray:
     """(ticks, N) uint8 spike raster of a compacted tissue run with the JAX `lif_int` kernel; ext_current (N,) int32 is
-    added every tick."""
+    added every tick. The kernel seed is mapped to [1, 2^32 - 1] (xorshift32 never leaves the state 0)."""
+    seed = int(seed) % 0xFFFFFFFF + 1
     from neurogenesis.spiking.jax_backend import tick, init_state, pack
     import jax
     import jax.numpy as jnp
