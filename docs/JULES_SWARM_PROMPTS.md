@@ -245,7 +245,7 @@ Read `AGENTS.md`, `docs/ROADMAP.md`, and `neurogenesis/tissue.py` first. Work on
 1. Implement `neurogenesis/params.py`:
    - `Param = Const(value) | Gene(path, lo, hi, integer) | Field(name, transform) | Fit(target, init, lo, hi) | Expr(formula)`.
    - `resolve(param, genome, fields, positions, cell_indices=None) -> float | np.ndarray`.
-   - `collect_genes(stage_configs) -> list[str]`.
+   - `collect_genes(stage_configs) -> List[Tuple[path, lo, hi, integer]]` (nested params included, sorted by `str(path)`); `collect_project_genes(project)` adds the genes inside the Project's raw `fields` definitions, same format.
 2. Implement stage registry with auto-discovery in `neurogenesis/stages/__init__.py`:
    - Use `pkgutil.iter_modules(__path__)` and `importlib.import_module` to dynamically load all submodules in `neurogenesis/stages/` upon import.
    - This guarantees any stage added by future Wave 2 agents (`population.py`, `migration.py`, etc.) is automatically registered without modifying `__init__.py`.
@@ -539,7 +539,7 @@ Read `AGENTS.md`, `docs/ROADMAP.md`, and `neurogenesis/spiking/plasticity.py` fi
 
 ### Deliverables & Requirements
 1. Implement registered stages in `neurogenesis/stages/maturation.py`:
-   - `@register_stage("prune")`: removes synapses with absolute weight below threshold `w_cut`, compacting `connectivity`.
+   - `@register_stage("prune")`: removes synapses with absolute weight below `threshold`, compacting `connectivity`.
    - `@register_stage("scale")`: homeostatic multiplicative scaling of synaptic weights to target total input sum $W_{\text{target}}$: $w_i \leftarrow w_i \cdot (W_{\text{target}} / \sum |w_j|)$.
    - `@register_stage("refine_by_activity")`: runs a developmental simulation phase with spontaneous wave drivers or input currents, applying STDP/Hebbian plasticity from `neurogenesis.spiking.plasticity` to adjust synaptic weights.
    - `@register_stage("myelinate")`: reduces conduction delays (`delay`) by factor `delay_factor in (0, 1]` for long-distance or active projections (clamped to minimum 1 tick).

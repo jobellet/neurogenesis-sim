@@ -128,17 +128,15 @@ class Tissue:
         if "clone_id" in kwargs:
             c_clone_id = np.asarray(kwargs["clone_id"], dtype=np.int32)
         else:
-            c_clone_id = np.zeros(N, dtype=np.int32)
-            # Map existing cells by cell_id to clone_id
-            id_to_clone = {}
+            c_clone_id = np.array(c_id, dtype=np.int32)
             if len(self.cell_id) > 0:
-                id_to_clone = dict(zip(self.cell_id, self.clone_id))
-            for idx in range(N):
-                pid = par_id[idx]
-                if pid == -1 or pid not in id_to_clone:
-                    c_clone_id[idx] = c_id[idx]
-                else:
-                    c_clone_id[idx] = id_to_clone[pid]
+                # Parent's clone_id among existing cells (the last cell with that cell_id), by binary search
+                order = np.argsort(self.cell_id, kind="stable")
+                ids = self.cell_id[order]
+                pid = np.asarray(par_id)
+                at = np.searchsorted(ids, pid, side="right") - 1
+                found = (at >= 0) & (ids[np.maximum(at, 0)] == pid) & (pid != -1)
+                c_clone_id[found] = self.clone_id[order[at[found]]]
 
         birth = kwargs.get("birth_stage", np.zeros(N, dtype=np.int32))
         gen = np.asarray(kwargs.get("generation", np.zeros(N, dtype=np.int32)), dtype=np.int32)
@@ -160,7 +158,7 @@ class Tissue:
         # base_weight: magnitude is 1 by default (or abs of provided base_weight), signed by sgn
         if "base_weight" in kwargs:
             raw_bw = np.asarray(kwargs["base_weight"], dtype=np.int32)
-            base_weight = np.abs(raw_bw) * np.where(sgn >= 0, 1, -1)
+            base_weight = (np.abs(raw_bw) * np.where(sgn >= 0, 1, -1)).astype(np.int32)
         else:
             base_weight = np.where(sgn >= 0, 1, -1).astype(np.int32)
 

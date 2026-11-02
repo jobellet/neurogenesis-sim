@@ -3,15 +3,16 @@ from typing import Any, Dict, Tuple, List, Union
 
 from .core import Field, register_field
 
-def regular_points(bounds: Tuple[np.ndarray, np.ndarray], spacing: Union[float, List[float]]) -> np.ndarray:
+def _regular_axes(bounds: Tuple[np.ndarray, np.ndarray], spacing: Union[float, List[float]]) -> List[np.ndarray]:
+    """Node coordinates along each axis, np.arange(min, max, spacing); their lengths are the grid shape."""
     min_b, max_b = bounds
     if isinstance(spacing, (float, int)):
         spacing = [spacing] * len(min_b)
-        
-    grids = []
-    for i in range(len(min_b)):
-        grids.append(np.arange(min_b[i], max_b[i], spacing[i]))
-        
+    return [np.arange(min_b[i], max_b[i], spacing[i]) for i in range(len(min_b))]
+
+
+def regular_points(bounds: Tuple[np.ndarray, np.ndarray], spacing: Union[float, List[float]]) -> np.ndarray:
+    grids = _regular_axes(bounds, spacing)
     mesh = np.meshgrid(*grids, indexing='ij')
     points = np.stack([m.flatten() for m in mesh], axis=-1)
     return points
@@ -100,11 +101,11 @@ def pinwheel_map(bounds: Tuple[np.ndarray, np.ndarray], spacing: float, singular
     """Generates an orientation map from singularities.
     Returns: points grid, angle field (N, M), and pinwheel positions.
     """
-    min_b, max_b = bounds
+    min_b = bounds[0]
     points = regular_points(bounds, spacing)
     angles = PinwheelField(singularities, charges).values(points)
     
-    grid_shape = np.ceil((max_b - min_b) / spacing).astype(int)
+    grid_shape = [len(a) for a in _regular_axes(bounds, spacing)]
     angles_grid = angles.reshape(*grid_shape)
     points_grid = points.reshape(*grid_shape, len(min_b))
     
@@ -114,8 +115,8 @@ def bandpass_pinwheels(bounds: Tuple[np.ndarray, np.ndarray], spacing: float, k0
     """Generates an orientation map using bandpass filtered noise.
     Returns points grid and angle field.
     """
-    min_b, max_b = bounds
-    grid_shape = np.ceil((max_b - min_b) / spacing).astype(int)
+    min_b = bounds[0]
+    grid_shape = [len(a) for a in _regular_axes(bounds, spacing)]
     
     # Generate white noise in frequency domain
     noise1 = rng.normal(size=grid_shape)
