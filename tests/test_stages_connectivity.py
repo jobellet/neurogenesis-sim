@@ -146,3 +146,57 @@ def test_grow_axons_errors():
         run({"guidance": Const([{"src": 0, "p0": 0.5}])})
     with pytest.raises(ValueError, match="'region_map'"):
         run({"projections": Const(["a->b"]), "guidance": Const({"a->b": GUIDANCE["0->1"]})})
+
+
+def _grow(n_src, n_dst, pos, gd, rng=0, **params):
+    t = Tissue.empty()
+    t.add_cells(n_src + n_dst, positions=pos, region=np.repeat([0, 1], [n_src, n_dst]))
+    params = {"guidance": Const({"0->1": gd}), **{k: Const(v) for k, v in params.items()}}
+    return Stage(name="g", operator="grow_axons", params=params).run(t, {}, {}, np.random.default_rng(rng)).connectivity
+
+
+def _edges(c):
+    order = np.lexsort((c.post, c.pre))
+    return np.stack([c.pre[order], c.post[order], c.weight[order], c.delay[order]])
+
+
+def test_grow_axons_dense_and_sparse_paths_agree():
+    # Every axon aims at the box centre (B = 0); one destination cell sits there, the others at the far corners:
+    # p is exactly p0 = 1 at the centre and underflows to 0 elsewhere, so both paths form the same synapses.
+    rng = np.random.default_rng(5)
+    src = rng.uniform(0.0, 4.0, (30, 3))
+    corners = np.array([[i, j, k] for i in (0, 4) for j in (0, 4) for k in (0, 4)], float)
+    pos = np.vstack([src, corners + 10.0, [[12.0, 12.0, 12.0]]])
+    gd = {"B": np.zeros((3, 3)).tolist(), "sigma": 0.01, "p0": 1.0, "w": 1.0}
+    dense = _grow(30, 9, pos, gd, exact=True)
+    sparse = _grow(30, 9, pos, gd, exact=False)
+    auto = _grow(30, 9, pos, gd)
+    assert len(dense.pre) == 30 and np.all(dense.post == 38)
+    assert np.array_equal(_edges(dense), _edges(sparse))
+    # below the threshold the default is the dense path, draw for draw
+    gd2 = {"sigma": 0.2, "p0": 0.5, "w": 10.0}
+    pos2 = rng.uniform(0.0, 1.0, (60, 3))
+    assert np.array_equal(_edges(_grow(30, 30, pos2, gd2, rng=1)), _edges(_grow(30, 30, pos2, gd2, rng=1, exact=True)))
+    assert np.array_equal(_edges(auto), _edges(dense))
+
+
+def test_grow_axons_large_populations_stay_sparse():
+    import tracemalloc
+    from neurogenesis.stages.connectivity import DENSE_MAX_CELLS, EXACT_MAX_PAIRS
+    n = DENSE_MAX_CELLS + 952  # 3000 per side: a dense float64 Ns x Nd array would take 72 MB
+    pos = np.random.default_rng(2).uniform(0.0, 1.0, (2 * n, 3))
+    gd = {"sigma": 0.01, "p0": 0.5, "w": 10.0}
+    tracemalloc.start()
+    try:
+        c = _grow(n, n, pos, gd)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert len(c.pre) > 0
+    assert peak < n * n * 8 / 8
+    big = int(np.sqrt(EXACT_MAX_PAIRS)) + 1
+    t = Tissue.empty()
+    t.add_cells(2 * big, positions=np.zeros((2 * big, 3)), region=np.repeat([0, 1], big))
+    stage = Stage(name="g", operator="grow_axons", params={"guidance": Const({"0->1": gd}), "exact": Const(True)})
+    with pytest.raises(ValueError, match="exact=True"):
+        stage.run(t, {}, {}, np.random.default_rng(0))

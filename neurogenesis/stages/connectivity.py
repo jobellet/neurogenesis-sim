@@ -77,6 +77,12 @@ def _get_guidance(guidance_source: Any, src: Any, dst: Any) -> Optional[Dict[str
     return None
 
 
+# Largest population (max(Ns, Nd)) for which the default dense Ns x Nd probability path is used, and largest number
+# of pairs Ns * Nd that exact=True may allocate (each dense pass holds a few float64 Ns x Nd x 3 temporaries).
+DENSE_MAX_CELLS = 2048
+EXACT_MAX_PAIRS = 1 << 24
+
+
 class _PlanRulesAdapter:
     def __init__(self, prob_rules: List[str]):
         self.rules = {"probability": prob_rules}
@@ -111,7 +117,10 @@ class GrowAxons:
         conduction_velocity: space units per tick (1 tick = 1 ms), default 1.
         max_delay: ticks, default 31 (kernel maximum; larger values are capped and clipped delays warned).
         w_clip: integer weight clip, default 512. inh_weight_factor: default 1.
-        exact: dense Ns x Nd probabilities (default True); False uses the sparse candidate search.
+        exact: unset (default): dense Ns x Nd probabilities when max(Ns, Nd) <= DENSE_MAX_CELLS (2048), else the
+            sparse cell-list candidate search (radius 5 sigma; only the identity_expression, no_autapse and source_sign
+            probability rules). True: always dense, ValueError if Ns * Nd > EXACT_MAX_PAIRS (2^24). False: always sparse
+            (except sigma > 1 below DENSE_MAX_CELLS, where the kernel covers the whole box and dense is used).
         region_map: name -> region id, for projections written with region names (an unknown name raises).
         bounds_min, bounds_size: per projection end name, box origin and size in space units; otherwise the
             population's bounding box defines its local coordinates.
@@ -120,7 +129,7 @@ class GrowAxons:
     A projection whose source or destination region has no alive cells is a no-op for that projection (an empty
     population is legitimate); a tissue with no alive cells is returned unchanged.
 
-    No dense Ns x Nd arrays except when exact=True below documented threshold (max(Ns, Nd) <= 2048).
+    No dense Ns x Nd arrays except below max(Ns, Nd) <= 2048, or with exact=True below Ns * Nd <= 2^24.
     """
     @classmethod
     def cost(cls, N: int, E: int, params: Dict[str, Param]) -> tuple[int, int]:
@@ -171,7 +180,7 @@ class GrowAxons:
         max_delay = resolve(params.get("max_delay", 31), genome, fields)
         global_w_clip = int(resolve(params.get("w_clip", 512), genome, fields))
         global_inh = float(resolve(params.get("inh_weight_factor", 1.0), genome, fields))
-        exact = bool(resolve(params.get("exact", True), genome, fields))
+        exact = resolve(params.get("exact"), genome, fields)
         
         region_map = resolve(params.get("region_map", {}), genome, fields)
         bounds_min = resolve(params.get("bounds_min", {}), genome, fields)
@@ -272,7 +281,16 @@ class GrowAxons:
             
             p_prob_rules = gd.get("rules_probability", prob_rules)
 
-            if exact or sigma > 1.0:
+            n_src, n_dst = len(src_indices), len(dst_indices)
+            if exact:
+                if n_src * n_dst > EXACT_MAX_PAIRS:
+                    raise ValueError(f"grow_axons: exact=True for {src_str!r}->{dst_str!r} needs {n_src} x {n_dst} "
+                                     f"dense pairs, above the limit {EXACT_MAX_PAIRS}; leave 'exact' unset to use the "
+                                     f"sparse candidate search")
+                dense = True
+            else:
+                dense = max(n_src, n_dst) <= DENSE_MAX_CELLS and (exact is None or sigma > 1.0)
+            if dense:
                 d2 = ((local_dst[None, :, :] - ctx.target[:, None, :]) ** 2).sum(-1)
                 ctx.p = p0 * np.exp(-d2 / (2 * sigma ** 2))
                 
@@ -285,6 +303,7 @@ class GrowAxons:
                 p_ij = ctx.p
                 edges_pre, edges_post = np.nonzero(rng.random(p_ij.shape) < p_ij)
             else:
+                ctx.gd = {**gd, "sigma": sigma, "p0": p0}
                 edges_pre, edges_post, _ = sparse_guidance(
                     ctx, _PlanRulesAdapter(p_prob_rules), rng, c=5.0, exact=False
                 )

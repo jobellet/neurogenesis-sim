@@ -1,6 +1,7 @@
 import numpy as np
 from abc import ABC, abstractmethod
 from typing import Dict, Type, Callable, Any, Tuple, Optional, List
+from neurogenesis.expressions import eval_expr
 
 _GEOMETRY_REGISTRY: Dict[str, Type] = {}
 
@@ -332,10 +333,10 @@ class CurvedSheet(Geometry):
         self.surface_normals = self._eval_normals(u_flat, v_flat)
 
     def _eval_surface(self, u, v):
-        env = {"u": u, "v": v, "np": np, "sin": np.sin, "cos": np.cos, "pi": np.pi, "exp": np.exp}
-        x = eval(self.x_expr, env)
-        y = eval(self.y_expr, env)
-        z = eval(self.z_expr, env)
+        env = {"u": u, "v": v, "np": np}
+        x = eval_expr(self.x_expr, env)
+        y = eval_expr(self.y_expr, env)
+        z = eval_expr(self.z_expr, env)
         return np.stack([np.broadcast_to(x, u.shape), 
                          np.broadcast_to(y, u.shape), 
                          np.broadcast_to(z, u.shape)], axis=-1).astype(np.float32)

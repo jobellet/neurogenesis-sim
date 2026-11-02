@@ -89,28 +89,56 @@ class Expr:
 Param = Union[Const, Gene, Field, Fit, Expr]
 
 
+# Keys of each Param source: (needed with an explicit "type", needed to read an untyped dict as this source, allowed).
+_PARAM_KEYS = {
+    "Const": ({"value"}, {"value"}, {"value"}),
+    "Gene": ({"path"}, {"path", "lo", "hi"}, {"path", "lo", "hi", "integer"}),
+    "Field": ({"name"}, {"name", "transform"}, {"name", "transform"}),
+    "Fit": ({"target", "init", "lo", "hi"}, {"target", "init", "lo", "hi"}, {"target", "init", "lo", "hi"}),
+    "Expr": ({"formula"}, {"formula"}, {"formula"}),
+}
+
+
+def _param_type(d: Dict[str, Any]) -> Optional[str]:
+    """The Param source a dict describes: its "type" if that names a source, else the source whose key set the dict
+    matches exactly (optional keys aside), else None (a plain value)."""
+    if "type" in d:
+        return d["type"] if isinstance(d["type"], str) and d["type"] in _PARAM_KEYS else None
+    keys = set(d)
+    for name, (_, needed, allowed) in _PARAM_KEYS.items():
+        if needed <= keys <= allowed:
+            return name
+    return None
+
+
 def param_from_dict(d: Union[Dict[str, Any], Any]) -> Param:
-    """Converts a dictionary or primitive to a Param object."""
+    """Converts a dictionary or primitive to a Param object.
+
+    A dict is a Param source when its "type" is one of Const, Gene, Field, Fit, Expr, or, without "type", when its keys
+    are exactly those of one source: {"value"}, {"path", "lo", "hi"[, "integer"]}, {"name", "transform"},
+    {"target", "init", "lo", "hi"} or {"formula"}. Any other dict (e.g. a guidance dict with a "target" key) is a plain
+    value, Const(d).
+    """
     if not isinstance(d, dict):
         return Const(d)
-    
-    t = d.get("type")
-    if t == "Const" or "value" in d:
+    t = _param_type(d)
+    if t is None:
+        return Const(d)
+    missing = _PARAM_KEYS[t][0] - set(d)
+    if missing:
+        raise ValueError(f"{t} param {d!r} is missing {sorted(missing)}")
+    if t == "Const":
         return Const(d["value"])
-    elif t == "Gene" or "path" in d:
+    if t == "Gene":
         path = d["path"]
         if isinstance(path, list):
             path = tuple(path)
         return Gene(path=path, lo=float(d.get("lo", 0.0)), hi=float(d.get("hi", 1.0)), integer=bool(d.get("integer", False)))
-    elif t == "Field" or ("name" in d and ("transform" in d or len(d) <= 2)):
+    if t == "Field":
         return Field(name=d["name"], transform=d.get("transform"))
-    elif t == "Fit" or "target" in d:
+    if t == "Fit":
         return Fit(target=d["target"], init=float(d["init"]), lo=float(d["lo"]), hi=float(d["hi"]))
-    elif t == "Expr" or "formula" in d:
-        return Expr(formula=d["formula"])
-    else:
-        # Default fallback to Const
-        return Const(d)
+    return Expr(formula=d["formula"])
 
 
 def param_to_dict(param: Union[Param, Any]) -> Dict[str, Any]:
@@ -202,20 +230,51 @@ def resolve(
         return param
 
 
+def _gene_path(path: Union[Tuple, List, str]) -> Tuple:
+    if isinstance(path, (list, tuple)):
+        return tuple(path)
+    return tuple(path.split(".")) if "." in path else (path,)
+
+
+def _walk_genes(value: Any, genes: Dict[Tuple, Tuple[Tuple, float, float, bool]]) -> None:
+    """Adds every Gene inside a param value (nested dicts, lists and Const values included) to ``genes`` by path."""
+    if isinstance(value, dict):
+        param = param_from_dict(value)
+        if isinstance(param, Const) and param.value is value:  # a plain dict: walk its values
+            for v in value.values():
+                _walk_genes(v, genes)
+            return
+        value = param
+    if isinstance(value, Gene):
+        path = _gene_path(value.path)
+        genes.setdefault(path, (path, float(value.lo), float(value.hi), bool(value.integer)))
+    elif isinstance(value, Const):
+        _walk_genes(value.value, genes)
+    elif isinstance(value, (list, tuple)):
+        for v in value:
+            _walk_genes(v, genes)
+
+
+def _sorted_genes(genes: Dict[Tuple, Tuple[Tuple, float, float, bool]]) -> List[Tuple[Tuple, float, float, bool]]:
+    return [genes[p] for p in sorted(genes, key=str)]
+
+
 def collect_genes(stage_configs: List[Dict[str, Any]]) -> List[Tuple[Tuple, float, float, bool]]:
-    """Extracts all genes required by stage configs as (path, lo, hi, integer) tuples."""
-    genes = {}
+    """All genes used by stage configs, nested params included, as (path, lo, hi, integer) tuples sorted by str(path).
+
+    A path used several times is listed once, with the bounds of its first use in schedule order.
+    """
+    genes: Dict[Tuple, Tuple[Tuple, float, float, bool]] = {}
     for config in stage_configs:
-        params = config.get("params", {})
-        for k, p in params.items():
-            param_obj = param_from_dict(p) if isinstance(p, dict) else p
-            if isinstance(param_obj, Gene):
-                path = param_obj.path
-                if isinstance(path, list):
-                    path = tuple(path)
-                elif isinstance(path, str):
-                    path = tuple(path.split(".")) if "." in path else (path,)
-                genes[path] = (path, float(param_obj.lo), float(param_obj.hi), bool(param_obj.integer))
-                
-    # Sort deterministically by str(path)
-    return [genes[p] for p in sorted(genes.keys(), key=lambda x: str(x))]
+        _walk_genes(list(config.get("params", {}).values()), genes)
+    return _sorted_genes(genes)
+
+
+def collect_project_genes(project: Dict[str, Any]) -> List[Tuple[Tuple, float, float, bool]]:
+    """All genes of a Project: those of its schedule (as ``collect_genes``) and those inside its raw ``fields``
+    definitions (e.g. layer thicknesses given as Gene dicts). Same format and order as ``collect_genes``."""
+    genes: Dict[Tuple, Tuple[Tuple, float, float, bool]] = {}
+    for config in project.get("schedule", []):
+        _walk_genes(list(config.get("params", {}).values()), genes)
+    _walk_genes(list(project.get("fields", {}).values()), genes)
+    return _sorted_genes(genes)
