@@ -189,3 +189,29 @@ def test_retinothalamic_with_an_atlas_shaped_relay(tmp_path):
     assert np.all(geom.contains(t.positions[t.cell_type == RELAY]))
     m = measure(t, relay_mask=mask)
     assert m["n_retinal_synapses"] > 0 and m["r_x"] > 0.5 and m["r_y"] > 0.5
+
+
+def test_allen_annotation_unpack_and_manifest(tmp_path):
+    """The P4 atlas manifest is valid, and the unpack script writes only annotation.mhd / .raw from a (toy) zip that
+    neurogenesis.data.atlas then reads."""
+    import zipfile
+    from neurogenesis.data import load_manifest
+    from neurogenesis.data.atlas import read_volume
+    m = load_manifest(ROOT / "examples" / "datasets" / "allen-devmouse-p4.json")
+    assert {f["name"] for f in m["files"]} == {"P4_DevMouse2012_annotation.zip", "structure_graph_17.json"}
+    assert all(len(f["sha256"]) == 64 and f["size"] > 0 for f in m["files"])
+    vol = np.arange(4 * 3 * 2, dtype="<u4").reshape(2, 3, 4)                   # file order: x fastest
+    mhd = ("ObjectType = Image\nNDims = 3\nBinaryData = True\nBinaryDataByteOrderMSB = False\nCompressedData = False\n"
+           "Offset = 0 0 0\nElementSpacing = 16 16 20\nDimSize = 4 3 2\nElementType = MET_UINT\n"
+           "ElementDataFile = annotation.raw\n")
+    with zipfile.ZipFile(tmp_path / "toy.zip", "w") as z:
+        z.writestr("annotation.mhd", mhd)
+        z.writestr("annotation.raw", vol.tobytes())
+        z.writestr("../outside.txt", "not extracted")
+    r = subprocess.run([sys.executable, str(ROOT / "examples" / "allen_unpack_annotation.py"), str(tmp_path / "toy.zip"),
+                        "--out", str(tmp_path / "out")], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert sorted(p.name for p in (tmp_path / "out").iterdir()) == ["annotation.mhd", "annotation.raw"]
+    assert not (tmp_path / "outside.txt").exists()
+    v, origin, spacing = read_volume(tmp_path / "out" / "annotation.mhd")
+    assert v.size == 24 and set(np.unique(v)) == set(range(24)) and np.allclose(spacing, [16, 16, 20])
