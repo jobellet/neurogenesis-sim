@@ -53,7 +53,11 @@ supervised fitting and the GUI editors are planned: see `docs/ROADMAP.md`, writt
 | Knockouts, tonic currents | `neurogenesis.development` | `knockout(genome, regions, projections)`; standing currents per cell type (`genome["tonic"]`). |
 | Genomes | `neurogenesis.genome` | Nested dicts; genes addressed by paths (into arrays too), coded in [0, 1] for evolution, grouped by mechanism, saved as JSON. |
 | Evolution | `neurogenesis.evolution` | Island model with fresh development seeds each generation; choice on validation seeds; audits on held-out seeds (fitness = worst + 0.25 × mean − cost). |
-| Modules | `neurogenesis.modules` | `Module` = plan + genome + inputs / outputs + validation + provenance + neuron model, saved as JSON; `compose` assembles modules (prefixed names, each keeps its genes, plugins and rules merged). |
+| Modules | `neurogenesis.modules` | `Module` = plan + genome + inputs / outputs + validation + provenance + neuron model + version, saved as JSON; `compose` assembles modules (prefixed names, each keeps its genes, plugins and rules merged); a local registry (`python -m neurogenesis install`, `registry.get`). |
+| Validation | `neurogenesis.validation` | Declarative assays stored in modules (stimuli per region, readout, metric, gate, knockouts), rerun by `python -m neurogenesis validate module.json`. |
+| Fitting | `neurogenesis.fitting`, `neurogenesis.evolution.semi_supervised` | `Fit` params fitted to data targets (cell counts, densities, layer thickness, connection statistics, firing rates) with CMA-ES over several development seeds (`python -m neurogenesis fit`); genes evolved with an inner fitting loop; Pareto evolution. |
+| Development schedule | `neurogenesis.stages`, `neurogenesis.devcost` | A Project's ordered stages (seed, proliferate, apoptosis, migrate, sort, mosaic, express, differentiate, grow_axons, place / connect by hand, prune, scale, refine_by_activity, myelinate, freeze), each parameter a `Param`; cost per stage before running (`python -m neurogenesis estimate --project p.json`). See `docs/STAGES.md`. |
+| Arbors, pharmacology, data | `neurogenesis.arbors`, `neurogenesis.pharmacology`, `neurogenesis.data` | Branching arbors (SWC I/O, `grow_arbors`, synapses with path-length delays); transmitter / receptor profiles compiled to signed weights by developmental context; connectome manifests, verified downloads and streaming import (`python -m neurogenesis data fetch`). |
 | Analysis | `neurogenesis.analysis` | Frequency–current curves (from rest), mosaic regularity. |
 | Viewer | `viz/` | Browser 3D viewer and sandbox (three.js): imports network JSON, shows neurons by role and sign, rasters, per-neuron inspection and editing. |
 
@@ -63,6 +67,10 @@ pip install -e ".[test]"                    # Python >= 3.10: numpy, jax (CPU; "
 cd viz && npm ci && npm run build:kernel && cd ..   # browser kernel, for the equivalence tests
 JAX_PLATFORMS=cpu pytest -q
 python examples/topographic_map.py --cpu    # a sensor sheet -> map circuit grown from a genome
+python examples/hand_built_network.py      # supervised: every cell and synapse by hand
+python examples/hand_drawn_column.py --cpu # semi-supervised: hand-drawn layers, genes choose cell types
+python examples/pinwheel_sheet.py --cpu    # semi-supervised: density follows hand-placed pinwheels
+python examples/evolved_development.py     # unsupervised: a genetic schedule evolved on a toy objective
 python -m neurogenesis estimate --neurons 1e5 --synapses-per-neuron 1000 --seconds 1
 cd viz && npm run dev                       # viewer at http://localhost:5173; import example_out/network.json
 ```

@@ -93,6 +93,57 @@ class Add(Field):
         return cls(a, b)
 
 
+class _Binary(Field):
+    """a OP b of two fields or constants, evaluated pointwise (shared by Subtract and Multiply)."""
+    type_name = ""
+
+    def __init__(self, a: Union[Field, float], b: Union[Field, float]):
+        self.a = a
+        self.b = b
+
+    def _op(self, x, y):
+        raise NotImplementedError
+
+    def bind(self, genome: Dict[str, Any]) -> 'Field':
+        a = self.a.bind(genome) if isinstance(self.a, Field) else self.a
+        b = self.b.bind(genome) if isinstance(self.b, Field) else self.b
+        return self if a is self.a and b is self.b else type(self)(a, b)
+
+    def values(self, points: np.ndarray) -> np.ndarray:
+        val_a = self.a.values(points) if isinstance(self.a, Field) else self.a
+        val_b = self.b.values(points) if isinstance(self.b, Field) else self.b
+        return self._op(val_a, val_b)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {'type': self.type_name,
+                'a': self.a.to_dict() if isinstance(self.a, Field) else self.a,
+                'b': self.b.to_dict() if isinstance(self.b, Field) else self.b}
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> 'Field':
+        a = field_from_dict(d['a']) if isinstance(d['a'], dict) else d['a']
+        b = field_from_dict(d['b']) if isinstance(d['b'], dict) else d['b']
+        return cls(a, b)
+
+
+@register_field('Subtract')
+class Subtract(_Binary):
+    """a - b."""
+    type_name = 'Subtract'
+
+    def _op(self, x, y):
+        return x - y
+
+
+@register_field('Multiply')
+class Multiply(_Binary):
+    """a * b (e.g. a field masked by a 0 / 1 threshold field)."""
+    type_name = 'Multiply'
+
+    def _op(self, x, y):
+        return x * y
+
+
 @register_field('Threshold')
 class Threshold(Field):
     def __init__(self, base_field: Field, threshold: float, value_below: float = 0.0, value_above: float = 1.0):

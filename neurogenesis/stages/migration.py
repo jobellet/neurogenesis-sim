@@ -62,7 +62,8 @@ class MigrateStage:
     or > 0, or where it leaves the geometry named by `boundary`. Cells whose `layer_field` label (first column, e.g. a
     LayerStackField) equals `target_layer` have arrived and stay. With `min_distance` > 0, living cells closer than
     `min_distance` push each other apart by half their overlap (soft repulsion through the cell list, O(N k)), so
-    spacing approaches `min_distance` over the sub-steps.
+    spacing approaches `min_distance` over the sub-steps. With `tangential` true (per cell), `direction` loses its
+    component along the radial vector from `target`, so cells move perpendicular to it (tangential migration).
     Guided radial and tangential migration and chemotactic cues: Marín & Rubenstein 2003, Annu Rev Neurosci.
     """
 
@@ -134,6 +135,13 @@ class MigrateStage:
         norms = np.linalg.norm(diff, axis=1, keepdims=True)
         norms[norms < 1e-9] = 1.0
         radial_directions = diff / norms
+
+        tangential = params.get("tangential")
+        if tangential is not None:
+            is_tangential = np.asarray(resolve(tangential, genome, fields, tissue.positions, context_vars=ctx_vars), dtype=bool)
+            along = np.sum(base_directions * radial_directions, axis=1, keepdims=True)
+            tangential_directions = base_directions - along * radial_directions
+            base_directions = np.where(np.reshape(is_tangential, (-1, 1)), tangential_directions, base_directions)
 
         if np.isscalar(is_radial):
             if is_radial:
@@ -311,3 +319,57 @@ class SortStage:
             new_positions = positions_no_proj.copy()
             new_positions[sort_idx] += sorted_projections[:, np.newaxis] * axis[sort_idx]
             tissue.positions = new_positions
+
+
+@register_stage("mosaic")
+class MosaicStage:
+    """Homotypic exclusion zones: cells of the same type closer than `radius` push apart (other types ignore each other).
+
+    For `steps` iterations, each same-type pair of living cells closer than `radius` (cell list, O(N k)) moves apart by
+    `rate` x half their overlap, plus optional Gaussian motility of std `jitter` (space units, from the stage rng),
+    staying inside the geometry named by `boundary`. `types` restricts the interaction to a list of cell types. This
+    produces regular mosaics (high nearest-neighbour regularity index), as in models of exclusion zones between cells of
+    the same type (Galli-Resta et al. 1997, J Neurosci). Generalises the legacy `mosaic` placement rule. No `radius`
+    (or radius <= 0) is a no-op.
+    """
+
+    @classmethod
+    def cost(cls, N: int, E: int, params: Dict[str, Param]) -> Tuple[int, int]:
+        if float(worst_case(params.get("radius"), 0.0)) <= 0:
+            return N * 8, N
+        steps = max(1, int(worst_case(params.get("steps"), 1)))
+        cl_bytes, cl_ops = CellList.declared_cost(N, N, _MEAN_NEIGHBOURS)
+        return int(N * 8 * 7 + N * _MEAN_NEIGHBOURS * _PAIR_BYTES), int(steps * (cl_ops + N * _MEAN_NEIGHBOURS * 20))
+
+    def run(self, tissue: Tissue, params: Dict[str, Param], genome: Dict[str, Any], fields: Dict[str, Any], rng: np.random.Generator) -> Tissue:
+        radius = float(resolve(params.get("radius", Const(0.0)), genome, fields))
+        if radius <= 0 or len(tissue.alive) == 0:
+            return tissue
+        steps = int(resolve(params.get("steps", Const(1)), genome, fields))
+        rate = float(resolve(params.get("rate", Const(1.0)), genome, fields))
+        jitter = float(resolve(params.get("jitter", Const(0.0)), genome, fields))
+        types = params.get("types")
+        mask = tissue.alive.copy()
+        if types is not None:
+            mask &= np.isin(tissue.cell_type, np.asarray(resolve(types, genome, fields)).ravel())
+        idx = np.flatnonzero(mask)
+        if len(idx) < 2:
+            return tissue
+        geom = None
+        if params.get("boundary") is not None:
+            name = resolve(params["boundary"], genome, fields)
+            geom = fields.get(name) if isinstance(name, str) else name
+        ctype = tissue.cell_type[idx]
+        pos = tissue.positions[idx].copy()
+        for _ in range(steps):
+            src, dst, d, u = _neighbour_pairs(pos, radius)
+            same = ctype[src] == ctype[dst]
+            move = _sum_pair_moves(len(idx), src[same], -0.5 * rate * (radius - d[same]), u[same])
+            if jitter > 0:
+                move = move + rng.standard_normal(pos.shape) * jitter
+            new_pos = pos + move
+            if hasattr(geom, "contains"):
+                new_pos = np.where(geom.contains(new_pos)[:, None], new_pos, pos)
+            pos = new_pos
+        tissue.positions[idx] = pos
+        return tissue

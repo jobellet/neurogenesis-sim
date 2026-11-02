@@ -17,6 +17,7 @@ Usage:
 """
 import argparse
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -24,9 +25,33 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np  # noqa: E402
-from scipy.stats import spearmanr  # noqa: E402
 from neurogenesis.project.io import Project  # noqa: E402
 from neurogenesis.stages.base import run_schedule  # noqa: E402
+
+
+def _spearmanr(a: np.ndarray, b: np.ndarray) -> tuple[float, float]:
+    """Spearman rank correlation with tie-averaged ranks (pure NumPy, no SciPy)."""
+    def _rankdata(x: np.ndarray) -> np.ndarray:
+        _, inv, counts = np.unique(x, return_inverse=True, return_counts=True)
+        cs = np.cumsum(counts)
+        starts = cs - counts
+        avg_ranks = 0.5 * (starts + cs - 1)
+        return avg_ranks[inv]
+
+    ra = _rankdata(np.asarray(a, dtype=float))
+    rb = _rankdata(np.asarray(b, dtype=float))
+    da = ra - np.mean(ra)
+    db = rb - np.mean(rb)
+    denom = float(np.sqrt(np.sum(da * da) * np.sum(db * db)))
+    if denom == 0.0:
+        return 0.0, 1.0
+    r = float(np.clip(np.sum(da * db) / denom, -1.0, 1.0))
+    n = len(ra)
+    if n <= 2 or abs(r) >= 1.0:
+        return r, 0.0
+    z = abs(r) * math.sqrt((n - 2) / max(1e-12, 1.0 - r * r))
+    pval = math.erfc(z / math.sqrt(2.0))
+    return r, pval
 
 
 def build_project() -> Project:
@@ -179,7 +204,7 @@ def analyze_circuit(tissue):
         inhibitory_synapses = 0
         excitatory_synapses = 0
 
-    corr, pval = spearmanr(tissue.birth_stage, tissue.positions[:, 2])
+    corr, pval = _spearmanr(tissue.birth_stage, tissue.positions[:, 2])
 
     return {
         "cells_per_type": cells_per_type.tolist(),

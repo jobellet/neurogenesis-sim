@@ -248,3 +248,65 @@ def test_add_cells_clone_id_matches_python_lookup():
         expected = old_clone_ids(*before, par, t.cell_id[n0:])
         assert np.array_equal(t.clone_id[n0:], expected)
         assert t.clone_id.dtype == np.int32
+
+
+# K2: transmitter, receptor expression, receptor class and morphology arrays -----------------------------------------
+def _k2_tissue():
+    from neurogenesis.tissue import SparseConnectivity
+    t = Tissue.empty()
+    t.add_cells(4, positions=np.zeros((4, 3)), transmitter=np.array([1, 2, 3, 0]),
+                receptor_expression=np.arange(8, dtype=np.float32).reshape(4, 2))
+    t.connectivity = SparseConnectivity(np.array([0, 1, 2, 3], np.int32), np.array([1, 2, 3, 0], np.int32),
+                                        np.array([5, 6, 7, 8], np.int32), np.array([1, 2, 3, 4], np.int32),
+                                        receptor_class=np.array([1, 2, 3, 4], np.uint8),
+                                        path_length=np.array([0.1, 0.2, 0.3, 0.4], np.float32))
+    return t
+
+
+def test_k2_defaults_are_neutral():
+    t = Tissue.empty()
+    t.add_cells(3, positions=np.zeros((3, 3)))
+    assert t.transmitter.tolist() == [0, 0, 0] and t.receptor_expression.shape == (3, 0) and t.morphology is None
+    assert t.connectivity.receptor_class.dtype == np.uint8 and t.connectivity.pre_node is None
+
+
+def test_k2_arrays_follow_compact_subset_and_concatenate():
+    t = _k2_tissue()
+    t.alive[1] = False
+    t.compact()
+    assert t.transmitter.tolist() == [1, 3, 0]
+    np.testing.assert_array_equal(t.receptor_expression, [[0, 1], [4, 5], [6, 7]])
+    c = t.connectivity
+    assert list(zip(c.pre, c.post)) == [(1, 2), (2, 0)]                  # synapses 2->3 and 3->0 survive
+    assert c.receptor_class.tolist() == [3, 4] and np.allclose(c.path_length, [0.3, 0.4])
+    s = _k2_tissue().subset(np.array([2, 3]))
+    assert s.connectivity.receptor_class.tolist() == [3] and s.transmitter.tolist() == [3, 0]
+    plain = Tissue.empty()
+    plain.add_cells(2, positions=np.zeros((2, 3)))
+    j = Tissue.concatenate([_k2_tissue(), plain])
+    assert j.receptor_expression.shape == (6, 2) and j.transmitter.tolist() == [1, 2, 3, 0, 0, 0]
+    assert len(j.connectivity.path_length) == 4 and j.memory_bytes() > _k2_tissue().memory_bytes()
+
+
+def test_k2_synapse_stages_keep_arrays_aligned():
+    from neurogenesis.stages.base import STAGE_REGISTRY
+    import neurogenesis.stages  # noqa: F401
+    t = _k2_tissue()
+    t = STAGE_REGISTRY["prune"]().run(t, {"threshold": 7}, {}, {}, np.random.default_rng(0))
+    assert t.connectivity.receptor_class.tolist() == [3, 4]
+    t = STAGE_REGISTRY["connect_by_hand"]().run(t, {"pre": [0], "post": [1]}, {}, {}, np.random.default_rng(0))
+    c = t.connectivity
+    assert c.receptor_class.tolist() == [3, 4, 0] and np.isnan(c.path_length[-1])
+    c.receptor_class = np.array([1], np.uint8)                       # a real mismatch is reported, never guessed
+    with pytest.raises(ValueError, match="receptor_class"):
+        c.take(np.ones(3, bool))
+
+
+def test_k2_direct_array_edits_keep_a_default_receptor_class():
+    t = Tissue.empty()
+    t.add_cells(2, positions=np.zeros((2, 3)))
+    t.connectivity.pre = np.array([0], np.int32)
+    t.connectivity.post = np.array([1], np.int32)
+    t.connectivity.weight = np.array([1], np.int32)
+    t.connectivity.delay = np.array([1], np.int32)
+    assert len(t.subset(np.arange(2)).connectivity.receptor_class) == 1
