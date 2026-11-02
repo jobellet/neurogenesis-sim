@@ -6,6 +6,16 @@ share working circuits as modules. The target is in `README.md` and the plan in 
 the roadmap (e.g. "C4 migrate"), and stay within its scope.**
 
 ## Before you start
+0. Get the overview in one read. `python scripts/build_context.py` writes two Markdown files built from the
+   documentation (also published on the documentation site and as the `ai-context` artifact of the docs workflow):
+   - `neurogenesis-sim-brief.md` (about 11k tokens): project status, README, core concepts, design principles, these
+     rules, the CLI and a map of the package. Read it first.
+   - `neurogenesis-sim-context.md` (about 70k tokens): the same status section, then every documentation page (roadmap,
+     stage reference, formats, protocols, tutorials) in one file.
+
+   Their first section is generated: commit, registered stages, open pull requests, and everything the docs mark as
+   partial, not done, PLACEHOLDER or **Not implemented**. Check there that your task is not already done or in an open
+   pull request. Both files are generated: never edit or commit them.
 1. Read `README.md`, `docs/ROADMAP.md` (sections 1–3 and your task), `docs/EXTENDING.md`, `docs/NEURON_MODELS.md`.
 2. Install and run the tests:
    ```
@@ -100,7 +110,9 @@ Until Dec 1 (or until the repo is public), CI is blocked:
 - [ ] `cd viz && npm run build` passes if `viz/` changed.
 - [ ] Golden fixtures and contract tests pass if `desktop/common/`, `neurogenesis/bridge/`, or `nglif` changed.
 - [ ] Design and scope review pass against AGENTS.md and task contracts before merging.
-- [ ] Docs updated: README table, `docs/EXTENDING.md` or the relevant guide, the roadmap status line of your task.
+- [ ] Docs updated: README table, `docs/EXTENDING.md` or the relevant guide, the roadmap status line of your task,
+      `docs/STAGES.md` for a stage, and any PLACEHOLDER your work fills. The status section of the AI context files is
+      built from these, so a stale status line or placeholder shows up there as work still to do.
 
 ## When unsure
 Prefer the smallest change that fulfils the task's acceptance tests. Ask (in the PR) rather than changing a contract,

@@ -24,6 +24,13 @@ A sensor sheet → map circuit grown from a genome (see {doc}`use-cases/topograp
 | Unsupervised (genetic) | a genome and a schedule of stages | genes control every stage; evolution searches genomes that work for every developmental seed |
 | Semi-supervised | a hand-made scaffold (layers, maps, landmarks) plus a schedule | genes and fitted parameters work on top of the scaffold |
 
+## For AI assistants
+The whole documentation is also published as one Markdown file, with a generated status section (what exists, what
+is not done yet, open pull requests), to paste or upload into a chat with an AI assistant:
+[neurogenesis-sim-context.md](https://jobellet.github.io/neurogenesis-sim/neurogenesis-sim-context.md) (about 70k
+tokens), or the short [neurogenesis-sim-brief.md](https://jobellet.github.io/neurogenesis-sim/neurogenesis-sim-brief.md)
+(about 11k tokens). Both are rebuilt with the site; `python scripts/build_context.py` makes them locally.
+
 ## Highlights
 - **One integer spiking kernel, four implementations with identical spikes:** Python reference, JAX (CPU / GPU), the
   browser (TypeScript) and a portable C library (`nglif`) used by the desktop apps.
