@@ -275,7 +275,8 @@ sources, listed below the table.
 |---|---|
 | C14 | done: `cell_cycle_clock` (#68), Q(generation) as a power law or table, cycle-length table, `Tissue.cycling` (K6 part, #67) |
 | C15 | done: `temporal_competence` (#69), one-way competence channels advanced by generation or a field, fixed at cycle exit |
-| C16–C24 | not done |
+| C23 | done: `critical_period_gate`, sets the K6 `plastic` mask (#73): opens on inhibitory maturity from a source cell type (or a maturity `Param`, or explicitly), closes after a number of gate calls, a maturity threshold or explicitly; `reopen`; mouse / cat ages in `examples/profiles/critical_period_gate.json` |
+| C16–C22, C24 | not done |
 
 **Order and priorities.** C14 → C15 first (they make birth-order-dependent layering emerge in G2.3, instead of being
 imposed); C21, C22, C23 next (they use existing P3 / P4 and C11); C18 and C24 independent; C16, C17, C19 after N2 / N3;

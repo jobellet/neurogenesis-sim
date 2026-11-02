@@ -249,6 +249,30 @@ rule of `neurogenesis.spiking.plasticity` once to the weights. Dead cells are co
 Without `rule` the stage is a no-op . Limits: plasticity acts on magnitudes and keeps synapse signs; weights
 are cast to integers. The three-factor eligibility counts arrivals that coincide with a postsynaptic spike in the same tick. **Not implemented:** pruning inside the stage (follow with `prune`), other neuron models.
 
+**`critical_period_gate` (C23, `neurogenesis/stages/critical_period.py`).** Opens and closes a critical period of
+plasticity by setting the K6 `plastic` mask of the gated synapses (those onto `target_type` cells, all by default):
+`False` before opening, `True` while open, `False` after closing. Opening when the maturity of inhibition from
+`source_type` cells reaches `open_threshold`, closing after `close_after` gate calls or when maturity reaches
+`close_threshold`, as maturing parvalbumin-cell inhibition opens and perineuronal nets close the ocular-dominance
+critical period (Hensch 2005, Nat Rev Neurosci; Hubel & Wiesel 1970, J Physiol); `reopen` restores plasticity, as
+removing the nets with chondroitinase ABC does (Pizzorusso et al. 2002, Science). Call it before each plasticity stage;
+its state (phase, gate calls since opening) is kept on the tissue as `_critical_period` (not carried by `subset` /
+`concatenate`). Synapses added later are plastic until the next call.
+| Param | Default | Meaning |
+|---|---|---|
+| `source_type` | none | cell type id(s) whose inhibitory (w < 0) synapses measure maturity |
+| `target_type` | all cells | cell type id(s) whose incoming synapses are measured and gated |
+| `measure` | `"mean"` | `"mean"`: mean \|w\| of those synapses; `"sum"`: mean over target cells of the summed \|w\| |
+| `maturity` | none | a maturity value (`Param`: gene, field, `Expr`) used instead of the inhibitory measure |
+| `open_threshold` | none | opens when maturity >= this |
+| `open` / `close` | false | open / close now (place the entry at the wanted stage index of the schedule) |
+| `close_after` | none | closes this many gate calls after opening |
+| `close_threshold` | none | closes when maturity >= this (ignored after a reopening) |
+| `reopen` | false | reopens: plastic again, `close_after` counts from here |
+
+Neutral: without `open_threshold`, `open`, `close` and `reopen` the stage is a no-op (any of them activates the gate,
+so before opening the gated synapses are not plastic). Cost O(N + E). Mouse and cat ages: `examples/profiles/critical_period_gate.json`.
+
 **`myelinate` (C12).** Multiplies delays by `factor` (alias `delay_factor`; absent = no-op; 1.0 is neutral), rounds
 and clips to [1, 31] ticks with a warning when clipped. By default every synapse is scaled; given criteria select
 synapses passing all of them: `min_delay` (long projections, ticks), `pre_region` / `post_region` (lists of region
