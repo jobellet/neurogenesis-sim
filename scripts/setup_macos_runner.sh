@@ -59,7 +59,7 @@ case "$(uname -m)" in
 esac
 
 if [[ -f "$DIR/.runner" ]]; then
-  echo "a runner is already configured in $DIR (use --uninstall first to reinstall)"
+  echo "a runner is already configured in $DIR: updating its settings and restarting it (--uninstall to remove it)"
 else
   echo "Latest actions/runner release…"
   version=$(gh api repos/actions/runner/releases/latest --jq .tag_name | sed 's/^v//')
@@ -68,7 +68,7 @@ else
   tarball="actions-runner-$ARCH-$version.tar.gz"
 
   mkdir -p "$DIR" && cd "$DIR"
-  echo "Downloading $tarball…"
+  echo "Downloading ${tarball}…"
   curl -fsSL -o "$tarball" "https://github.com/actions/runner/releases/download/v$version/$tarball"
   echo "$sha  $tarball" | shasum -a 256 -c - || die "checksum mismatch for $tarball"
   tar xzf "$tarball" && rm "$tarball"
@@ -78,7 +78,11 @@ else
 fi
 
 cd "$DIR"
+# setup-python / setup-node install tools under /Users/runner (the hosted runners' home) unless told otherwise.
+grep -q '^AGENT_TOOLSDIRECTORY=' .env 2>/dev/null || echo "AGENT_TOOLSDIRECTORY=$DIR/_tool" >> .env
+mkdir -p "$DIR/_tool"
 ./svc.sh install >/dev/null 2>&1 || true
+./svc.sh stop >/dev/null 2>&1 || true
 ./svc.sh start
 ./svc.sh status | tail -3
 
