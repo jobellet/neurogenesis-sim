@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Neurogenesis.Core.Bridge;
 using Neurogenesis.Core.Ngb;
 using Neurogenesis.Core.Scene;
 using Neurogenesis.Core.Simulation;
@@ -10,12 +11,13 @@ namespace Neurogenesis.App.ViewModels;
 
 public sealed record FieldRow(string Name, string Value);
 
-/// <summary>State of the main window in Step 3: includes in-app simulation with nglif.</summary>
+/// <summary>State of the main window in Step 3: includes in-app simulation with nglif and bridge integration.</summary>
 public sealed partial class MainViewModel : ObservableObject
 {
     public VisualStyle Style { get; } = VisualStyle.Default;
     public IReadOnlyList<ColorMode> ColorModes => Style.ColorModes;
     public ObservableCollection<FieldRow> Inspector { get; } = new();
+    public BridgeClient? Bridge { get; }
 
     [ObservableProperty] private string _status = "Open a network file (.ngb).";
     [ObservableProperty] private string _sceneNote = "";
@@ -26,14 +28,42 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty, NotifyPropertyChangedFor(nameof(HasSelection))] private int _selected = -1;
     [ObservableProperty] private float _currentTick = 0f;
     [ObservableProperty, NotifyPropertyChangedFor(nameof(SimButtonText))] private bool _isSimulating = false;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(CanSimulateNative))] private bool _isModelNative = true;
 
     public bool HasSelection => Selected >= 0;
     public string SimButtonText => IsSimulating ? "Pause" : "Simulate";
+    public bool CanSimulateNative => Scene != null && IsModelNative;
+
     private SimulationEngine? _simEngine;
+    private long _lastUiUpdateTimestamp;
 
     public MainViewModel()
     {
         _colorMode = Style.ColorModes[0];
+        try
+        {
+            string? py = PythonLocator.FindPython();
+            if (!string.IsNullOrEmpty(py))
+            {
+                Bridge = new BridgeClient(py);
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                        await Bridge.StartAsync(cts.Token);
+                    }
+                    catch
+                    {
+                        // Bridge startup is optional during initial launch
+                    }
+                });
+            }
+        }
+        catch
+        {
+            // Python runtime not configured yet
+        }
     }
 
     /// <summary>Reads an NGB1 file and builds its scene off the UI thread.</summary>
@@ -82,6 +112,12 @@ public sealed partial class MainViewModel : ObservableObject
     public void StartSimulation()
     {
         if (Scene == null) return;
+        if (!IsModelNative)
+        {
+            Status = "Live in-app simulation requires a native model (schema native: true).";
+            return;
+        }
+
         if (_simEngine == null)
         {
             _simEngine = new SimulationEngine(Scene.Network);
@@ -95,20 +131,40 @@ public sealed partial class MainViewModel : ObservableObject
     {
         _simEngine?.Stop();
         IsSimulating = false;
+        UpdateSimUi();
     }
 
     public void StepSimulation()
     {
         if (Scene == null) return;
+        if (!IsModelNative)
+        {
+            Status = "Live in-app simulation requires a native model (schema native: true).";
+            return;
+        }
+
         if (_simEngine == null)
         {
             _simEngine = new SimulationEngine(Scene.Network);
             _simEngine.FrameStepped += OnSimStep;
         }
         _simEngine.StepOnce();
+        UpdateSimUi();
     }
 
     private void OnSimStep()
+    {
+        if (_simEngine == null || Scene == null) return;
+
+        // Throttle UI rendering and instance array allocations to ~60 Hz
+        long now = Stopwatch.GetTimestamp();
+        if (Stopwatch.GetElapsedTime(_lastUiUpdateTimestamp, now).TotalMilliseconds < 16.0) return;
+        _lastUiUpdateTimestamp = now;
+
+        Avalonia.Threading.Dispatcher.UIThread.Post(UpdateSimUi);
+    }
+
+    private void UpdateSimUi()
     {
         if (_simEngine == null || Scene == null) return;
         CurrentTick = (float)_simEngine.CurrentTick;

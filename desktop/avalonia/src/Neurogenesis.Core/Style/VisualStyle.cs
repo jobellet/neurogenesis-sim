@@ -29,11 +29,13 @@ public sealed class VisualStyle
     public Vector4[] Palette { get; private init; } = Array.Empty<Vector4>();
     public IReadOnlyList<ColorMode> ColorModes { get; private init; } = Array.Empty<ColorMode>();
 
-    public string UiPanelBackground { get; private init; } = "#16191E";
-    public string UiPanelBorder { get; private init; } = "#252A32";
-    public string UiStatusBackground { get; private init; } = "#1A1D23";
-    public string UiNoteBackground { get; private init; } = "#B0101318";
-    public string UiNoteForeground { get; private init; } = "#FFD27F";
+    public string UiWindowBackground { get; private init; } = "";
+    public string UiWindowForeground { get; private init; } = "";
+    public string UiPanelBackground { get; private init; } = "";
+    public string UiPanelBorder { get; private init; } = "";
+    public string UiStatusBackground { get; private init; } = "";
+    public string UiNoteBackground { get; private init; } = "";
+    public string UiNoteForeground { get; private init; } = "";
 
     public static VisualStyle Default { get; } = LoadDefault();
 
@@ -58,19 +60,10 @@ public sealed class VisualStyle
             return new ColorMode(m.GetProperty("name").GetString()!, kind, Str(m, "field"), Str(m, "fallback"), colors,
                 m.TryGetProperty("lo", out var lo) ? lo.GetDouble() : 0, m.TryGetProperty("hi", out var hi) ? hi.GetDouble() : 1);
         }).ToArray();
-        string panelBg = "#16191E";
-        string panelBorder = "#252A32";
-        string statusBg = "#1A1D23";
-        string noteBg = "#B0101318";
-        string noteFg = "#FFD27F";
-        if (r.TryGetProperty("ui", out var ui))
-        {
-            if (ui.TryGetProperty("panel_background", out var pb)) panelBg = pb.GetString() ?? panelBg;
-            if (ui.TryGetProperty("panel_border", out var pbr)) panelBorder = pbr.GetString() ?? panelBorder;
-            if (ui.TryGetProperty("status_background", out var sb)) statusBg = sb.GetString() ?? statusBg;
-            if (ui.TryGetProperty("note_background", out var nb)) noteBg = nb.GetString() ?? noteBg;
-            if (ui.TryGetProperty("note_foreground", out var nf)) noteFg = nf.GetString() ?? noteFg;
-        }
+
+        var ui = r.TryGetProperty("ui", out var u) ? u : default;
+        static string UiStr(JsonElement u, string prop) =>
+            u.ValueKind == JsonValueKind.Object && u.TryGetProperty(prop, out var p) ? p.GetString() ?? "" : "";
 
         return new VisualStyle
         {
@@ -85,11 +78,13 @@ public sealed class VisualStyle
             SynapseBudget = syn.GetProperty("budget").GetInt32(),
             Palette = r.GetProperty("palette").EnumerateArray().Select(Color).ToArray(),
             ColorModes = modes,
-            UiPanelBackground = panelBg,
-            UiPanelBorder = panelBorder,
-            UiStatusBackground = statusBg,
-            UiNoteBackground = noteBg,
-            UiNoteForeground = noteFg,
+            UiWindowBackground = UiStr(ui, "window_background"),
+            UiWindowForeground = UiStr(ui, "window_foreground"),
+            UiPanelBackground = UiStr(ui, "panel_background"),
+            UiPanelBorder = UiStr(ui, "panel_border"),
+            UiStatusBackground = UiStr(ui, "status_background"),
+            UiNoteBackground = UiStr(ui, "note_background"),
+            UiNoteForeground = UiStr(ui, "note_foreground"),
         };
     }
 

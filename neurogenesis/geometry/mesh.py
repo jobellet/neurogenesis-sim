@@ -6,61 +6,100 @@ from .voxel import VoxelMaskGeometry
 @register_geometry("mesh")
 @register_geometry("Mesh")
 class MeshGeometry(Geometry):
-    def __init__(self, vertices: np.ndarray, faces: np.ndarray):
+    """Closed triangle mesh: exact point-in-mesh by ray parity plus an occupancy voxel cache.
+
+    Ray parity is vectorised over faces: for a fixed ray direction d, the Moller-Trumbore
+    coordinates u, v, t of every (point, face) pair are linear in the point, so they are
+    computed as (P, 3) @ (3, F) products. Point and face blocks are chunked so that at most
+    ``MAX_PAIRS`` (point, face) pairs are held at once (a few float64 arrays of that size,
+    about 8 MB each); cost is O(P * F) operations and O(MAX_PAIRS) memory.
+    """
+
+    MAX_PAIRS = 1 << 20
+    _RAY_DIR = np.array([0.7384, 0.4281, 0.5193]) / np.linalg.norm([0.7384, 0.4281, 0.5193])
+
+    def __init__(self, vertices: np.ndarray, faces: np.ndarray, resolution: int = 32):
         self.vertices = np.array(vertices, dtype=np.float32)
         self.faces = np.array(faces, dtype=np.int32)
-        
+
         # Calculate bounding box
         self._min_bounds = np.min(self.vertices, axis=0)
         self._max_bounds = np.max(self.vertices, axis=0)
-        
-        self._build_voxel_cache()
+
+        self._prepare_faces()
+        self._build_voxel_cache(resolution)
+
+    def _prepare_faces(self):
+        v = self.vertices.astype(np.float64)
+        v0, v1, v2 = v[self.faces[:, 0]], v[self.faces[:, 1]], v[self.faces[:, 2]]
+        e1, e2 = v1 - v0, v2 - v0
+        d = self._RAY_DIR
+        h = np.cross(d, e2)
+        a = np.sum(e1 * h, axis=-1)
+        keep = np.abs(a) >= 1e-12  # faces parallel to the ray never count
+        f = 1.0 / a[keep]
+        v0, e1, e2, h = v0[keep], e1[keep], e2[keep], h[keep]
+        # u = f (p - v0).h, v = f (p - v0).(e1 x d), t = f (p - v0).(e1 x e2)
+        A = np.stack([h, np.cross(e1, d), np.cross(e1, e2)], axis=0) * f[None, :, None]  # (3, F, 3)
+        self._lin = np.ascontiguousarray(A.transpose(0, 2, 1))  # (3, 3, F)
+        self._off = np.einsum('kfj,fj->kf', A, v0)  # (3, F)
+
+    def _ray_parity(self, points: np.ndarray) -> np.ndarray:
+        """True where a ray from each point crosses the surface an odd number of times."""
+        pts = np.asarray(points, dtype=np.float64)
+        n_faces = self._off.shape[1]
+        crossings = np.zeros(len(pts), dtype=np.int64)
+        if n_faces == 0 or len(pts) == 0:
+            return crossings.astype(bool)
+        fb = max(1, min(n_faces, self.MAX_PAIRS // max(1, min(len(pts), self.MAX_PAIRS))))
+        pb = max(1, self.MAX_PAIRS // fb)
+        for p0 in range(0, len(pts), pb):
+            P = pts[p0:p0 + pb]
+            for f0 in range(0, n_faces, fb):
+                sl = slice(f0, f0 + fb)
+                u = P @ self._lin[0][:, sl] - self._off[0, sl]
+                v = P @ self._lin[1][:, sl] - self._off[1, sl]
+                t = P @ self._lin[2][:, sl] - self._off[2, sl]
+                hit = (u >= 0.0) & (v >= 0.0) & (u + v <= 1.0) & (t > 1e-9)
+                crossings[p0:p0 + pb] += hit.sum(axis=1)
+        return crossings % 2 == 1
 
     def _build_voxel_cache(self, resolution=32):
+        """Occupancy cache: voxel centres inside the mesh, and voxels the surface may cross.
+
+        ``surface_voxels`` marks every voxel overlapping the axis-aligned bounding box of a
+        face (a superset of the voxels the surface crosses), built in O(F + resolution**3)
+        with a 3D difference array. A voxel partly inside the mesh is either a surface voxel
+        or wholly inside (then its centre is inside), so ``mask | surface_voxels`` covers the
+        whole volume; ``mask & ~surface_voxels`` voxels are wholly inside.
+        """
         self.voxel_res = resolution
         pitch = (self._max_bounds - self._min_bounds) / resolution
-        self.voxel_pitch = np.where(pitch == 0, 1.0, pitch)
-        
-        x = np.arange(resolution) * self.voxel_pitch[0] + self._min_bounds[0] + self.voxel_pitch[0]/2
-        y = np.arange(resolution) * self.voxel_pitch[1] + self._min_bounds[1] + self.voxel_pitch[1]/2
-        z = np.arange(resolution) * self.voxel_pitch[2] + self._min_bounds[2] + self.voxel_pitch[2]/2
-        
-        xv, yv, zv = np.meshgrid(x, y, z, indexing='ij')
-        centers = np.stack([xv.flatten(), yv.flatten(), zv.flatten()], axis=-1).astype(np.float32)
-        
-        # Fast parity for centers:
-        ray_dir = np.array([0.7384, 0.4281, 0.5193], dtype=np.float32)
-        ray_dir /= np.linalg.norm(ray_dir)
-        
-        intersections = np.zeros(len(centers), dtype=np.int32)
-        v0 = self.vertices[self.faces[:, 0]]
-        v1 = self.vertices[self.faces[:, 1]]
-        v2 = self.vertices[self.faces[:, 2]]
-        
-        for i in range(len(self.faces)):
-            edge1 = v1[i] - v0[i]
-            edge2 = v2[i] - v0[i]
-            h = np.cross(ray_dir, edge2)
-            a = np.dot(edge1, h)
-            if np.abs(a) < 1e-7: continue
-                
-            f = 1.0 / a
-            s = centers - v0[i]
-            u = f * np.sum(s * h, axis=-1)
-            valid_u = (u >= 0.0) & (u <= 1.0)
-            
-            q = np.cross(s, edge1)
-            v = f * np.sum(q * ray_dir, axis=-1)
-            
-            valid_v = (v >= 0.0) & (u + v <= 1.0)
-            
-            t = f * np.sum(edge2 * q, axis=-1)
-            
-            intersect = valid_u & valid_v & (t > 1e-7)
-            intersections[intersect] += 1
-            
-        mask = (intersections % 2 == 1).reshape((resolution, resolution, resolution))
+        self.voxel_pitch = np.where(pitch == 0, 1.0, pitch).astype(np.float32)
+
+        axes = [(np.arange(resolution) + 0.5) * self.voxel_pitch[i] + self._min_bounds[i] for i in range(3)]
+        xv, yv, zv = np.meshgrid(*axes, indexing='ij')
+        centers = np.stack([xv.ravel(), yv.ravel(), zv.ravel()], axis=-1)
+        mask = self._ray_parity(centers).reshape((resolution,) * 3)
         self.voxel_cache = VoxelMaskGeometry(mask, self._min_bounds, self.voxel_pitch)
+
+        tri = self.vertices[self.faces].astype(np.float64)  # (F, 3, 3)
+        pitch64 = self.voxel_pitch.astype(np.float64)
+        eps = 1e-6
+        lo = np.floor((tri.min(axis=1) - self._min_bounds) / pitch64 - eps).astype(np.int64)
+        hi = np.floor((tri.max(axis=1) - self._min_bounds) / pitch64 + eps).astype(np.int64) + 1
+        lo, hi = np.clip(lo, 0, resolution), np.clip(hi, 0, resolution)
+        diff = np.zeros((resolution + 1,) * 3, dtype=np.int64)
+        for cx in (0, 1):
+            for cy in (0, 1):
+                for cz in (0, 1):
+                    sign = (-1) ** (cx + cy + cz)
+                    ix = np.where(cx, hi[:, 0], lo[:, 0])
+                    iy = np.where(cy, hi[:, 1], lo[:, 1])
+                    iz = np.where(cz, hi[:, 2], lo[:, 2])
+                    np.add.at(diff, (ix, iy, iz), sign)
+        cover = diff.cumsum(0).cumsum(1).cumsum(2)[:resolution, :resolution, :resolution]
+        self.surface_voxels = cover > 0
 
     @classmethod
     def from_obj(cls, filepath: str) -> 'MeshGeometry':
@@ -131,81 +170,41 @@ class MeshGeometry(Geometry):
                 return cls(vertices, faces)
 
     def contains(self, points: np.ndarray) -> np.ndarray:
-        # We can use the voxel cache as a fast-path for points clearly inside or outside.
-        # But voxel cache is just a boolean array at `resolution`. It has aliasing at the boundary.
-        # For an exact result, we can either do full ray-cast for points that fall near the boundary 
-        # (e.g. check a dilated version of the boundary), or just use the ray cast.
-        # Wait, the prompt says "Bounding box and occupancy voxel cache." 
-        # It does not explicitly mandate using the voxel cache for *everything*, but it should be a cache.
-        # Let's just use the voxel cache as an approximation or just use full ray-casting if we need exact.
-        # If we need exact containment, we should use ray-casting.
-        # To make it fast, we do full ray-casting for all points. If the user has thousands of points, it's ok.
-        # Let's do bounding box first.
+        """Exact point-in-mesh test by ray parity (bounding-box prefilter)."""
+        points = np.asarray(points)
         in_box = np.all(points >= self._min_bounds, axis=-1) & np.all(points <= self._max_bounds, axis=-1)
-        
-        ray_dir = np.array([0.7384, 0.4281, 0.5193], dtype=np.float32)
-        ray_dir /= np.linalg.norm(ray_dir)
-        
-        pts_in_box = points[in_box]
-        if len(pts_in_box) == 0:
-            return in_box
-            
-        intersections = np.zeros(len(pts_in_box), dtype=np.int32)
-        
-        v0 = self.vertices[self.faces[:, 0]]
-        v1 = self.vertices[self.faces[:, 1]]
-        v2 = self.vertices[self.faces[:, 2]]
-        
-        for i in range(len(self.faces)):
-            edge1 = v1[i] - v0[i]
-            edge2 = v2[i] - v0[i]
-            h = np.cross(ray_dir, edge2)
-            a = np.dot(edge1, h)
-            if np.abs(a) < 1e-7: continue
-                
-            f = 1.0 / a
-            s = pts_in_box - v0[i]
-            u = f * np.sum(s * h, axis=-1)
-            valid_u = (u >= 0.0) & (u <= 1.0)
-            
-            q = np.cross(s, edge1)
-            v = f * np.sum(q * ray_dir, axis=-1)
-            valid_v = (v >= 0.0) & (u + v <= 1.0)
-            
-            t = f * np.sum(edge2 * q, axis=-1)
-            
-            intersect = valid_u & valid_v & (t > 1e-7)
-            intersections[intersect] += 1
-            
         result = in_box.copy()
-        result[in_box] = (intersections % 2) == 1
+        if np.any(in_box):
+            result[in_box] = self._ray_parity(points[in_box])
         return result
 
-    def sample(self, n: int, rng: np.random.Generator) -> np.ndarray:
-        # Uniform sampling inside the mesh (rejection sampling from bounding box)
-        box_size = self._max_bounds - self._min_bounds
-        box_center = self._min_bounds + box_size / 2.0
-        
-        samples = []
-        collected = 0
-        max_attempts = 100
-        attempts = 0
-        
-        while collected < n:
-            attempts += 1
-            if attempts > max_attempts:
-                raise RuntimeError("Sampling Mesh exceeded max iterations; geometry may be empty.")
-            
-            # Since sampling is slow, we can use the voxel cache to speed up rejection sampling!
-            # Sample from the voxel cache first, then verify with ray-casting!
-            c_samples = self.voxel_cache.sample(n * 2, rng)
-            mask = self.contains(c_samples)
-            valid = c_samples[mask]
-            if len(valid) > 0:
-                samples.append(valid)
-                collected += len(valid)
-                
-        return np.concatenate(samples, axis=0)[:n]
+    def sample_points(self, n: int, rng: np.random.Generator) -> np.ndarray:
+        """Uniform samples in the mesh volume.
+
+        Draws uniform points in voxels of the cache that are inside or crossed by the
+        surface (all voxels have the same volume) and keeps those passing the exact
+        point-in-mesh test; points in voxels wholly inside are kept without testing.
+        """
+        candidates = self.voxel_cache.mask | self.surface_voxels
+        idx = np.argwhere(candidates)
+        if len(idx) == 0 or n <= 0:
+            return np.zeros((0, 3), dtype=np.float32)
+        interior = (self.voxel_cache.mask & ~self.surface_voxels)[tuple(idx.T)]
+        origin, pitch = self._min_bounds, self.voxel_pitch
+        samples, collected, accept = [], 0, max(0.05, float(np.mean(interior)))
+        for _ in range(1000):
+            m = int(np.ceil((n - collected) / accept * 1.2)) + 16
+            k = rng.integers(0, len(idx), size=m)
+            pts = origin + (idx[k] + rng.random((m, 3), dtype=np.float32)) * pitch
+            keep = interior[k].copy()
+            if not np.all(keep):
+                keep[~keep] = self.contains(pts[~keep])
+            accept = max(0.01, float(np.mean(keep)))
+            samples.append(pts[keep].astype(np.float32))
+            collected += int(keep.sum())
+            if collected >= n:
+                return np.concatenate(samples, axis=0)[:n]
+        raise RuntimeError("Sampling Mesh exceeded max iterations; geometry may be empty.")
 
     def bounding_box(self) -> tuple[np.ndarray, np.ndarray]:
         return self._min_bounds, self._max_bounds
@@ -219,9 +218,10 @@ class MeshGeometry(Geometry):
         return {
             "type": "mesh",
             "vertices": self.vertices.tolist(),
-            "faces": self.faces.tolist()
+            "faces": self.faces.tolist(),
+            "resolution": self.voxel_res,
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> 'Geometry':
-        return cls(d["vertices"], d["faces"])
+        return cls(d["vertices"], d["faces"], d.get("resolution", 32))

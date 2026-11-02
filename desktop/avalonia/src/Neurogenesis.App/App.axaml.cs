@@ -16,7 +16,12 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             var vm = new MainViewModel();
-            desktop.MainWindow = new MainWindow { DataContext = vm };
+            var win = new MainWindow { DataContext = vm };
+            desktop.MainWindow = win;
+            win.Closed += async (s, e) =>
+            {
+                if (vm.Bridge != null) await vm.Bridge.DisposeAsync();
+            };
             if (desktop.Args is { Length: > 0 } args) _ = vm.OpenAsync(args[0]);
         }
         base.OnFrameworkInitializationCompleted();
