@@ -49,6 +49,11 @@ class Tissue:
     connectivity: SparseConnectivity
     expression_names: List[str] = field(default_factory=list)
     _next_cell_id: int = 0
+    generation: Optional[np.ndarray] = None  # (N,) int32 divisions since the founder; zeros when omitted
+
+    def __post_init__(self) -> None:
+        if self.generation is None:
+            self.generation = np.zeros(len(self.alive), dtype=np.int32)
 
     @property
     def lineage_id(self) -> np.ndarray:
@@ -136,6 +141,7 @@ class Tissue:
                     c_clone_id[idx] = id_to_clone[pid]
 
         birth = kwargs.get("birth_stage", np.zeros(N, dtype=np.int32))
+        gen = np.asarray(kwargs.get("generation", np.zeros(N, dtype=np.int32)), dtype=np.int32)
         ctype = kwargs.get("cell_type", np.zeros(N, dtype=np.int32))
         reg = kwargs.get("region", np.zeros(N, dtype=np.int32))
         expr = kwargs.get("expression", np.zeros((N, K), dtype=np.float32))
@@ -177,6 +183,7 @@ class Tissue:
         self.parent_id = np.concatenate([self.parent_id, par_id])
         self.clone_id = np.concatenate([self.clone_id, c_clone_id])
         self.birth_stage = np.concatenate([self.birth_stage, birth])
+        self.generation = np.concatenate([self.generation, gen])
         self.cell_type = np.concatenate([self.cell_type, ctype])
         self.region = np.concatenate([self.region, reg])
         self.expression = np.concatenate([self.expression, expr])
@@ -218,6 +225,7 @@ class Tissue:
         self.parent_id = self.parent_id[alive_mask]
         self.clone_id = self.clone_id[alive_mask]
         self.birth_stage = self.birth_stage[alive_mask]
+        self.generation = self.generation[alive_mask]
         self.cell_type = self.cell_type[alive_mask]
         self.region = self.region[alive_mask]
         self.expression = self.expression[alive_mask]
@@ -285,7 +293,8 @@ class Tissue:
             threshold=self.threshold[indices].copy(),
             connectivity=SparseConnectivity.empty(),
             expression_names=list(self.expression_names),
-            _next_cell_id=self._next_cell_id
+            _next_cell_id=self._next_cell_id,
+            generation=self.generation[indices].copy()
         )
         
         if len(self.connectivity.pre) > 0:
@@ -388,7 +397,8 @@ class Tissue:
             threshold=np.concatenate([t.threshold for t in tissues]),
             connectivity=SparseConnectivity(pre, post, weight, delay),
             expression_names=expr_names,
-            _next_cell_id=total_next_id
+            _next_cell_id=total_next_id,
+            generation=np.concatenate([t.generation for t in tissues])
         )
 
     def to_network(self) -> SNNNetwork:
@@ -522,7 +532,7 @@ class Tissue:
         total = 0
         arrays = [
             self.positions, self.directions, self.cell_id, self.parent_id, self.clone_id,
-            self.birth_stage, self.cell_type, self.region, self.expression,
+            self.birth_stage, self.generation, self.cell_type, self.region, self.expression,
             self.sign, self.alive, self.mode, self.shift_v, self.shift_s,
             self.base_weight, self.conn_radius, self.conn_prob, self.burst_period,
             self.burst_duty, self.poisson_hz, self.refractory, self.role,
