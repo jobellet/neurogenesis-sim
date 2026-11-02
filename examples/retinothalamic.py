@@ -69,10 +69,29 @@ def relay_frame(relay_mask=None):
     return np.asarray(lo, float), np.asarray(hi, float) - np.asarray(lo, float)
 
 
-def build_project(cond="WT", seed=0, n_prog=60, n_relay=200, n_waves=4, wave_ticks=300, relay_mask=None):
+def volume_matched_box(relay_mask):
+    """Return a box frame with the atlas mask's volume and the mask's bounding-box aspect ratio."""
+    from neurogenesis.geometry.voxel import VoxelMaskGeometry
+    geom = VoxelMaskGeometry.from_npz(str(relay_mask))
+    lo, hi = geom.bounding_box()
+    lo, hi = np.asarray(lo, float), np.asarray(hi, float)
+    size = hi - lo
+    occupied = int(np.count_nonzero(geom.mask))
+    if occupied == 0:
+        raise ValueError("relay mask is empty")
+    fraction = float(occupied) / geom.mask.size
+    return (lo + hi) / 2, size * fraction ** (1.0 / 3.0)
+
+
+def build_project(cond="WT", seed=0, n_prog=60, n_relay=200, n_waves=4, wave_ticks=300, relay_mask=None,
+                  relay_box=None):
     """Project dict of one condition. Wave origins are drawn from `seed` here (example-level, deterministic).
     `relay_mask`: an .npz voxel geometry (examples/atlas_relay_mask.py) used as the relay's shape instead of the box."""
-    rel_lo, rel_size = relay_frame(relay_mask)
+    if relay_mask is not None and relay_box is not None:
+        raise ValueError("relay_mask and relay_box are mutually exclusive")
+    rel_lo, rel_size = relay_frame(relay_mask) if relay_box is None else (
+        np.asarray(relay_box["center"], float) - np.asarray(relay_box["size"], float) / 2,
+        np.asarray(relay_box["size"], float))
     from neurogenesis.project.io import Project
     g = condition_genome(cond, wave_ticks)
     gene = lambda name, hi: {"type": "Gene", "path": name, "lo": 0.0, "hi": hi}
@@ -148,6 +167,8 @@ def build_project(cond="WT", seed=0, n_prog=60, n_relay=200, n_waves=4, wave_tic
     geometry = {"retina": {"type": "Box", "center": RET_C.tolist(), "size": RET_S.tolist()},
                 "relay": ({"type": "Box", "center": REL_C.tolist(), "size": REL_S.tolist()} if relay_mask is None
                           else {"type": "voxel_mask", "npz": str(relay_mask)})}
+    if relay_box is not None:
+        geometry["relay"] = {"type": "Box", "center": list(relay_box["center"]), "size": list(relay_box["size"])}
     return Project(geometry=geometry, fields=fields, genome=g, schedule=sched, pharmacology=PROFILE,
                    metadata=dict(name=f"retinothalamic {cond}", description="toy retina -> relay development"))
 
@@ -158,7 +179,7 @@ def _pearson(a, b):
     return float((a * b).sum() / d) if d > 0 else 0.0
 
 
-def measure(tissue, n_stim_ticks=50, relay_mask=None):
+def measure(tissue, n_stim_ticks=50, relay_mask=None, relay_box=None):
     """Metrics of one grown tissue (vectorised over synapses): mosaic regularity, map correlations and error, and the
     evoked separation of two opposite retinal corners in the relay (1 - cosine similarity of relay spike counts)."""
     from neurogenesis.analysis import nearest_neighbour_regularity
@@ -166,7 +187,11 @@ def measure(tissue, n_stim_ticks=50, relay_mask=None):
     ct, pos = tissue.cell_type, tissue.positions
     rgc, relay = np.flatnonzero(ct == RGC), np.flatnonzero(ct == RELAY)
     u_ret = (pos[:, :2] - (RET_C - RET_S / 2)[:2]) / RET_S[:2]
-    rel_lo, rel_size = relay_frame(relay_mask)
+    if relay_box is None:
+        rel_lo, rel_size = relay_frame(relay_mask)
+    else:
+        rel_lo = np.asarray(relay_box["center"], float) - np.asarray(relay_box["size"], float) / 2
+        rel_size = np.asarray(relay_box["size"], float)
     u_rel = (pos[:, :2] - rel_lo[:2]) / rel_size[:2]
     c = tissue.connectivity
     m = (ct[c.pre] == RGC) & (ct[c.post] == RELAY) & (c.weight != 0)
@@ -177,6 +202,21 @@ def measure(tissue, n_stim_ticks=50, relay_mask=None):
     has = rgc[wsum[rgc] > 0]
     ideal = 1.0 / (1.0 + np.exp(-4.0 * (u_ret[has] - 0.5) * 2.0))                # WT chemoaffinity target point
     err = float(np.linalg.norm(cen[has] - ideal, axis=1).mean()) if len(has) else float("nan")
+    if relay_mask is None:
+        feasible = ideal
+    else:
+        from neurogenesis.geometry.voxel import VoxelMaskGeometry
+        geom = VoxelMaskGeometry.from_npz(str(relay_mask))
+        occupied_xy = np.argwhere(np.any(geom.mask, axis=2))
+        # Use the projection of occupied voxel centres: a target is compared with the closest
+        # 2D location available anywhere through the relay's depth.
+        attainable = (occupied_xy + 0.5) / np.asarray(geom.mask.shape[:2], float)
+        feasible = np.empty_like(ideal)
+        for start in range(0, len(ideal), 64):
+            target = ideal[start:start + 64]
+            d2 = ((target[:, None, :] - attainable[None, :, :]) ** 2).sum(axis=2)
+            feasible[start:start + len(target)] = attainable[np.argmin(d2, axis=1)]
+    feasible_err = float(np.linalg.norm(cen[has] - feasible, axis=1).mean()) if len(has) else float("nan")
     net = tissue.to_network()
     for n in net.neurons:
         n.mode = 0                                                             # b2KO Poisson drivers off for the test
@@ -187,25 +227,26 @@ def measure(tissue, n_stim_ticks=50, relay_mask=None):
     nrm = np.linalg.norm(counts, axis=1)
     sep = float(1.0 - counts[0] @ counts[1] / (nrm[0] * nrm[1])) if nrm.min() > 0 else float("nan")
     return dict(mosaic_nnri=nearest_neighbour_regularity(pos[rgc, :2]), r_x=_pearson(u_ret[has, 0], cen[has, 0]),
-                r_y=_pearson(u_ret[has, 1], cen[has, 1]), topo_error=err, separation=sep, n_rgc=int(len(rgc)),
+                r_y=_pearson(u_ret[has, 1], cen[has, 1]), topo_error=err, topo_error_feasible=feasible_err,
+                separation=sep, n_rgc=int(len(rgc)),
                 n_relay=int(len(relay)), n_retinal_synapses=int(m.sum()), relay_spikes=counts.sum(1).tolist())
 
 
-def run(seeds, small=False, conditions=CONDITIONS, relay_mask=None):
+def run(seeds, small=False, conditions=CONDITIONS, relay_mask=None, relay_box=None):
     from neurogenesis.stages.base import run_schedule
     kw = dict(n_prog=45, n_relay=100, n_waves=2, wave_ticks=250) if small else {}
     out = {}
     for cond in conditions:
         rows = []
         for s in seeds:
-            p = build_project(cond, s, relay_mask=relay_mask, **kw)
-            rows.append(measure(run_schedule(p.to_dict(), p.genome, s), relay_mask=relay_mask))
+            p = build_project(cond, s, relay_mask=relay_mask, relay_box=relay_box, **kw)
+            rows.append(measure(run_schedule(p.to_dict(), p.genome, s), relay_mask=relay_mask, relay_box=relay_box))
         out[cond] = rows
     return out
 
 
 def summary(results):
-    keys = ("mosaic_nnri", "r_x", "r_y", "topo_error", "separation")
+    keys = ("mosaic_nnri", "r_x", "r_y", "topo_error", "topo_error_feasible", "separation")
     return {c: {k: [float(np.mean([r[k] for r in rows])), float(np.std([r[k] for r in rows], ddof=1)) if len(rows) > 1
                     else 0.0] for k in keys} for c, rows in results.items()}
 
@@ -217,6 +258,8 @@ def main():
     ap.add_argument("--cpu", action="store_true")
     ap.add_argument("--small", action="store_true", help="small tissue for tests")
     ap.add_argument("--relay-mask", help="relay shape from an atlas (.npz from examples/atlas_relay_mask.py)")
+    ap.add_argument("--compare-matched-box", action="store_true",
+                    help="also run a box with the atlas mask's volume and bounding-box aspect ratio")
     args = ap.parse_args()
     if args.cpu:
         os.environ["JAX_PLATFORMS"] = "cpu"
@@ -229,8 +272,16 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     p = build_project("WT", 0, relay_mask=args.relay_mask)
     p.save(out / "project.json")
-    (out / "stats.json").write_text(json.dumps(dict(seeds=args.seeds, small=args.small, summary=summ, per_seed=res),
-                                               indent=1))
+    stats = dict(seeds=args.seeds, small=args.small, summary=summ, per_seed=res)
+    if args.compare_matched_box:
+        if not args.relay_mask:
+            ap.error("--compare-matched-box requires --relay-mask")
+        center, size = volume_matched_box(args.relay_mask)
+        box = dict(center=center.tolist(), size=size.tolist())
+        box_results = run(range(args.seeds), small=args.small, relay_box=box)
+        stats["matched_box"] = dict(center=box["center"], size=box["size"],
+                                    summary=summary(box_results), per_seed=box_results)
+    (out / "stats.json").write_text(json.dumps(stats, indent=1))
     print("wrote", out / "stats.json")
 
 

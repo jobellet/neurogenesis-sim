@@ -179,7 +179,7 @@ def test_retinothalamic_with_an_atlas_shaped_relay(tmp_path):
                         "--out", str(tmp_path / "mask.npz")], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     sys.path.insert(0, str(ROOT))
-    from examples.retinothalamic import RELAY, build_project, measure
+    from examples.retinothalamic import RELAY, build_project, measure, volume_matched_box
     from neurogenesis.geometry.voxel import VoxelMaskGeometry
     from neurogenesis.stages.base import run_schedule
     mask = tmp_path / "mask.npz"
@@ -189,6 +189,17 @@ def test_retinothalamic_with_an_atlas_shaped_relay(tmp_path):
     assert np.all(geom.contains(t.positions[t.cell_type == RELAY]))
     m = measure(t, relay_mask=mask)
     assert m["n_retinal_synapses"] > 0 and m["r_x"] > 0.5 and m["r_y"] > 0.5
+    assert np.isfinite(m["topo_error_feasible"])
+    center, size = volume_matched_box(mask)
+    assert np.isclose(np.prod(size), geom.mask.sum() * np.prod(geom.pitch), rtol=1e-6)
+    box = dict(center=center.tolist(), size=size.tolist())
+    bp = build_project("WT", 0, n_prog=45, n_relay=100, n_waves=1, wave_ticks=250, relay_box=box)
+    bt = run_schedule(bp.to_dict(), bp.genome, 0)
+    blo = center - size / 2
+    assert np.all((bt.positions[bt.cell_type == RELAY] >= blo) &
+                  (bt.positions[bt.cell_type == RELAY] <= blo + size))
+    bm = measure(bt, relay_box=box)
+    assert np.isfinite(bm["topo_error_feasible"])
 
 
 def test_allen_annotation_unpack_and_manifest(tmp_path):
