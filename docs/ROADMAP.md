@@ -86,7 +86,7 @@ GUI (viz/): geometry and field editor, schedule editor, step-by-step development
 | Area | Present | Missing |
 |---|---|---|
 | Spiking | integer LIF kernel, bit-identical in Python, JAX and the browser; `two_compartment` and `hh` models; batched runs; cost estimator with machine calibration; STDP, Hebbian and three-factor plasticity (E1) | per-region choice of model |
-| Development | `BodyPlan` (regions, projections), one fixed growth order (placement → sign → differentiation → identity → axons), rule registry in 5 phases (placement, shift, target, probability, weight), knockouts, tonic currents; geometry, fields, `Tissue`, stage schedule (A1–A5, B1–B5, C1–C13, D2, D3; see `docs/STAGES.md`) | chunked growth (D4), and the parts of C8, D1 and D2 marked partial below |
+| Development | `BodyPlan` (regions, projections), one fixed growth order (placement → sign → differentiation → identity → axons), rule registry in 5 phases (placement, shift, target, probability, weight), knockouts, tonic currents; geometry, fields, `Tissue`, stage schedule (A1–A5, B1–B5, C1–C15, D2–D4; see `docs/STAGES.md`) | stages C16–C24, and the parts of C8, D1 and D2 marked partial below |
 | Genome / evolution | gene paths, [0, 1] coding, gene groups, JSON; island model, robust fitness, audits; `Param` sources (A3); fitting of `Fit` params (E2), inner-loop fitting and Pareto evolution (E3) | gradient-based fitting |
 | Modules | save / load, composition, plugins, neuron model recorded; versions, local registry (G1); validation assays (E4) | a shared online catalogue |
 | GUI | 3D viewer and per-neuron editing of a finished network | geometry and field editor, schedule editor, development preview, Project import / export |
@@ -102,20 +102,25 @@ two in step (`PARTIAL` in `neurogenesis/bridge/server.py`).
 |---|---|---|---|
 | A foundations | A1–A5 | | |
 | B geometry and fields | B1–B5 | | |
-| C stages | C1–C7, C9–C13 | C8 (cell-list search: 3 probability rules) | |
-| D performance | D3, D5 | D1 (no JAX path), D2 (sparse and dense draw different random numbers) | D4 |
+| C stages, first wave | C1–C7, C9–C13 | C8 (cell-list search: 3 probability rules) | |
+| C stages, second wave | C14, C15 | | C16–C24 |
+| D performance | D3, D4, D5 | D1 (no JAX path), D2 (sparse and dense draw different random numbers) | |
 | E learning | E1, E3, E4 | E2 (no gradients) | |
 | F viewer | F6 | F7 (no live activity streaming) | |
-| H desktop apps | H1, H2, H4 (macOS app) | H7 (macOS release only) | H3, H5, H6 (optional) |
-| K contracts | K1, K2 | | K3, K4 |
-| I connectome data | I1, I2, I4 | I3 (no ROI-mask adapters) | I5, I6 |
-| P pharmacology | P1, P2 | P3 (no reversal potentials) | P4, P5 |
-| N arbors | N1–N3 | | N4, N5 |
+| H desktop apps | H1–H4 (macOS app) | H7 (macOS release only) | H5 (Windows / Linux app), H6 (optional) |
+| K contracts | K1–K4 | K6 (`contacts` pending) | K4b (stages still clip at 31 ticks), K5 (gap junctions) |
+| I connectome data | I1, I2, I4, I5, I6 | I3 (no ROI-mask adapters) | |
+| P pharmacology | P1–P5 | | |
+| N arbors | N1–N5 | | |
+| J interoperability | J1 | J2 (simulator runs wait for J6), J13 (`CITATION.cff` only) | J3–J12 |
 | G modules and docs | G1, G2 | G3 | |
 
-Totals over 64 tasks: 43 done, 9 partial, 12 not started (H6, optional, counted as not started). The open tasks are
-the kernel contracts (K3, K4, then P4, N5), the Windows / Linux app (H3, H5, then H7), chunked growth (D4) and the
-data-driven tasks (I5, I6, N4), plus P5.
+Totals over 91 tasks: 57 done, 11 partial, 23 not started. Open work, by kind:
+- **New developmental stages** C16–C24 (C21–C23 first; C19 needs K6 `contacts`, C20 needs K5).
+- **Kernel contracts** K4b and K5 (all four kernels), the rest of K6.
+- **Interoperability** J3–J12 (exporters, cross-simulator checks, data as fields and targets, benchmarks, web demo).
+- **Windows / Linux app** H5, then H7 for those systems.
+- **Partial items** C8, D1, D2, E2, F7, G3, I3.
 
 ---
 

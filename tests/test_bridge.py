@@ -248,6 +248,7 @@ def test_capabilities_report_status_for_every_roadmap_phase():
     assert all(t["available"] == (t["status"] != "missing") for t in tasks)
     assert all(t.get("note") for t in tasks if t["status"] == "partial")
     phases = {t["task"].rstrip("0123456789") for t in tasks}
-    assert {"A", "B", "C", "D", "E", "F", "G", "H", "K", "I", "P", "N"} <= phases
+    assert {"A", "B", "C", "D", "E", "F", "G", "H", "K", "I", "P", "N", "J"} <= {p.rstrip("b") for p in phases}
     by = {t["task"]: t for t in tasks}
-    assert by["E3"]["status"] == "done" and by["C8"]["status"] == "partial" and by["D4"]["status"] == "missing"
+    assert by["E3"]["status"] == "done" and by["D4"]["status"] == "done" and by["C8"]["status"] == "partial"
+    assert by["K5"]["status"] == "missing"

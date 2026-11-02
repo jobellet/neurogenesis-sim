@@ -237,7 +237,10 @@ def stage_registry():
 STAGE_TASKS = [("C1", "seed_cells"), ("C2", "proliferate"), ("C3", "apoptosis"), ("C4", "migrate"), ("C5", "sort"),
                ("C5", "mosaic"), ("C6", "express"), ("C7", "differentiate"), ("C8", "grow_axons"), ("C9", "place_by_hand"),
                ("C9", "connect_by_hand"), ("C10", "prune"), ("C10", "scale"), ("C11", "refine_by_activity"),
-               ("C12", "myelinate"), ("C13", "freeze")]
+               ("C12", "myelinate"), ("C13", "freeze"), ("C14", "cell_cycle_clock"), ("C15", "temporal_competence"),
+               ("C16", "fasciculate"), ("C17", "choice_point"), ("C18", "partner_select"), ("C19", "cluster_boutons"),
+               ("C20", "gap_junction_couple"), ("C21", "transporter_switch"), ("C22", "competitive_elimination"),
+               ("C23", "critical_period_gate"), ("C24", "tissue_expand")]
 
 
 # Tasks whose code is present but incomplete, with what is missing (kept in step with docs/ROADMAP.md, section 3).
@@ -247,11 +250,21 @@ PARTIAL = {
     "D2": "the sparse mode draws different random numbers from the dense one; legacy grow() stays dense",
     "E2": "gradient-free (CMA-ES) only, no JAX gradients",
     "F7": "development checkpoints and job progress events; no live streaming of simulation activity",
-    "H7": "the release workflow builds the macOS app; Windows and Linux builds wait for H5",
     "G3": "tutorials and the stage reference exist; no generated stage reference",
-    "I3": "affine registration and clipped delays; no ROI-mask or column adapters",
-    "P3": "signed integer weights per context; reversal potentials wait for P4",
+    "H7": "the release workflow builds the macOS app and runtimes; the Windows and Linux apps wait for H5",
+    "I3": "affine registration; no ROI-mask or column adapters",
+    "K6": "Tissue.cycling and SparseConnectivity.plastic done; per-synapse contacts (C19) pending",
+    "J2": "SONATA export / import done; runs in BMTK / NEST wait for J6",
+    "J13": "CITATION.cff only; no Zenodo DOI or JOSS paper yet",
 }
+
+
+def _src_has(module, text):
+    """Whether a module's source contains `text` (for features without a public name of their own)."""
+    try:
+        return text in inspect.getsource(importlib.import_module(module))
+    except Exception:
+        return False
 
 
 def _repo_has(*parts):
@@ -283,7 +296,7 @@ def m_capabilities(p):
         ("D2", "Sparse guidance", _any(("neurogenesis.development.sparse_guidance", "sparse_guidance"), ("neurogenesis.development.grow", "sparse_guidance"))),
         ("D3", "Development cost model", _any(("neurogenesis.devcost", "estimate_development"), ("neurogenesis.cost", "estimate_project"),
                                               ("neurogenesis.cost", "stage_cost"))),
-        ("D4", "Chunked growth", _any("neurogenesis.development.chunked", "neurogenesis.chunked")),
+        ("D4", "Chunked growth", _any(("neurogenesis.streaming", "grow_axons_streaming"), "neurogenesis.development.chunked")),
         ("D5", "Performance regression checks", _repo_has("scripts", "benchmark_performance.py")),
         ("E1", "Plasticity", _has("neurogenesis.spiking.plasticity", "STDPRule")),
         ("E2", "Supervised fitting", _any("neurogenesis.fitting", "neurogenesis.fit", "neurogenesis.optim")),
@@ -303,24 +316,41 @@ def m_capabilities(p):
         ("H7", "Release workflow", _repo_has(".github", "workflows", "release.yml")),
         ("K1", "Project schema 1.1.0", _has("neurogenesis.project.schema", "migrate_100_to_110")),
         ("K2", "Tissue extensions", _has("neurogenesis.tissue", "_SYNAPSE_OPTIONAL")),
-        ("K3", "uint32 synapse store", False),
-        ("K4", "Delays over 31 ticks", False),
+        ("K3", "uint32 synapse store", _has("neurogenesis.spiking.network", "SNNNetwork")
+         and hasattr(importlib.import_module("neurogenesis.spiking.network").SNNNetwork, "from_arrays")),
+        ("K4", "Delays over 31 ticks in the kernels", _src_has("neurogenesis.spiking.reference", "History words")),
+        ("K4b", "Delays over 31 ticks in the stages", False),
+        ("K5", "Electrical synapses in the kernels", False),
+        ("K6", "Optional Tissue fields (cycling, plastic, contacts)", _src_has("neurogenesis.tissue", "plastic")),
         ("I1", "Dataset manifests and download", _has("neurogenesis.data.catalogue", "fetch")),
         ("I2", "Streaming connectome import", _has("neurogenesis.data.importer", "import_connectome")),
         ("I3", "Coordinate registration", _has("neurogenesis.data.importer", "transform_positions")),
         ("I4", "Synapse count to weight", _has("neurogenesis.data.importer", "map_weights")),
         ("I5", "Cell-type statistical targets", _has("neurogenesis.data.targets")),
-        ("I6", "Column benchmark example", _repo_has("examples", "column_benchmark.py")),
+        ("I6", "Column benchmark example", _repo_has("examples", "optic_lobe_column.py")),
         ("P1", "Pharmacology profiles", _has("neurogenesis.pharmacology", "Profile")),
         ("P2", "Receptor expression and assignment", "assign_receptors" in stages),
         ("P3", "Developmental switches", "pharmacology" in stages),
-        ("P4", "Multi-channel kernels", False),
-        ("P5", "Neuromodulation", False),
+        ("P4", "Multi-channel and conductance synapses", _src_has("neurogenesis.spiking.models.two_compartment", "e_rev")),
+        ("P5", "Neuromodulation", _has("neurogenesis.neuromodulation")),
         ("N1", "Arbor store and SWC", _has("neurogenesis.arbors", "ArborStore")),
         ("N2", "Stage grow_arbors", "grow_arbors" in stages),
         ("N3", "Arbor synapses and path-length delays", "arbor_synapses" in stages),
-        ("N4", "Connectome skeleton import", False),
-        ("N5", "Dendritic attenuation", False),
+        ("N4", "Connectome skeleton import", _has("neurogenesis.data.skeletons")),
+        ("N5", "Dendritic attenuation", _has("neurogenesis.dendritic")),
+        ("J1", "Interop core", _has("neurogenesis.interop.core", "export_network")),
+        ("J2", "SONATA in and out", _has("neurogenesis.interop.sonata")),
+        ("J3", "NIR export", _has("neurogenesis.interop.nir")),
+        ("J4", "PyNN export", _has("neurogenesis.interop.pynn")),
+        ("J5", "NeuroML 2 export", _has("neurogenesis.interop.neuroml")),
+        ("J6", "Cross-simulator checks", False),
+        ("J7", "Morphologies in through navis / neurom", False),
+        ("J8", "Gene-expression atlases as fields", False),
+        ("J9", "Recordings as fit targets", False),
+        ("J10", "Shared connectivity metrics", False),
+        ("J11", "Public benchmarks", False),
+        ("J12", "Zero-install web demo", False),
+        ("J13", "Citable releases", _repo_has("CITATION.cff")),
         ("core", "Spiking kernel and models", _has("neurogenesis.spiking.models", "MODELS")),
         ("core", "Body plans and growth", _has("neurogenesis.development", "grow")),
         ("core", "Evolution", _has("neurogenesis.evolution", "evolve")),
