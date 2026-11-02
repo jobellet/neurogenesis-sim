@@ -56,7 +56,7 @@ alive flag, and sparse connectivity (pre, post, weight, delay). `tissue.to_netwo
 
 ## Spiking network and neuron models
 An `SNNNetwork` holds neurons (integer LIF parameters: leak shift, synaptic shift, threshold, refractory period;
-or drivers: Poisson, burster) and synapses (weight, delay in ticks of 1 ms, at most 31). The same network runs with
+or drivers: Poisson, burster) and synapses (weight, delay in ticks of 1 ms, up to 255). The same network runs with
 `lif_int` (bit-identical across implementations), `two_compartment` or `hh`. See {doc}`../reference/neuron-models`.
 
 ## Evolution

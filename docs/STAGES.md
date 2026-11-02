@@ -216,6 +216,13 @@ default) and optional `cell_type`, `birth_stage`, `sign`, `mode`, `shift_v`, `sh
 
 ## Maturation (C10–C12, `neurogenesis/stages/refinement.py`)
 
+**Plasticity mask (K6).** `tissue.connectivity.plastic` is an optional per-synapse bool array; absent (None, the
+default) means every synapse is plastic and the stages below behave exactly as without it. Synapses with
+`plastic == False` keep their weight in `refine_by_activity`, `scale` and `neuromodulate` and are never removed by
+`prune` (`scale` still counts them in each cell's incoming sum). The mask follows `take` / `concat` / `append`,
+`compact`, `subset`, `concatenate`; new synapses are plastic. `to_network` / `from_network` carry it only as the
+in-memory attribute `_plastic` of the network (network files do not store it).
+
 **`prune` (C10).** Removes synapses with `|w| < threshold` (default 0, neutral). With `min_coactivity`, it also
 removes synapses whose presynaptic spikes, arriving after the synapse delay, were followed by a postsynaptic spike
 within `window` ticks (default 5) fewer than `min_coactivity` times ("use it or lose it", Katz & Shatz 1996, Science).
@@ -306,6 +313,36 @@ example profile with cited entries is in `examples/profiles/example_receptors.js
 Conditions use the variables of `differentiate` conditions. Each stage without its params (`rules` / `profile`) is a
 no-op. **Not implemented:** conductance-based kernels (P4) and neuromodulation (P5); the legacy `receptor_sign` rule
 is not re-expressed as a profile.
+
+## Neuromodulation and dendrites (P5, N5, `neurogenesis/neuromodulation.py`, `neurogenesis/dendritic.py`)
+
+**`neuromodulate` (P5).** Volume-transmitted neuromodulation gating plasticity: the spikes of `modulator_cells` are
+low-pass filtered (`tau_ms`, default 50 ms) and spread in space with an exponential kernel (`space_constant`, default
+50 space units), and the resulting modulator trace at each synapse multiplies a three-factor STDP update (eligibility
+time constant `tau_e` 50 ms, `tau_plus` / `tau_minus` 20 ms, learning rate `eta` 0.05, bounds `w_min` 0, `w_max` 1000).
+| Param | Default | Meaning |
+|---|---|---|
+| `modulator_cells` | [] | indices of the cells releasing the modulator; empty = no-op |
+| `spikes` | none | recorded spike raster (ticks × cells) the update uses; absent = no-op |
+| `space_constant`, `tau_ms` | 50.0, 50.0 | spatial (space units) and temporal (ms) constants of the volume signal |
+| `eta`, `tau_plus`, `tau_minus`, `tau_e`, `w_min`, `w_max` | 0.05, 20, 20, 50, 0, 1000 | plasticity rule |
+
+Limits: the parameters are read as plain values, not `Param`s (no gene or field control yet); the spike raster must be
+supplied (the stage does not simulate); the spatial kernel is computed between all modulator cells and all targets.
+
+**`dendritic_attenuate` (N5).** Passive dendritic filtering: each synaptic weight is multiplied by
+`exp(−d / length_constant)`, where `d` is the synapse's dendritic distance (computed from `post_node` and the
+morphology's path length to the soma when missing); a non-zero weight keeps a magnitude of at least 1. With
+`dendrite_velocity`, `round(d / velocity)` ticks are added to the delay; with `distal_compartment_threshold`, the target
+cells of synapses at or beyond that distance are marked compartment 1 (distal).
+| Param | Default | Meaning |
+|---|---|---|
+| `length_constant` | 100.0 | dendritic length constant (space units); a `Param` |
+| `dendrite_velocity` | none | space units per tick for the added dendritic delay; a `Param` |
+| `distal_compartment_threshold` | none | distance (space units) beyond which targets are marked distal; a `Param` |
+
+Empty params = no-op. Limits: synapses without a dendritic distance are left unattenuated; the added delays are still
+clipped to `max_delay` (default 255 ticks), with a warning when clipped.
 
 ## Geometry (B2, `neurogenesis/geometry/mesh.py`, `voxel.py`)
 - **`mesh`** (`MeshGeometry(vertices, faces, resolution=32)`, `from_obj`, `from_stl` for ASCII and binary STL).

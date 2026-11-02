@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 import warnings
+import copy
 
 from neurogenesis.neuromodulation import (
     VolumeModulator,
@@ -248,3 +249,19 @@ def test_integration_run_schedule():
     expected_distal = 10.0 * np.exp(-1.0)
     np.testing.assert_almost_equal(t.connectivity.weight[1], expected_distal)
 
+
+
+def test_k6_neuromodulate_keeps_non_plastic_synapses():
+    from neurogenesis.neuromodulation import NeuromodulateStage
+    t = Tissue.empty()
+    t.add_cells(3)
+    t.connectivity = SparseConnectivity(np.array([0, 0], np.int32), np.array([1, 1], np.int32),
+                                        np.array([10, -10], np.int32), np.array([1, 1], np.int32))
+    spikes = np.zeros((10, 3))
+    spikes[0, 0] = spikes[1, 1] = spikes[2, 2] = 1.0
+    params = {"modulator_cells": [2], "spikes": spikes, "eta": 0.5, "tau_e": 5.0}
+    free = NeuromodulateStage().run(copy.deepcopy(t), params, {}, {}, np.random.default_rng(0))
+    assert free.connectivity.weight[0] != 10
+    t.connectivity.plastic = np.array([False, True])
+    out = NeuromodulateStage().run(t, params, {}, {}, np.random.default_rng(0))
+    assert out.connectivity.weight[0] == 10 and out.connectivity.weight[1] == free.connectivity.weight[1]
