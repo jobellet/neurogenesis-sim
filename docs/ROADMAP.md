@@ -234,6 +234,48 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 - the documented biological behaviour on a toy tissue (e.g. C4: inside-out order of birth vs depth);
 - cost declaration within a factor 3 of measured memory and time.
 
+### Phase C, second wave: developmental stages C14–C24 (from a literature review)
+
+Eleven stages proposed from the maintainer's literature review (NotebookLM notes, 2026-11-02). Each follows the stage
+contract (`Tissue × Params × rng → Tissue`), every parameter a `Param`, neutral parameters = no-op, cost declared
+O(N) or O(E) (cell list for neighbours), and a test of the documented behaviour on a toy tissue, phrased as "in this
+simulation". Numbers (cycle lengths, fractions, bouton counts, ages) are `Param`s with defaults taken from the cited
+sources; the sources and default values are to be filled in from the review (see the PLACEHOLDER below) before each
+task starts.
+
+| Task | Stage | Mechanism | What it changes | Needs |
+|---|---|---|---|---|
+| C14 | `cell_cycle_clock` | Cell-cycle algorithm of the ventricular epithelium (Takahashi, Nowakowski and Caviness): a fixed number of integer cycles; cycle length and its G1 phase lengthen; the fraction leaving the cycle (Q) rises while the self-renewing fraction (P = 1 − Q) falls. | Per cycle: reads `generation` (C2), sets each progenitor's exit probability Q(generation) (a `Param`: table, gene or field) and marks exiting cells postmitotic; optionally records the cycle length per generation as the birth time used by later stages. | C2; K6 (`cycling` flag) |
+| C15 | `temporal_competence` | Progressive, irreversible loss of progenitor competence: early progenitors can make deep-layer and later superficial-layer neurons, older ones lose the early fates. | Updates competence expression channels as a one-way cascade (a channel can be switched off, never back on) driven by `generation` or stage index; `differentiate` conditions read them, so the same rule table gives birth-order-dependent fates. | C6, C7, C14 |
+| C16 | `fasciculate` | Follower axons bundle along pioneer tracts through homophilic adhesion (e.g. L1, NCAM, Fasciclin II) and leave them where anti-adhesive cues act. | On growing arbors (N2): growth cones within a radius of a pioneer branch steer towards its direction, weighted by an adhesion code (`Param` matrix); a defasciculation field releases them. For `grow_axons` (no trajectories): followers inherit their pioneer's target offset, i.e. correlated targets. | N2, D1 |
+| C17 | `choice_point` | Choice points (e.g. a midline): after crossing, guidance receptors are switched (attraction off, repulsion on), which prevents re-crossing; a new cue then steers the axon. | On N2 arbors: when a growth cone enters a choice-point geometry or field, its guidance rule set is replaced by a second one (`Param`s), and re-entry is blocked. For `grow_axons`: a projection through a waypoint region (target of leg 1 = source frame of leg 2). | N2, C8 |
+| C18 | `partner_select` | Proximity is not enough (deviation from Peters' rule): synapses form only between compatible partners, through transmembrane recognition pairs (e.g. neurexin–neuroligin isoforms biasing excitatory versus inhibitory synapses). | Filters candidate synapses (from `grow_axons` or `arbor_synapses`) with a compatibility table of presynaptic × postsynaptic recognition channels (`Param` matrix, probabilities), optionally also by transmitter–receptor match (P2). Generalises the `identity_expression` rule. | P2, N3 |
+| C19 | `cluster_boutons` | Connection multiplicity is cell-type specific: some connections use one or two contacts, others (e.g. basket-cell innervation) many clustered contacts per target, on specific compartments (soma, proximal dendrite, axon initial segment). | Draws a contact count per synapse from a per (pre type, post type) distribution (`Param`), stored as a per-synapse `contacts` field (weights scale with it); with morphology (N1), assigns `post_node`s on the chosen compartment labels. | K6; N1/N3 for placement |
+| C20 | `gap_junction_couple` | Early circuits are coupled by gap junctions before chemical synapses mature; the coupling carries early spontaneous waves. | Creates symmetric electrical couplings between neighbouring cells (radius, probability, conductance, developmental window as `Param`s), stored apart from chemical synapses; `refine_by_activity` and the kernels simulate them. | K5 (kernels), D1 |
+| C21 | `transporter_switch` | Chloride transporter switch (NKCC1 to KCC2): GABA / glycine depolarise immature neurons and hyperpolarise mature ones. | Sets each cell's chloride reversal potential (P4 conductance synapses) or its pharmacology context (P3) from its maturation: birth stage, time since birth, or accumulated activity (`Param`s). Extends the existing whole-tissue `immature` / `mature` context of the `pharmacology` stage to a per-cell, gradual switch. | P3, P4 |
+| C22 | `competitive_elimination` | Synapse elimination is competitive: an input is removed when competing inputs onto the same target are active and it is not (neuromuscular junction, climbing fibres), not by disuse alone. | From the activity recorded in `refine_by_activity`: for each target, inputs whose activity (or correlation with the target) falls below a fraction of their strongest competitor lose weight or are removed. O(E) grouped by target. Differs from `prune` (absolute weight or coactivity). | C11 |
+| C23 | `critical_period_gate` | Critical-period closure: maturation of inhibitory (e.g. parvalbumin-expressing) cells and perineuronal nets stabilise synapses and stop large-scale plasticity. | Sets a per-cell or per-synapse `plastic` mask from a maturation criterion (`Param`s: a cell type's maturity, stage index, a field); `refine_by_activity`, `prune`, `scale` and later structural stages skip masked synapses. | K6, C10, C11 |
+| C24 | `tissue_expand` | Tissue grows: proliferation pushes existing cells, layers and tracts outward instead of crowding a fixed box (as in growth simulators such as Cx3D and NeuroDevSim). | Moves cells by a displacement field (radial, anisotropic or a vector `Field`) or by local volume pressure from cell density (cell list), and updates region boxes and geometries. Synapses keep their delays unless asked to recompute them from the new distances (a `Param`). | B1–B5, D1 |
+
+**Contract changes needed (each a dedicated PR with versioned docs, as K1–K4):**
+- **K5. Electrical synapses in the kernels.** A per-neuron coupling current `g · (v_j − v_i)` over a symmetric coupling
+  list, in all four kernels (Python, JAX, browser, nglif) with equivalence tests, in NGB1 as an extension table, and in
+  the cost model. Integer form to be defined (e.g. `(g · (v_j − v_i)) >> shift_g`), deterministic.
+- **K6. Optional Tissue fields.** `cycling` (bool, C14), `plastic` (per synapse, C23) and `contacts` (per synapse, int,
+  C19), defaulted so that existing code and networks are unchanged; carried by add / compact / subset / concatenate and
+  into the network where they matter (contacts as weights, plastic for later plasticity).
+
+**Order and priorities.** C14 → C15 first (they make birth-order-dependent layering emerge in G2.3, instead of being
+imposed); C21, C22, C23 next (they use existing P3 / P4 and C11); C18 and C24 independent; C16, C17, C19 after N2 / N3;
+C20 after K5.
+
+```{admonition} PLACEHOLDER
+:class: placeholder
+Sources and default values for C14–C24, to be taken from the maintainer's literature review: cell-cycle lengths and
+Q per cycle (C14), competence windows (C15), contact counts per connection type (C19), the timing of the chloride
+switch (C21), elimination rules (C22), critical-period onset and closure (C23).
+```
+
 ### Phase D: performance
 
 **D1. Cell lists / spatial hash.**
@@ -527,6 +569,10 @@ K1 (schema 1.1.0) ─┬─ K2 (Tissue SOA) ─┬─ I1 ─ I2 ─ I3 ─┐
                    └─ (after H2) ── K3 (uint32 store) ─┬─ K4 (multi-word delays) ── P4 (channels) ── P5
                                                        └─ N3 full delays
 
+Second wave of stages:
+C2 ─ C14 ─ C15 ─ (G2.3 with emergent layering) ;  P3 + P4 ─ C21 ;  C11 ─ C22 ;  K6 ─ C23, C19 ;  K5 ─ C20 ;
+N2 ─ C16, C17 ;  P2 + N3 ─ C18 ;  B + D1 ─ C24
+
 G1 any time after A1 ; G2 after the stages it uses ; G3 last
 ```
 
@@ -537,3 +583,5 @@ G1 any time after A1 ; G2 after the stages it uses ; G3 last
 4. **M4:** H1–H4 merged; native desktop apps (macOS SwiftUI in `desktop/mac/`, Windows + Linux Avalonia in `desktop/avalonia/`) load a Project, dynamically render schedule and parameter editors from the UI schema, run development through the bridge, and simulate live with `nglif`.
 5. **M5:** K1–K4, Phase I (connectome data layer & streaming import), Phase P (pharmacology profiles & multi-channel kernels), Phase N (morphology arbors & SWC import); example I6 (optic lobe column benchmark) runs.
 6. **M6:** Re-express legacy growth as real C stages (placement, differentiation, identity, guidance) with fingerprints deliberately regenerated and certified.
+8. **M8:** C14, C15, C21–C23 merged; example G2.3 grows its layers from the cell-cycle clock and temporal competence
+   (birth order predicts layer across development seeds), with a GABA polarity switch and competitive refinement.
