@@ -1,16 +1,16 @@
 """A layered sheet grown from progenitors: developmental pipeline example.
 
 Pipeline:
-  1. seed_cells in a Sheet2D (ventricular zone scaffold)
-  2. proliferate (asymmetric divisions producing deep-layer daughters)
-  3. proliferate (asymmetric divisions producing superficial-layer daughters)
-  4. migrate to target layers defined by LayerStackField, where target layer
-     emerges from development (daughter type / generation modulated by a gene)
-     reproducing inside-out cortical neurogenesis (Rakic 1974 Science; Angevine & Sidman 1961 Nature)
-  5. differentiate by layer (assigning excitatory and inhibitory phenotypes)
-  6. grow_axons with laminar targeting (chemoaffinity)
-  7. refine_by_activity (STDP plasticity)
-  8. prune (threshold weak synapses)
+  1. seed_cells in a Sheet2D (progenitor zone scaffold)
+  2. cell_cycle_clock (C14) -> temporal_competence (C15) -> proliferate (C2) across 3 neurogenic cycles,
+     where exiting progenitors freeze their exit generation and competence channels
+  3. differentiate (C7) from competence channels at cycle exit (assigning deep, mid, superficial excitatory
+     and superficial inhibitory phenotypes)
+  4. migrate (C4) to the target layer of each cell's type in a LayerStackField, producing emergent inside-out
+     laminar organization (Rakic 1974 Science; Angevine & Sidman 1961 Nature; McConnell & Kaznowski 1991 Science)
+  5. grow_axons (C8) with laminar targeting (chemoaffinity)
+  6. refine_by_activity (C11, STDP plasticity)
+  7. prune (C10, threshold weak synapses)
 
 Usage:
     python examples/layered_sheet.py [--out example_out] [--cpu] [--seed 42]
@@ -82,58 +82,81 @@ def build_project() -> Project:
         "layer_scale": 1.0,
     }
 
+    competence_channels = [
+        {"channel": 0, "until": 1},
+        {"channel": 1, "until": 2},
+        {"channel": 2, "until": 3},
+    ]
+    q_table = [0.35, 0.5, 1.0]
+    tc_table = [9.0, 13.0, 18.0]
+
     schedule = [
         {
+            "name": "seed",
             "operator": "seed_cells",
             "params": {
                 "geometry": "sheet",
-                "N": 40,
+                "N": 25,
                 "region": 0,
                 "cell_type": 0,
             },
         },
+    ]
+
+    for cc in range(1, 4):
+        schedule.extend([
+            {
+                "name": f"clock_cc{cc}",
+                "operator": "cell_cycle_clock",
+                "params": {
+                    "q_table": q_table,
+                    "T_C": tc_table,
+                },
+            },
+            {
+                "name": f"competence_cc{cc}",
+                "operator": "temporal_competence",
+                "params": {
+                    "channels": competence_channels,
+                },
+            },
+            {
+                "name": f"proliferate_cc{cc}",
+                "operator": "proliferate",
+                "params": {
+                    "prob": 1.0,
+                    "max_cells": 120,
+                    "jitter": 0.1,
+                },
+            },
+        ])
+
+    schedule.extend([
         {
-            "operator": "proliferate",
+            "name": "differentiate_from_competence",
+            "operator": "differentiate",
             "params": {
-                "prob": 0.8,
-                "max_cells": 75,
-                "asymmetric_prob": 0.85,
-                "daughter_type": 1,
-                "jitter": 0.1,
+                "types": [
+                    {"type_id": 2, "condition": "(expr[2] > 0.5) & (cell_id % 4 != 0)", "sign": 1, "base_weight": 600},
+                    {"type_id": 3, "condition": "(expr[2] > 0.5) & (cell_id % 4 == 0)", "sign": -1, "base_weight": 400},
+                    {"type_id": 1, "condition": "expr[1] > 0.5", "sign": 1, "base_weight": 500},
+                    {"type_id": 0, "condition": "expr[0] > 0.5", "sign": 1, "base_weight": 300},
+                ]
             },
         },
         {
-            "operator": "proliferate",
-            "params": {
-                "prob": 0.8,
-                "max_cells": 120,
-                "asymmetric_prob": 0.85,
-                "daughter_type": 2,
-                "jitter": 0.1,
-            },
-        },
-        {
+            "name": "migrate_to_type_layer",
             "operator": "migrate",
             "params": {
                 "steps": 30,
                 "speed": 1.0,
                 "direction": [0.0, 0.0, 1.0],
                 "layer_field": "layers",
-                "target_layer": {"type": "Expr", "formula": "cell_type * layer_scale"},
+                "target_layer": {"type": "Expr", "formula": "np.minimum(cell_type, 2) * layer_scale"},
             },
         },
         {
-            "operator": "differentiate",
-            "params": {
-                "types": [
-                    {"type_id": 0, "condition": "field_layers[:, 0] == 0", "sign": 1, "base_weight": 300},
-                    {"type_id": 1, "condition": "field_layers[:, 0] == 1", "sign": 1, "base_weight": 500},
-                    {"type_id": 2, "condition": "(field_layers[:, 0] == 2) & (cell_id % 4 != 0)", "sign": 1, "base_weight": 600},
-                    {"type_id": 3, "condition": "(field_layers[:, 0] == 2) & (cell_id % 4 == 0)", "sign": -1, "base_weight": 400},
-                ]
-            },
-        },
-        {
+            "name": "grow_axons",
             "operator": "grow_axons",
             "params": {
                 "projections": ["0->0"],
@@ -150,6 +173,7 @@ def build_project() -> Project:
             },
         },
         {
+            "name": "refine_by_activity",
             "operator": "refine_by_activity",
             "params": {
                 "rule": "stdp",
@@ -163,24 +187,28 @@ def build_project() -> Project:
             },
         },
         {
+            "name": "prune",
             "operator": "prune",
             "params": {
                 "threshold": 20,
             },
         },
-    ]
+    ])
 
     return Project(
         geometry=geometry,
         fields=fields,
         genome=genome,
         schedule=schedule,
-        metadata={"name": "Layered Sheet", "description": "Layered sheet grown from progenitors with inside-out neurogenesis"},
+        metadata={
+            "name": "Layered Sheet",
+            "description": "Layered sheet grown from progenitors with emergent inside-out neurogenesis (C14 -> C15 -> differentiate -> migrate)",
+        },
     )
 
 
 def analyze_circuit(tissue):
-    """Compute cells per layer, layer connection matrix, delay distribution, and birth-order rank correlation."""
+    """Compute cells per layer, layer connection matrix, delay distribution, and birth-cycle rank correlation."""
     num_types = 4
     cells_per_type = np.bincount(tissue.cell_type, minlength=num_types)
 
@@ -204,7 +232,7 @@ def analyze_circuit(tissue):
         inhibitory_synapses = 0
         excitatory_synapses = 0
 
-    corr, pval = _spearmanr(tissue.birth_stage, tissue.positions[:, 2])
+    corr, pval = _spearmanr(tissue.generation, tissue.positions[:, 2])
 
     return {
         "cells_per_type": cells_per_type.tolist(),
@@ -237,8 +265,8 @@ def main():
 
     print(f"Layered sheet grown: {stats['total_cells']} cells, {stats['total_synapses']} synapses "
           f"({stats['excitatory_synapses']} exc, {stats['inhibitory_synapses']} inh).")
-    print(f"Cells per type (0: VZ/deep exc, 1: mid exc, 2: superficial exc, 3: superficial inh): {stats['cells_per_type']}")
-    print(f"Birth order vs laminar depth rank correlation: {stats['birth_order_rank_corr']:.3f} (p={stats['birth_order_p_value']:.2e})")
+    print(f"Cells per type (0: deep exc, 1: mid exc, 2: superficial exc, 3: superficial inh): {stats['cells_per_type']}")
+    print(f"Birth cycle vs laminar depth rank correlation: {stats['birth_order_rank_corr']:.3f} (p={stats['birth_order_p_value']:.2e})")
     print("Connection matrix (pre \\ post):")
     for row in stats["connection_matrix"]:
         print(f"  {row}")
@@ -252,9 +280,6 @@ def main():
     net.save_json(out_dir / "network.json")
     with open(out_dir / "stats.json", "w", encoding="utf-8") as f:
         json.dump(stats, f, indent=2)
-
-    print(f"Wrote outputs to {out_dir}")
-    return stats
 
 
 if __name__ == "__main__":
