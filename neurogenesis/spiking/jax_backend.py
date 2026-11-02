@@ -25,13 +25,28 @@ def pack(network: SNNNetwork, n_pad: int | None = None, e_pad: int | None = None
     """Numpy arrays of a network, padded to n_pad neurons, e_pad synapses and p_pad Poisson neurons (the Poisson list is
     scanned sequentially at every tick, so it is kept short: by default the number of Poisson neurons, at least 1)."""
     n = network.num_neurons
-    syn = [s for s in network.synapses if s.pre < n and s.post < n]
+    if network.synapse_arrays is not None:
+        sa = network.synapse_arrays
+        mask = (sa["pre"] < n) & (sa["post"] < n)
+        s_pre = sa["pre"][mask].astype(np.uint32)
+        s_post = sa["post"][mask].astype(np.uint32)
+        s_w = sa["weight"][mask].astype(np.int32)
+        s_d = sa["delay"][mask].astype(np.int32)
+        n_syn = len(s_pre)
+    else:
+        syn = [s for s in network.synapses if s.pre < n and s.post < n]
+        s_pre = np.asarray([s.pre for s in syn], np.uint32)
+        s_post = np.asarray([s.post for s in syn], np.uint32)
+        s_w = np.asarray([s.weight for s in syn], np.int32)
+        s_d = np.asarray([s.delay for s in syn], np.int32)
+        n_syn = len(syn)
     N = n_pad or n
-    E = e_pad or max(len(syn), 1)
-    assert N >= n and E >= len(syn)
+    E = e_pad or max(n_syn, 1)
+    assert N >= n and E >= n_syn
     f = lambda attr, dt, fill=0: np.asarray([getattr(x, attr) for x in network.neurons] + [fill] * (N - n), dt)
     mode = f("mode", np.int32)
     pois = np.nonzero(mode[:n] == 1)[0]
+    pad_e = E - n_syn
     out = dict(
         n=np.int32(n),
         mode=mode, shift_v=f("shift_v", np.int32, 5), shift_s=f("shift_s", np.int32, 4),
@@ -41,11 +56,11 @@ def pack(network: SNNNetwork, n_pad: int | None = None, e_pad: int | None = None
         poisson_thresh=np.asarray([min(4294967295, int((x.poisson_hz / 1000.0) * 4294967296)) for x in network.neurons] + [0] * (N - n), np.uint32),
         pois_idx=np.concatenate([pois, np.full((p_pad or max(len(pois), 1)) - len(pois), -1)]).astype(np.int32),  # in index order
         n_pois=np.int32(len(pois)),
-        pre=np.asarray([s.pre for s in syn] + [0] * (E - len(syn)), np.int32),
-        post=np.asarray([s.post for s in syn] + [0] * (E - len(syn)), np.int32),
-        weight=np.asarray([s.weight for s in syn] + [0] * (E - len(syn)), np.int32),
-        delay=np.asarray([s.delay for s in syn] + [1] * (E - len(syn)), np.int32),
-        valid=np.asarray([True] * len(syn) + [False] * (E - len(syn))),
+        pre=np.concatenate([s_pre, np.zeros(pad_e, np.uint32)]) if pad_e else s_pre,
+        post=np.concatenate([s_post, np.zeros(pad_e, np.uint32)]) if pad_e else s_post,
+        weight=np.concatenate([s_w, np.zeros(pad_e, np.int32)]) if pad_e else s_w,
+        delay=np.concatenate([s_d, np.ones(pad_e, np.int32)]) if pad_e else s_d,
+        valid=np.concatenate([np.ones(n_syn, bool), np.zeros(pad_e, bool)]) if pad_e else np.ones(n_syn, bool),
     )
     out["mode"][n:] = 0
     return out

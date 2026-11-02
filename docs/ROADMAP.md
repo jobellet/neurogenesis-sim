@@ -369,6 +369,7 @@ Before implementing Phase I, P, and N, core contracts are updated in dedicated, 
 - Vectorized `to_csr()` via `argsort(pre)` with a thin compatibility list view.
 - Disallow JSON for networks of this scale; stream to `.npz` or NGB1.
 - Synchronized after Mac agent's H2 merges (aligning NGB1 and `nglif` C kernel on uint32).
+- **Status:** done: `SNNNetwork.from_arrays`, `_SynapseListView`, vectorized `to_csr` with `uint32` indices, `save_npz` / `load_npz`, `save_json` scale guard, and `uint32` `colIdx` in Python, JAX, browser (`viz/src/sim/types.ts`, `memory.ts`), and C (`nglif`).
 
 **K4. Multi-word spike history for extended conduction delays (kernel contract).**
 - Generalize spike history from 1 word (max 31 ticks) to `ceil((max_delay + 1) / 32)` 32-bit words per neuron across all four kernels (Python, JAX, browser `kernel.ts`, and C `nglif`).

@@ -47,7 +47,11 @@ class IntegerSNNSimulator:
         )
 
         # CSR Graph
-        self.row_ptr, self.col_idx, self.weights, self.delays = network.to_csr()
+        row_ptr, col_idx, weights, delays = network.to_csr()
+        self.row_ptr = row_ptr.astype(np.uint32)
+        self.col_idx = col_idx.astype(np.uint32)
+        self.weights = weights.astype(np.int16)
+        self.delays = delays.astype(np.uint8)
 
         # Telemetry
         self.tick = 0
