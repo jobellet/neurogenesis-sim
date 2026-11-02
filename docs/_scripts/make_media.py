@@ -15,6 +15,7 @@ Figures (written to docs/_static/media/):
     cost     cost_estimate.png                 neurogenesis.cost.estimate vs number of neurons
     evo      evolution_progress.png            neurogenesis.evolution.evolve on a toy topography fitness
     stages   development_stages.gif            neurogenesis.stages.run_schedule(checkpoints=True)
+    retino   retinothalamic_development.gif    examples/retinothalamic.py, WT seed 0, one frame per checkpoint
 
 The browser viewer captures are made by docs/_scripts/viewer_capture.py.
 """
@@ -498,8 +499,92 @@ def make_stages():
     print("  checkpoints:", [len(t.alive) for t in cps])
 
 
+def make_retino():
+    """Retina -> relay development (examples/retinothalamic.py, WT, seed 0): one frame per checkpoint, then a turn
+    around the final network. Retinal axons and relay cells are coloured by the retinal x position they come from
+    (relay cells: weighted mean over their retinal inputs), so a topographic map shows as a colour gradient."""
+    print("retino: examples/retinothalamic.py run_schedule(checkpoints=True)")
+    from examples.retinothalamic import REL_C, REL_S, RET_C, RET_S, RGC, OTHER, RELAY, INTER, build_project
+    from neurogenesis.stages import run_schedule
+    p = build_project("WT", 0)
+    d = p.to_dict()
+    cps = run_schedule(d, p.genome, 0, checkpoints=True)
+    labels = [(st["name"], rep, st.get("repeat", 1)) for st in d["schedule"] for rep in range(st.get("repeat", 1))]
+    cmap = plt.get_cmap("viridis")
+    lo = RET_C - RET_S / 2
+
+    def draw(t, title, azim):
+        fig = plt.figure(figsize=(8.6, 5.0))
+        ax = fig.add_axes([-0.06, -0.06, 0.78, 1.0], projection="3d")
+        ax2 = fig.add_axes([0.70, 0.30, 0.27, 0.42])
+        pos, ct = t.positions, t.cell_type
+        ux = np.clip((pos[:, 0] - lo[0]) / RET_S[0], 0, 1)
+        c = t.connectivity
+        retinal = (ct[c.pre] == RGC) & np.isin(ct[c.post], (RELAY, INTER)) & (c.weight != 0) if len(c.pre) else np.zeros(0, bool)
+        relay_col = np.full(len(ct), np.nan)
+        if retinal.any():
+            pre, post, w = c.pre[retinal], c.post[retinal], np.abs(c.weight[retinal]).astype(float)
+            wsum = np.bincount(post, w, len(ct))
+            relay_col = np.where(wsum > 0, np.bincount(post, w * ux[pre], len(ct)) / np.maximum(wsum, 1e-12), np.nan)
+            rgc_w = np.bincount(pre, w, len(ct))
+            u_rel = (pos[:, :2] - (REL_C - REL_S / 2)[:2]) / REL_S[:2]
+            has = np.flatnonzero((ct == RGC) & (rgc_w > 0))
+            for k, (colour, axis) in enumerate((("#0072B2", "x"), ("#D55E00", "y"))):
+                u_ret = np.clip((pos[has, k] - lo[k]) / RET_S[k], 0, 1)
+                cen = np.bincount(pre, w * u_rel[post, k], len(ct))[has] / rgc_w[has]
+                r = np.corrcoef(u_ret, cen)[0, 1] if len(has) > 2 else np.nan
+                ax2.scatter(u_ret, cen, s=7, c=colour, label=f"{axis}: r = {r:.2f}")
+            ax2.legend(fontsize=7, loc="upper left", frameon=False)
+            pick = np.random.default_rng(0).choice(len(pre), size=min(len(pre), 350), replace=False)
+            for a, b in zip(pre[pick], post[pick]):
+                ax.plot(*np.stack([pos[a], pos[b]]).T, color=cmap(ux[a]), lw=0.35, alpha=0.35)
+        prog = ~np.isin(ct, (RGC, OTHER, RELAY, INTER))
+        ax.scatter(*pos[prog].T, s=10, c="#999999", depthshade=False)
+        ax.scatter(*pos[ct == OTHER].T, s=8, c="#cccccc", depthshade=False)
+        ax.scatter(*pos[ct == RGC].T, s=22, c=cmap(ux[ct == RGC]), depthshade=False, edgecolors="black", linewidths=0.3)
+        rel = ct == RELAY
+        col = np.array([cmap(v) if np.isfinite(v) else (0.73, 0.73, 0.73, 1.0) for v in relay_col[rel]]).reshape(-1, 4)
+        ax.scatter(*pos[rel].T, s=16, c=col, marker="s", depthshade=False, edgecolors="black", linewidths=0.2)
+        ax.scatter(*pos[ct == INTER].T, s=26, c="#D55E00", marker="^", depthshade=False)
+        ax.set_xlim(0, 100); ax.set_ylim(0, 100); ax.set_zlim(-5, 55)
+        ax.view_init(elev=18, azim=azim)
+        ax.set_xticklabels([]); ax.set_yticklabels([]); ax.set_zticklabels([])
+        ax.set_xlabel("x (EphA axis)", fontsize=8, labelpad=-10); ax.set_ylabel("y (EphB axis)", fontsize=8, labelpad=-10)
+        ax2.set_xlim(0, 1); ax2.set_ylim(-0.1, 1.1)
+        ax2.set_xlabel("RGC position in the retina", fontsize=8)
+        ax2.set_ylabel("mean position of its relay targets", fontsize=8)
+        ax2.tick_params(labelsize=7)
+        ax2.set_title("map (each dot one RGC)", fontsize=8)
+        ax.set_title(title, fontsize=9, x=0.62)
+        return fig_to_image(fig, dpi=72)
+
+    frames, dur = [], []
+    for k, (t, (name, rep, nrep)) in enumerate(zip(cps, labels)):
+        n_ret = int(np.sum(np.isin(t.cell_type, (RELAY, INTER)) == False))  # noqa: E712
+        title = (f"checkpoint {k + 1}/{len(cps)}: {name}{f' {rep + 1}/{nrep}' if nrep > 1 else ''}\n"
+                 f"{n_ret} retinal cells, {int(np.sum(t.cell_type == RELAY))} relay cells, "
+                 f"{len(t.connectivity.pre)} synapses; colour = retinal x")
+        frames.append(draw(t, title, -60 + 2 * k))
+        dur.append(700)
+    final = cps[-1]
+    for j in range(16):
+        frames.append(draw(final, "final network (WT): retina below, relay above\n"
+                           "retinal x is kept along the relay's x axis (topographic map)", -60 + 2 * len(cps) + 22.5 * j))
+        dur.append(350)
+    pk = build_project("EphAKO", 0)
+    ko = run_schedule(pk.to_dict(), pk.genome, 0)
+    for j in range(4):
+        frames.append(draw(ko, "same seed, EphA knocked out (x chemoaffinity gain 0)\n"
+                           "the x map is lost, the y map is kept", -60 + 2 * len(cps) + 22.5 * 16 + 22.5 * j))
+        dur.append(900)
+    dur[len(cps) - 1] = 1800
+    dur[len(cps) + 15] = 1500
+    dur[-1] = 2500
+    save_gif(frames, "retinothalamic_development.gif", dur, colours=128)
+
+
 TASKS = dict(cli=make_cli, topo=make_topo, models=make_models, fi=make_fi, cost=make_cost, evo=make_evo,
-             stages=make_stages)
+             stages=make_stages, retino=make_retino)
 
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)

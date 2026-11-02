@@ -69,3 +69,9 @@ outcome.
 - Deviations from the plan: the β2-KO Poisson rate was set equal to the WT mean RGC rate; `scale` runs before `prune`;
   the activity regime was set on pilot seeds 100–102 before the reported runs; `refine_by_activity` needed a
   workaround for its `waves` param (see the use case).
+
+## Run 2 (appended 2026-11-02, after the toolbox fixes #81 and #82)
+Not part of the pre-registered plan: the model layout was changed after run 1 was seen (waves restricted to the
+retina, relay moved next to it, β2-KO drivers turned off after refinement). Same seeds and metrics. H2 held
+(EphA-KO r_x 0.033 ± 0.157, r_y 0.911 ± 0.026); H3 orientation held, blurring still weak (TTX error +0.004,
+separation −0.015; β2-KO +0.003, −0.006, paired means). Details in {doc}`../use-cases/retinothalamic`.

@@ -42,6 +42,9 @@ jobs:
               - 'neurogenesis/**'
               - 'scripts/benchmark_performance.py'
               - 'tests/**'
+              - 'examples/**'        # run by tests/test_examples.py
+              - 'README.md'          # checked by tests/test_readme_status.py
+              - 'docs/**'            # the roadmap and stage reference are checked by tests
               - 'pyproject.toml'
               - 'viz/src/sim/**'
               - '.github/workflows/ci.yml'
