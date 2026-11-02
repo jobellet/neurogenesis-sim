@@ -359,6 +359,10 @@ field or fit can replace; values are about the cited species and ages, and resul
     TrkB → KCC2). Default rule: E_Cl(cell) moves from E_Cl,immature to E_Cl,mature with the cell's age (a sigmoid with
     midpoint and width as `Param`s), and its accumulated activity shifts the midpoint earlier (gain `Param`, 0 = purely
     programmed).
+  - **Status:** done: `transporter_switch` in `neurogenesis/stages/pharmacology.py` (per-synapse `e_rev` from the
+    postsynaptic cell's E_Cl; signed weights for `lif_int` with `v_rest`), reference profile
+    `examples/profiles/transporter_switch.json`, tests in `tests/test_stages_transporter_switch.py`. Activity is a
+    `Param` (`refine_by_activity` does not record per-cell activity yet).
 - **C22 `competitive_elimination`** — neonatal rat and mouse neuromuscular junction, P0 (poly-innervated) to P14
   (single input), and climbing fibres on Purkinje cells (P0–P20) (Willshaw 1981, Proc R Soc Lond B 212:401–419; Gouzé,
   Lasry and Changeux 1983, Biol Cybern 46:207–215; Balice-Gordon and Lichtman 1994, Nature 372:519–524).

@@ -310,6 +310,18 @@ example profile with cited entries is in `examples/profiles/example_receptors.js
   presynaptic cell lacks the receptor's transmitter set to 0 (`require_transmitter`). Run it in context `"immature"`
   before `refine_by_activity` and `"mature"` after it for a sign switch during development; gains multiply at every
   call, so give gains other than 1 in one compilation only.
+- **`transporter_switch`** (C21): per-cell chloride reversal potential from maturation, the NKCC1 → KCC2 switch
+  (Rivera et al. 1999, Nature; Ben-Ari 2002, Nat Rev Neurosci). E_Cl = `e_immature` + (`e_mature` − `e_immature`) ·
+  sigmoid((age − `midpoint` + `activity_gain` · `activity`) / `width`). Age is `age` (a `Param`) or `now` minus the
+  cell's `clock` (`"birth_time"`, default, in the unit of `cell_cycle_clock`'s T_C; `"birth_stage"`, stage index;
+  `"generation"`, cycles); `now` defaults to the largest clock value (youngest cell: age 0); `midpoint` (0) and `width`
+  (1) are in the age's unit. `activity` (per cell, default 0: `refine_by_activity` does not record it yet) advances the
+  switch by `activity_gain` (0 = purely programmed). Synapses whose `receptor_class` is in `receptors` (names in
+  `profile`, or indices) get `e_rev` = E_Cl of their postsynaptic cell, used by the conductance models
+  (`two_compartment`, `hh`); `lif_int` ignores `e_rev`, so with `v_rest` (mV) their weights also take the sign of
+  E_Cl − `v_rest`. Run it after `pharmacology` (which rewrites `e_rev` from the profile). Without `receptors`,
+  `e_immature` or `e_mature`: no-op. O(N + E). Rodent defaults (E_Cl −45 → −75 mV, switch P5–P10) with citations:
+  `examples/profiles/transporter_switch.json`.
 Conditions use the variables of `differentiate` conditions. Each stage without its params (`rules` / `profile`) is a
 no-op. **Not implemented:** conductance-based kernels (P4) and neuromodulation (P5); the legacy `receptor_sign` rule
 is not re-expressed as a profile.
