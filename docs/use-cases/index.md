@@ -7,6 +7,7 @@
 | {doc}`layered-sheet` | semi-supervised (hand-made layers + stages) | planned (example G2.3) |
 | {doc}`connectome-constrained` | supervised import + semi-supervised fitting to connectome statistics | planned (phases I, P, N) |
 | {doc}`developmental-hypotheses` | knockouts, timing changes, activity manipulations | partially available |
+| {doc}`retinothalamic` | genes + activity, four conditions with pre-registered hypotheses | runs today (`examples/retinothalamic.py`) |
 | {doc}`teaching` | interactive exploration in the viewer and apps | available |
 
 ```{toctree}
@@ -17,5 +18,6 @@ shared-modules
 layered-sheet
 connectome-constrained
 developmental-hypotheses
+retinothalamic
 teaching
 ```

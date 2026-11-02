@@ -57,3 +57,15 @@ Two `Box` regions (retina, relay), analytic gradient `AnalyticField`s along x an
 At least 10 development seeds per condition (seeds 0–9, the same seeds for every condition). The table reports
 mean ± SD per condition. Each prediction is reported as held / not held / weak by the criteria above, whatever the
 outcome.
+
+## Outcome (appended 2026-11-02, after the runs)
+10 seeds (0–9) per condition, `python examples/retinothalamic.py --cpu --seeds 10`; table in
+{doc}`../use-cases/retinothalamic`.
+- H1: held (trivially: the mosaic is identical across conditions because the ablations act after it).
+- H2: held: EphA-KO r_x 0.021 ± 0.159 (WT 0.910 ± 0.021); r_y 0.911 ± 0.025 (WT 0.907 ± 0.031).
+- H3: orientation held (r_x, r_y > 0.9 in TTX and β2-KO). Error and separation moved in the predicted direction
+  (TTX error +0.003, separation −0.017; β2-KO +0.002, −0.013, paired means) but by much less than one pooled SD:
+  **weak**, not clear.
+- Deviations from the plan: the β2-KO Poisson rate was set equal to the WT mean RGC rate; `scale` runs before `prune`;
+  the activity regime was set on pilot seeds 100–102 before the reported runs; `refine_by_activity` needed a
+  workaround for its `waves` param (see the use case).
