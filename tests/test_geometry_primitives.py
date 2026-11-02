@@ -117,6 +117,26 @@ def test_curved_sheet(rng):
     s2 = geometry_from_dict(d)
     assert s2.thickness == s.thickness
 
+def test_curved_sheet_closest_points_chunked():
+    import tracemalloc
+    s = CurvedSheet("u", "v", "u**2 + v**2", thickness=0.1)
+
+    def old_closest(points):  # dense N x M x 3 version before chunking
+        diff = points[:, np.newaxis, :] - s.surface_points[np.newaxis, :, :]
+        return np.argmin(np.sum(diff**2, axis=-1), axis=-1)
+
+    rng = np.random.default_rng(3)
+    for pts in (rng.random((1500, 3)), rng.random((1500, 3)).astype(np.float32), np.zeros((0, 3))):
+        assert np.array_equal(s._closest_points(pts), old_closest(pts))
+
+    big = rng.random((40000, 3))  # the dense version would need 40000 x 2500 x 3 x 8 B = 2.4 GB
+    tracemalloc.start()
+    s._closest_points(big)
+    peak = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
+    assert peak < 3 * CurvedSheet._CLOSEST_CHUNK_BYTES + big.shape[0] * 8 + (1 << 20)
+
+
 def test_curved_sheet_expressions_are_restricted(tmp_path):
     s = CurvedSheet("cos(pi * u)", "np.sin(v)", "0.5 * exp(-u^2)", thickness=0.1)
     p = s.surface_points[-1]

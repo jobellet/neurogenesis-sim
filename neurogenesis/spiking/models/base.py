@@ -42,6 +42,18 @@ def drivers(net, rng, phase):
 def transmit(net, bits, spiked):
     """Shift the spike register and return (bits, arrivals): arrivals[e] = 1 when the presynaptic spike of synapse e,
     emitted `delay` ticks ago, reaches it now."""
-    bits = (bits << U32(1)) | spiked.astype(U32)
-    arrivals = ((bits[net["pre"]] >> net["delay"].astype(U32)) & U32(1)).astype(jnp.int32) * net["valid"]
+    if bits.ndim == 1:
+        bits = (bits << U32(1)) | spiked.astype(U32)
+        arrivals = ((bits[net["pre"]] >> net["delay"].astype(U32)) & U32(1)).astype(jnp.int32) * net["valid"]
+    else:
+        W = bits.shape[-1]
+        words = [(bits[:, 0] << U32(1)) | spiked.astype(U32)]
+        for w in range(1, W):
+            words.append((bits[:, w] << U32(1)) | (bits[:, w - 1] >> U32(31)))
+        bits = jnp.stack(words, axis=-1)
+        delay_word = net["delay"] >> 5
+        delay_bit = net["delay"] & 31
+        pre_bits = bits[net["pre"]]
+        selected_word = jnp.take_along_axis(pre_bits, delay_word[:, None].astype(jnp.int32), axis=1).squeeze(axis=1)
+        arrivals = ((selected_word >> delay_bit.astype(U32)) & U32(1)).astype(jnp.int32) * net["valid"]
     return bits, arrivals

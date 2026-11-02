@@ -28,7 +28,7 @@ def _call(args):
 
 
 def map_calls(fn, calls):
-    """[fn(**kw) for kw in calls], in parallel if set_workers was called. fn must be a module-level function.
+    """``[fn(**kw) for kw in calls]``, in parallel if set_workers was called. fn must be a module-level function.
 
     Scripts that use workers must guard their entry point with `if __name__ == "__main__":` (spawned workers re-import
     the main module) and should keep JAX imports out of module level, or set JAX_PLATFORMS=cpu when
@@ -39,6 +39,6 @@ def map_calls(fn, calls):
 
 
 def grow_many(calls):
-    """neurogenesis.development.grow(**kw) for every kw in calls (keys: plan, genome, seed, regions, projections, name)."""
+    """``neurogenesis.development.grow(**kw)`` for every kw in calls (keys: plan, genome, seed, regions, projections, name)."""
     from .grow import grow
     return map_calls(grow, calls)
