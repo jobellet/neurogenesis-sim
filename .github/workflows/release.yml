@@ -1,0 +1,152 @@
+name: Release
+
+# Desktop apps with an embedded Python runtime (desktop/common/runtime): built on version tags (v1.2.3; attached to the
+# GitHub release by the publish job) or by hand (Actions -> Release -> Run). Never on pull requests, so a fork cannot
+# run code on a self-hosted runner through this workflow; tags and manual runs need write access.
+#
+# Runners: repository variables holding a JSON label or list of labels; unset means GitHub-hosted (.github/RUNNERS.md).
+# Release builds have their own variables, separate from ci.yml's, because they must run on the exact OS and
+# architecture they target (the CI's LINUX_RUNNER may be a Mac). A job stops at once on the wrong architecture.
+#   RELEASE_LINUX_RUNNER    default "ubuntu-latest"    runtimes linux-x86_64, linux-arm64 (smoke test only on x86_64)
+#   RELEASE_WINDOWS_RUNNER  default "windows-latest"   runtimes windows-x86_64
+#   MAC_X64_RUNNER          default "macos-15-intel"   mac macos-x86_64 (an Intel Mac)
+#   MAC_ARM64_RUNNER        default "macos-latest"     mac macos-arm64 (an Apple Silicon Mac)
+# The publish job, the only one that can write to the repository, always runs GitHub-hosted.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  runtimes:
+    # The shared runtime script on the other apps' systems. Builds on the target's own OS and architecture are
+    # smoke-tested (bridge handshake and JAX, empty environment); cross-builds are only checked to build.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {target: linux-x86_64, runner_var: RELEASE_LINUX_RUNNER, hosted: '"ubuntu-latest"', os: Linux, arch: X64}
+          - {target: windows-x86_64, runner_var: RELEASE_WINDOWS_RUNNER, hosted: '"windows-latest"', os: Windows, arch: X64}
+          - {target: linux-arm64, runner_var: RELEASE_LINUX_RUNNER, hosted: '"ubuntu-latest"', os: Linux, arch: ARM64}
+    runs-on: ${{ fromJSON(vars[matrix.runner_var] || matrix.hosted) }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python in a virtual environment (a self-hosted machine keeps its own Python untouched)
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          if [ -d "$RUNNER_TEMP/venv/Scripts" ]; then echo "$RUNNER_TEMP/venv/Scripts" >> "$GITHUB_PATH"; else echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"; fi
+      - name: Build the runtime (${{ matrix.target }}, locked packages)
+        run: python desktop/common/runtime/build_runtime.py --target ${{ matrix.target }} --out build/runtime
+      - name: Smoke test (empty environment)
+        if: runner.os == matrix.os && runner.arch == matrix.arch
+        run: python desktop/common/runtime/smoke_test.py build/runtime
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-manifest-${{ matrix.target }}
+          path: build/runtime/runtime.json
+
+  mac:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {target: macos-x86_64, runner_var: MAC_X64_RUNNER, hosted: '"macos-15-intel"', arch: X64}
+          - {target: macos-arm64, runner_var: MAC_ARM64_RUNNER, hosted: '"macos-latest"', arch: ARM64}
+    runs-on: ${{ fromJSON(vars[matrix.runner_var] || matrix.hosted) }}
+    steps:
+      - name: Runner architecture and scratch paths
+        run: |
+          if [ "$RUNNER_ARCH" != "${{ matrix.arch }}" ]; then
+            echo "::error::${{ matrix.target }} needs a ${{ matrix.arch }} Mac; ${{ matrix.runner_var }} gave a $RUNNER_ARCH one"
+            exit 1
+          fi
+          { echo "KEYCHAIN=$RUNNER_TEMP/ng-build.keychain-db"; echo "MNT=$RUNNER_TEMP/ngdmg"; echo "RT=$RUNNER_TEMP/ngrt"; } >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python in a virtual environment (a self-hosted Mac keeps its own Python untouched)
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+      - name: Import the signing certificate (if configured)
+        # Into a temporary keychain added to the search list; the machine's default keychain is left as it is.
+        env:
+          CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        if: env.CERT_P12 != ''
+        run: |
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p ci "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p ci "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k ci "$KEYCHAIN"
+          rm "$RUNNER_TEMP/cert.p12"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+      - name: Python runtime (${{ matrix.target }}, locked packages)
+        run: python desktop/common/runtime/build_runtime.py --target ${{ matrix.target }} --out desktop/mac/build/runtime-${{ matrix.target }}
+      - name: App and disk image
+        env:
+          NG_RUNTIME: build/runtime-${{ matrix.target }}
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: desktop/mac/release.sh
+      - name: Smoke test from the disk image (no outside libraries; bridge and JAX with an empty environment)
+        run: |
+          rm -rf "$RT" && mkdir -p "$MNT" "$RT"
+          hdiutil attach -nobrowse -mountpoint "$MNT" desktop/mac/build/Neurogenesis-*.dmg
+          desktop/mac/tools/check_bundle.sh "$MNT/Neurogenesis.app"
+          ln -s "$MNT/Neurogenesis.app/Contents/Resources/python" "$RT/python"
+          cp "$MNT/Neurogenesis.app/Contents/Resources/runtime.json" "$RT/"
+          python desktop/common/runtime/smoke_test.py "$RT"
+      - name: Clean up (disk image, temporary keychain)
+        if: always()
+        run: |
+          [ -n "$MNT" ] && hdiutil detach "$MNT" 2>/dev/null || true
+          if [ -n "$KEYCHAIN" ] && [ -e "$KEYCHAIN" ]; then
+            security list-keychains -d user -s $(security list-keychains -d user | tr -d '"' | grep -vF "$KEYCHAIN")
+            security delete-keychain "$KEYCHAIN"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Neurogenesis-${{ matrix.target }}
+          path: |
+            desktop/mac/build/Neurogenesis-*.dmg
+            desktop/mac/build/Neurogenesis-*.dmg.sha256
+
+  publish:
+    # The only job that can write to the repository: attaches the disk images to the release of a version tag.
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [runtimes, mac]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Neurogenesis-*
+          merge-multiple: true
+          path: dist
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "Desktop apps: see desktop/*/README.md"
+          gh release upload "$GITHUB_REF_NAME" dist/* --clobber

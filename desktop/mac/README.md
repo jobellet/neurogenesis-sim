@@ -1,19 +1,64 @@
 # Neurogenesis for Mac
 
 A native macOS app (Swift, SwiftUI and Metal) that drives the whole toolbox: it lets you build networks by hand or
-from genes, step through development in 3D, and watch simulated activity live. It runs on Intel Macs with macOS 14 or
-later and needs only the Command Line Tools, not Xcode.
+from genes, step through development in 3D, and watch simulated activity live.
+
+## Install (users)
+1. Download `Neurogenesis-<version>-macos-arm64.dmg` for Apple Silicon, or `…-macos-x86_64.dmg` for Intel. They are on
+   the project's GitHub Releases page, or in the artifacts of the Release workflow. Check your Mac with  → About This
+   Mac → Chip / Processor.
+2. Open the disk image and drag **Neurogenesis** to **Applications**.
+3. Open it. That's all: no Python, Homebrew or Xcode is needed. The app carries its own Python with the toolbox
+   (about 500 MB installed).
+
+**First launch of an unsigned build.** Builds made without a Developer ID (see Signing below) are blocked by macOS
+the first time. Right-click the app and choose **Open**, then **Open**. Alternatively, open **System Settings → Privacy
+& Security** and click **Open Anyway**. This is needed once.
+
+**First start.** The first start takes up to a minute while macOS checks the app's libraries. Later starts take a few
+seconds.
+
+## Build (developers)
+macOS 14 or later and the Command Line Tools are enough, without Xcode.
 
 ```bash
-./build.sh                 # compile, install in ~/Applications, add to the Dock
+./build.sh                 # compile, install in ~/Applications, add to the Dock (uses a Python on this Mac)
 ./build.sh --no-install    # build/Neurogenesis.app only
+./release.sh               # release build: embedded runtime, signature if configured, build/Neurogenesis-<v>-macos-<arch>.dmg
 ```
 
-`NG_PYTHON` sets the Python to use. It needs numpy, jax and matplotlib, and by default the build picks the first such
-Python it finds (conda first). `NG_REPO` sets the toolbox checkout the app imports: the app runs
-`python -m neurogenesis.bridge` with that folder first on `PYTHONPATH`. It defaults to the repository's main worktree,
-so work that other agents merge appears in the app. You can change both later in **Roadmap status → Python**. Shared
-pieces (the protocol, and later the C kernel and UI schemas) are in `../common/` (see `../README.md`).
+**Development builds** (`build.sh`) use a Python already on this Mac and a toolbox checkout:
+- `NG_PYTHON` sets the Python to use. It needs numpy, jax and matplotlib, and by default the build picks the first
+  such Python it finds (conda first).
+- `NG_REPO` sets the toolbox checkout the app imports: the app runs `python -m neurogenesis.bridge` with that folder
+  first on `PYTHONPATH`. It defaults to the repository's main worktree, so work that other agents merge appears in the
+  app.
+- You can change both later in **Roadmap status → Python**.
+
+**Release builds** (`release.sh`) embed the runtime of `../common/runtime` (locked packages, pinned CPython):
+- They never point at a checkout: `release.sh` refuses a build whose `Info.plist` names one.
+- They always run their embedded Python. Stored settings do not change it, and nothing falls back to another
+  Python: if the runtime is missing, the app says to reinstall it.
+- *Roadmap status → Python* shows the runtime read-only.
+
+### Signing and notarisation
+Without credentials, `release.sh` signs ad hoc. The app then runs on any Mac, after the right-click → Open step
+above. To ship a build that opens with a double-click, you need:
+
+| What | Where | How to get it |
+|---|---|---|
+| A Developer ID Application certificate | Apple Developer Program (paid), Certificates → "Developer ID Application" | Export it from Keychain Access as a `.p12` with a password. |
+| `MACOS_CERT_P12`, `MACOS_CERT_PASSWORD` | GitHub repository secrets | The `.p12` encoded with `base64 -i cert.p12`, and its password. |
+| `MACOS_SIGN_IDENTITY` | secret, or environment variable for local builds | `Developer ID Application: Your Name (TEAMID)`, as `security find-identity -v -p codesigning` lists it. |
+| `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD` | secrets | An Apple ID, its team, and an app-specific password (appleid.apple.com → Sign-In and Security). They enable notarisation and stapling. |
+
+With these set, `release.sh`:
+- signs every Mach-O inside with the hardened runtime and `entitlements.plist`;
+- signs the app and the disk image;
+- notarises and staples the disk image.
+
+The entitlements allow JIT memory, which JAX needs, and libraries signed by other teams, which Python's extension
+modules are. Never commit certificates or passwords: they belong only in secrets or in your keychain.
 
 ## How it works
 | Part | File | What it does |

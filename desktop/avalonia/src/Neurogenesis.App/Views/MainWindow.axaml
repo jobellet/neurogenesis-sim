@@ -5,7 +5,7 @@
         x:Class="Neurogenesis.App.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         Title="{Binding Title}" Width="1200" Height="800"
-        Background="#0E1014" Foreground="#E0E6ED"
+        Background="{Binding Style.UiWindowBackground}" Foreground="{Binding Style.UiWindowForeground}"
         DragDrop.AllowDrop="True">
 
   <DockPanel>
@@ -48,8 +48,8 @@
     <Panel>
       <r:NetworkView x:Name="View" Scene="{Binding Scene}" Instances="{Binding Instances}" CurrentTick="{Binding CurrentTick}" />
       <TextBlock Text="{Binding SceneNote}" IsVisible="{Binding SceneNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                 Margin="10" Padding="6,3" Background="{Binding Style.UiNoteBackground}" Foreground="{Binding Style.UiNoteForeground}"
-                 HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False" />
+                 HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12"
+                 Padding="8,4" Background="{Binding Style.UiNoteBackground}" Foreground="{Binding Style.UiNoteForeground}" />
     </Panel>
   </DockPanel>
 </Window>

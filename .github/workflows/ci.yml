@@ -1,12 +1,69 @@
 name: CI
 
+# Runners come from repository variables (a JSON label or list of labels; unset = GitHub-hosted), see .github/RUNNERS.md:
+#   LINUX_RUNNER    detect-changes, python, viewer, nglif-ubuntu
+#   MAC_RUNNER      nglif-macos, mac-app
+#   WINDOWS_RUNNER  nglif-windows
+# Self-hosted runners use no Actions minutes. On pull requests, macOS and Windows jobs run on a self-hosted runner, or on
+# hosted runners (10x / 2x minutes) only with the label "full-ci". Self-hosted runners never run pull requests from forks.
+
 on:
   push:
+    branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  detect-changes:
+    runs-on: ${{ fromJSON(vars.LINUX_RUNNER || '"ubuntu-latest"') }}
+    if: >-
+      vars.LINUX_RUNNER == '' || github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      pull-requests: read
+    outputs:
+      python: ${{ steps.filter.outputs.python }}
+      viewer: ${{ steps.filter.outputs.viewer }}
+      nglif: ${{ steps.filter.outputs.nglif }}
+      mac-app: ${{ steps.filter.outputs.mac-app }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            python:
+              - 'neurogenesis/**'
+              - 'scripts/benchmark_performance.py'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - 'viz/src/sim/**'
+              - '.github/workflows/ci.yml'
+            viewer:
+              - 'viz/**'
+              - '.github/workflows/ci.yml'
+            nglif:
+              - 'desktop/common/native/nglif/**'
+              - 'desktop/common/fixtures/**'
+              - 'tests/test_nglif_fixtures.py'
+              - '.github/workflows/ci.yml'
+            mac-app:
+              - 'desktop/mac/**'
+              - 'desktop/common/**'
+              - 'neurogenesis/bridge/**'
+              - '.github/workflows/ci.yml'
+
   python:
-    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      needs.detect-changes.outputs.python == 'true'
+    runs-on: ${{ fromJSON(vars.LINUX_RUNNER || '"ubuntu-latest"') }}
     strategy:
       fail-fast: false
       matrix:
@@ -19,10 +76,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: Install
+      - name: Install (in a virtual environment, so a self-hosted machine keeps its own Python untouched)
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[test]"
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/venv/bin/pip" install -e ".[test]"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
       - name: Build the browser kernel (for the Python / JAX / browser equivalence tests)
         working-directory: viz
         run: |
@@ -43,8 +102,57 @@ jobs:
           JAX_PLATFORMS: cpu
         run: python -m neurogenesis estimate --neurons 3e8 --synapses-per-neuron 5000 --seconds 1
 
+  performance:
+    # Fixed CPU workloads, reported against the previous main-branch run on the same kind of runner. Report only:
+    # shared runners vary too much for a hard gate. Runs on main and by hand, not on pull requests (minutes).
+    needs: detect-changes
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && needs.detect-changes.outputs.python == 'true')
+    runs-on: ${{ fromJSON(vars.LINUX_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install (in a virtual environment, so a self-hosted machine keeps its own Python untouched)
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/venv/bin/pip" install -e .
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+      - name: Download the previous main-branch result
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: ci.yml
+          branch: main
+          name: performance-baseline
+          path: performance-baseline
+          if_no_artifact_found: warn
+      - name: Run benchmarks (report only)
+        env:
+          JAX_PLATFORMS: cpu
+        run: >-
+          python scripts/benchmark_performance.py
+          --output performance.json
+          --baseline performance-baseline/performance.json
+      - name: Save the result as the next baseline
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-baseline
+          path: performance.json
+          retention-days: 90
+
   viewer:
-    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: >-
+      (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.viewer == 'true') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ${{ fromJSON(vars.LINUX_RUNNER || '"ubuntu-latest"') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -56,13 +164,51 @@ jobs:
           npm ci
           npm run build
 
-  nglif:
-    # The shared C kernel of the desktop apps, built with each OS's own C compiler, against the golden fixtures.
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+  nglif-ubuntu:
+    # nglif golden fixtures on Linux: every non-draft PR touching nglif.
+    needs: detect-changes
+    if: >-
+      (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.nglif == 'true') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ${{ fromJSON(vars.LINUX_RUNNER || '"ubuntu-latest"') }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build nglif and its fixture test
+        run: |
+          cmake -S desktop/common/native/nglif -B build/nglif -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/nglif --config Release
+      - name: Golden fixtures (bit-identical to the Python reference)
+        run: ctest --test-dir build/nglif -C Release --output-on-failure
+
+  nglif-macos:
+    # Pull requests: on a self-hosted Mac, or on hosted macOS (10x minutes) with the 'full-ci' label.
+    needs: detect-changes
+    if: >-
+      (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.nglif == 'true') &&
+      (github.event_name != 'pull_request' ||
+       (github.event.pull_request.draft == false &&
+        ((vars.MAC_RUNNER != '' && github.event.pull_request.head.repo.full_name == github.repository) ||
+         (vars.MAC_RUNNER == '' && contains(github.event.pull_request.labels.*.name, 'full-ci')))))
+    runs-on: ${{ fromJSON(vars.MAC_RUNNER || '"macos-latest"') }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build nglif and its fixture test
+        run: |
+          cmake -S desktop/common/native/nglif -B build/nglif -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/nglif --config Release
+      - name: Golden fixtures (bit-identical to the Python reference)
+        run: ctest --test-dir build/nglif -C Release --output-on-failure
+
+  nglif-windows:
+    # Pull requests: on a self-hosted Windows runner, or on hosted Windows (2x minutes) with the 'full-ci' label.
+    needs: detect-changes
+    if: >-
+      (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.nglif == 'true') &&
+      (github.event_name != 'pull_request' ||
+       (github.event.pull_request.draft == false &&
+        ((vars.WINDOWS_RUNNER != '' && github.event.pull_request.head.repo.full_name == github.repository) ||
+         (vars.WINDOWS_RUNNER == '' && contains(github.event.pull_request.labels.*.name, 'full-ci')))))
+    runs-on: ${{ fromJSON(vars.WINDOWS_RUNNER || '"windows-latest"') }}
     steps:
       - uses: actions/checkout@v4
       - name: Build nglif and its fixture test
@@ -73,17 +219,26 @@ jobs:
         run: ctest --test-dir build/nglif -C Release --output-on-failure
 
   mac-app:
-    # The macOS app: built with desktop/mac/build.sh, then its Swift-to-C binding, the bridge and the fixtures tested.
-    runs-on: macos-latest
+    # The macOS app. Pull requests: on a self-hosted Mac, or on hosted macOS (10x minutes) with the 'full-ci' label.
+    needs: detect-changes
+    if: >-
+      (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.mac-app == 'true') &&
+      (github.event_name != 'pull_request' ||
+       (github.event.pull_request.draft == false &&
+        ((vars.MAC_RUNNER != '' && github.event.pull_request.head.repo.full_name == github.repository) ||
+         (vars.MAC_RUNNER == '' && contains(github.event.pull_request.labels.*.name, 'full-ci')))))
+    runs-on: ${{ fromJSON(vars.MAC_RUNNER || '"macos-latest"') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install the toolbox
+      - name: Install the toolbox (in a virtual environment, so a self-hosted Mac keeps its own Python untouched)
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[test]"
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/venv/bin/pip" install -e ".[test]"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
       - name: Build the app
         run: NG_PYTHON="$(which python)" desktop/mac/build.sh --no-install
       - name: Tests (Swift binding, bridge, fixtures)

@@ -193,3 +193,22 @@ def test_sign_as_single_source_of_truth():
     net2 = t2.to_network()
     # base_weight in network must be positive (+50) because sign is +1!
     assert net2.neurons[0].base_weight == 50
+
+
+def test_generation_optional_and_carried_through_operations():
+    t = Tissue.empty()
+    t.add_cells(3)
+    assert t.generation.dtype == np.int32 and t.generation.tolist() == [0, 0, 0]
+    t.add_cells(2, parent_ids=np.array([0, 1], dtype=np.int32), generation=np.array([1, 2], dtype=np.int32))
+    assert t.generation.tolist() == [0, 0, 0, 1, 2]
+    assert t.subset(np.array([4, 0])).generation.tolist() == [2, 0]
+    cat = Tissue.concatenate([t, t.subset(np.array([3]))])
+    assert cat.generation.tolist() == [0, 0, 0, 1, 2, 1]
+    t.kill(np.array([True, False, False, True, False]))
+    t.compact()
+    assert t.generation.tolist() == [0, 0, 2]
+    back = Tissue.from_network(t.to_network())
+    assert back.generation.tolist() == [0, 0, 0]  # not part of the network: defaults on the way back
+    # Constructed without the field (as before it existed): defaults to zeros.
+    kwargs = {k: getattr(t, k) for k in t.__dataclass_fields__ if k != "generation"}
+    assert Tissue(**kwargs).generation.tolist() == [0, 0, 0]
