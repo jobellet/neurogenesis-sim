@@ -16,6 +16,8 @@ sandbox has no attribution or licence header from another project.
 | three (viewer) | MIT | 3D rendering (WebGL) |
 | vite, typescript, esbuild, rollup and their small dependencies (build only) | MIT / Apache-2.0 / ISC / BSD-3-Clause | building the viewer |
 | pytest, jsonschema (tests) | MIT | tests |
+| h5py (optional extra `sonata`) | BSD-3-Clause | SONATA export / import (`neurogenesis.interop`) |
+| libsonata (tests only) | LGPL-3.0 | reference SONATA reader in the tests; never vendored |
 | sphinx, sphinx-rtd-theme, myst-parser, sphinx-copybutton (documentation build only) | BSD-2-Clause / MIT | the documentation site |
 | GitHub Actions: actions/* (checkout, setup-python, setup-node, upload/download-artifact, upload-pages-artifact, deploy-pages), dorny/paths-filter, dawidd6/action-download-artifact | MIT | CI only, not distributed |
 
