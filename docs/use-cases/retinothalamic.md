@@ -86,21 +86,73 @@ The conclusions of run 1 hold: H2 held, and H3 held in orientation with a **weak
 smaller than one SD).
 
 ## Relay shaped by an atlas (P4)
-The relay box can be replaced by the shape of a real nucleus from an annotation atlas, here intended to be the dorsal
-lateral geniculate nucleus at P4 in the Allen Developing Mouse Brain Reference Atlas (Thompson et al. 2014, Neuron):
-at P4 retinal axons have reached the dLGN and waves refine the map. The atlas files are not in the repository (Allen
-Institute terms of use; cite the atlas): download the P4 annotation volume and the structure ontology, then
+The relay box can be replaced by the shape of a structure from an annotation atlas, here the Allen Developing Mouse
+Brain Reference Atlas at P4 (Thompson et al. 2014, Neuron): at P4 retinal axons have reached the dLGN and waves refine
+the map. The atlas files are not in the repository (Allen Institute terms of use: research or other noncommercial use,
+with citation). The manifest `examples/datasets/allen-devmouse-p4.json` names the official files with their checksums:
 
-    python examples/atlas_relay_mask.py --annotation P4_annotation.nrrd --ontology structures.json --find geniculate
-    python examples/atlas_relay_mask.py --annotation P4_annotation.nrrd --ontology structures.json \
-        --structure <acronym> --out relay_mask.npz
+    python -m neurogenesis data fetch examples/datasets/allen-devmouse-p4.json --yes
+    D=~/.cache/neurogenesis/data/allen-devmouse-p4
+    python examples/allen_unpack_annotation.py $D/P4_DevMouse2012_annotation.zip     # writes annotation.mhd / .raw
+    python examples/atlas_relay_mask.py --annotation $D/annotation.mhd --ontology $D/structure_graph_17.json --find geniculate
+    python examples/atlas_relay_mask.py --annotation $D/annotation.mhd --ontology $D/structure_graph_17.json \
+        --structure p2A --out relay_mask.npz
     python examples/retinothalamic.py --relay-mask relay_mask.npz --cpu --seeds 10
 
 `neurogenesis.data.atlas` reads the volume and the ontology and cuts the structure (with its descendants) as a voxel
 geometry; the example scales it, keeping its proportions, into its relay box (largest side 60 space units), so the atlas
 sets the nucleus's **shape**, not the model's size or units. The retina stays a hand-made sheet: the eye is not part of
-the brain atlas. Tested on a synthetic atlas (`tests/test_examples.py`); results with the real P4 atlas are not reported
-yet.
+the brain atlas.
+
+## Results, run 3 (P4 atlas-shaped relay; not pre-registered)
+**The structure is not the dLGN.** The ontology (structure graph 17, "Developing Mouse 3") has the dorsal lateral
+geniculate nucleus (`DLG`, id 16436, under p2 › Th › p2A › p2AL › DTTh › DTThm › DTThs), but the P4 3D annotation volume
+labels only 77 structures at the level of the prosomeric plates (roof / alar / basal / floor plates of p1–p3, m1–m2,
+the isthmus, r1–r11 and the spinal cord, plus pallial, subpallial and hypothalamic domains): no thalamic nucleus has
+voxels, and `--structure DLG` finds none (the 160 µm grid annotation is the same). The relay therefore takes the shape
+of the smallest labelled structure that contains the dLGN, **`p2A`, the alar plate of p2 (alar thalamus)**, id 16382:
+783,455 voxels of 16.752 × 16.752 × 20 µm (4.40 mm³), one connected piece, bounding box 2965 × 3066 × 1980 µm along
+the volume's axes, scaled to 58 × 60 × 39 space units around (50, 50, 60). It is a shape of the right developmental
+region, much larger than the dLGN and of a different form.
+
+Files (from the Allen download server and API, kept outside the repository):
+
+| File | Source | Size (bytes) | SHA-256 |
+|---|---|---|---|
+| `P4_DevMouse2012_annotation.zip` | `download.alleninstitute.org/informatics-archive/current-release/mouse_annotation/` | 1,480,227 | `e620b6da8b22b6c36b78130183cff849f49bde8049b914d79649f730f05d157d` |
+| `structure_graph_17.json` | `api.brain-map.org/api/v2/structure_graph_download/17.json` | 1,444,525 | `a5726ba0007621960625998466ffe412033c75e79c227dc6f89ea4cef96ff483` |
+
+The zip holds `annotation.mhd` / `annotation.raw` (uint32 labels, 724 × 403 × 398 voxels, RAI). The ontology file is
+an API answer; if the Allen Institute serialises it differently, its checksum changes and the manifest must be
+updated. Everything else (seeds 0–9, genome, conditions) is as in run 2; about 2 min on this Mac's CPU.
+
+| Condition | Mosaic NND/SD | r_x | r_y | Topographic error | Corner separation |
+|---|---|---|---|---|---|
+| WT     | 2.77 ± 0.53 | 0.832 ± 0.020 | 0.808 ± 0.040 | 0.377 ± 0.015 | 0.484 ± 0.146 |
+| b2KO   | 2.77 ± 0.53 | 0.829 ± 0.024 | 0.812 ± 0.036 | 0.380 ± 0.013 | 0.473 ± 0.136 |
+| TTX    | 2.77 ± 0.53 | 0.835 ± 0.019 | 0.813 ± 0.037 | 0.380 ± 0.014 | 0.466 ± 0.136 |
+| EphAKO | 2.77 ± 0.53 | 0.013 ± 0.061 | 0.769 ± 0.069 | 0.462 ± 0.011 | 0.487 ± 0.124 |
+
+Paired differences from WT (same seed): TTX topographic error +0.0029 ± 0.0016 (higher in 10 of 10 seeds), separation
+−0.019 ± 0.025 (lower in 7 of 10); b2KO error +0.0032 ± 0.0020 (9 of 10), separation −0.012 ± 0.023 (7 of 10);
+EphAKO error +0.085 ± 0.010 (10 of 10), r_x −0.819 ± 0.067 (10 of 10), separation +0.003 ± 0.102 (lower in 5 of 10).
+About 67 RGCs, 148 relay cells (154 in EphAKO) and 660 retinal synapses (383 in EphAKO) per network. Per-seed values:
+`retinothalamic-results-run3-p4-atlas.json`.
+
+In this simulation the conclusions of runs 1 and 2 hold in the atlas-shaped relay: H2 held (r_x falls to 0.01, r_y
+changes by −0.04), and H3 held in orientation with a **weak** blurring (every difference far smaller than one SD). The
+map is less precise than in the box (r_x 0.83 against 0.91, separation 0.48 against 0.67). The topographic error is
+not comparable with runs 1 and 2: it is measured in the relay's bounding box, which the irregular shape does not fill.
+
+![Development of the retina → relay projection with the relay in the shape of the P4 alar thalamus (p2A)](../_static/media/retinothalamic_development_p4_atlas.gif)
+
+*Run 3, WT seed 0: as the animation above, with the relay grown in the shape of p2A from the P4 annotation of the Allen
+Developing Mouse Brain Reference Atlas (scaled into the model's relay box). Made by
+`RETINO_RELAY_MASK=relay_mask.npz python docs/_scripts/make_media.py retino`.*
+
+Atlas: Allen Developing Mouse Brain Atlas, developingmouse.brain-map.org (© 2008 Allen Institute for Brain Science);
+Thompson CL et al. (2014) A high-resolution spatiotemporal atlas of gene expression of the developing mouse brain.
+Neuron 83:309–323.
 
 ## Limits and toolbox findings
 Found while writing this example (run 1), fixed afterwards:

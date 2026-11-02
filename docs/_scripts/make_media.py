@@ -16,6 +16,8 @@ Figures (written to docs/_static/media/):
     evo      evolution_progress.png            neurogenesis.evolution.evolve on a toy topography fitness
     stages   development_stages.gif            neurogenesis.stages.run_schedule(checkpoints=True)
     retino   retinothalamic_development.gif    examples/retinothalamic.py, WT seed 0, one frame per checkpoint
+             with RETINO_RELAY_MASK=<mask.npz> (examples/atlas_relay_mask.py): the relay grown in that shape, written
+             to retinothalamic_development_p4_atlas.gif (or $RETINO_GIF)
 
 The browser viewer captures are made by docs/_scripts/viewer_capture.py.
 """
@@ -502,11 +504,18 @@ def make_stages():
 def make_retino():
     """Retina -> relay development (examples/retinothalamic.py, WT, seed 0): one frame per checkpoint, then a turn
     around the final network. Retinal axons and relay cells are coloured by the retinal x position they come from
-    (relay cells: weighted mean over their retinal inputs), so a topographic map shows as a colour gradient."""
+    (relay cells: weighted mean over their retinal inputs), so a topographic map shows as a colour gradient.
+    $RETINO_RELAY_MASK, if set, is a relay shape (.npz from examples/atlas_relay_mask.py) used instead of the box."""
     print("retino: examples/retinothalamic.py run_schedule(checkpoints=True)")
-    from examples.retinothalamic import REL_C, REL_S, RET_C, RET_S, RGC, OTHER, RELAY, INTER, build_project
+    from examples.retinothalamic import RET_C, RET_S, RGC, OTHER, RELAY, INTER, build_project, relay_frame
     from neurogenesis.stages import run_schedule
-    p = build_project("WT", 0)
+    mask = os.environ.get("RETINO_RELAY_MASK") or None
+    gif = os.environ.get("RETINO_GIF") or ("retinothalamic_development_p4_atlas.gif" if mask
+                                           else "retinothalamic_development.gif")
+    rel_lo, rel_size = relay_frame(mask)
+    z_top = max(55.0, float(rel_lo[2] + rel_size[2]) + 5.0)
+    shape = " (atlas-shaped)" if mask else ""
+    p = build_project("WT", 0, relay_mask=mask)
     d = p.to_dict()
     cps = run_schedule(d, p.genome, 0, checkpoints=True)
     labels = [(st["name"], rep, st.get("repeat", 1)) for st in d["schedule"] for rep in range(st.get("repeat", 1))]
@@ -527,7 +536,7 @@ def make_retino():
             wsum = np.bincount(post, w, len(ct))
             relay_col = np.where(wsum > 0, np.bincount(post, w * ux[pre], len(ct)) / np.maximum(wsum, 1e-12), np.nan)
             rgc_w = np.bincount(pre, w, len(ct))
-            u_rel = (pos[:, :2] - (REL_C - REL_S / 2)[:2]) / REL_S[:2]
+            u_rel = (pos[:, :2] - rel_lo[:2]) / rel_size[:2]
             has = np.flatnonzero((ct == RGC) & (rgc_w > 0))
             for k, (colour, axis) in enumerate((("#0072B2", "x"), ("#D55E00", "y"))):
                 u_ret = np.clip((pos[has, k] - lo[k]) / RET_S[k], 0, 1)
@@ -546,7 +555,7 @@ def make_retino():
         col = np.array([cmap(v) if np.isfinite(v) else (0.73, 0.73, 0.73, 1.0) for v in relay_col[rel]]).reshape(-1, 4)
         ax.scatter(*pos[rel].T, s=16, c=col, marker="s", depthshade=False, edgecolors="black", linewidths=0.2)
         ax.scatter(*pos[ct == INTER].T, s=26, c="#D55E00", marker="^", depthshade=False)
-        ax.set_xlim(0, 100); ax.set_ylim(0, 100); ax.set_zlim(-5, 55)
+        ax.set_xlim(0, 100); ax.set_ylim(0, 100); ax.set_zlim(-5, z_top)
         ax.view_init(elev=18, azim=azim)
         ax.set_xticklabels([]); ax.set_yticklabels([]); ax.set_zticklabels([])
         ax.set_xlabel("x (EphA axis)", fontsize=8, labelpad=-10); ax.set_ylabel("y (EphB axis)", fontsize=8, labelpad=-10)
@@ -568,10 +577,10 @@ def make_retino():
         dur.append(700)
     final = cps[-1]
     for j in range(16):
-        frames.append(draw(final, "final network (WT): retina below, relay above\n"
+        frames.append(draw(final, f"final network (WT): retina below, relay{shape} above\n"
                            "retinal x is kept along the relay's x axis (topographic map)", -60 + 2 * len(cps) + 22.5 * j))
         dur.append(350)
-    pk = build_project("EphAKO", 0)
+    pk = build_project("EphAKO", 0, relay_mask=mask)
     ko = run_schedule(pk.to_dict(), pk.genome, 0)
     for j in range(4):
         frames.append(draw(ko, "same seed, EphA knocked out (x chemoaffinity gain 0)\n"
@@ -580,7 +589,7 @@ def make_retino():
     dur[len(cps) - 1] = 1800
     dur[len(cps) + 15] = 1500
     dur[-1] = 2500
-    save_gif(frames, "retinothalamic_development.gif", dur, colours=128)
+    save_gif(frames, gif, dur, colours=128)
 
 
 TASKS = dict(cli=make_cli, topo=make_topo, models=make_models, fi=make_fi, cost=make_cost, evo=make_evo,

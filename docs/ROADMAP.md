@@ -723,8 +723,10 @@ in-situ hybridisation over developmental ages) imported as `GridField`s, registe
 licence and citation.
 - **Status:** partial: annotation atlases as geometries (`neurogenesis.data.atlas`: NRRD / MetaImage volumes,
   structure ontologies with descendants, `structure_geometry` → `VoxelMaskGeometry`, `fit_to_box`), used by
-  `examples/atlas_relay_mask.py` for the retina → relay example. Gene-expression grids as fields and registration
-  between ages are not done.
+  `examples/atlas_relay_mask.py` for the retina → relay example, run on the real P4 annotation of the Allen Developing
+  Mouse Brain Atlas (manifest `examples/datasets/allen-devmouse-p4.json`; run 3 of the retina → relay use case, relay
+  shaped by p2A because the P4 3D annotation does not delineate the dLGN). Gene-expression grids as fields and
+  registration between ages are not done.
 
 **J9. Recordings as fit targets.** Spike data from NWB (pynwb units tables) and neo spike trains, reduced to target
 statistics (rates, CV, correlations, PSTHs) for `Fit` Params (E2) and validation (E4).
