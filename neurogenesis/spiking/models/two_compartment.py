@@ -30,8 +30,9 @@ def init_state(net, seed=12345):
     import numpy as np
     N = np.shape(net["mode"])[-1]
     f = jnp.zeros(N, jnp.float32)
+    bits = jnp.zeros_like(net["bits0"], dtype=jnp.uint32) if "bits0" in net else jnp.zeros(N, jnp.uint32)
     return dict(vs=f + EL, vd=f + EL, i_exc=f, i_inh=f, refr=jnp.zeros(N, jnp.int32),
-                bits=jnp.zeros(N, jnp.uint32), phase=jnp.zeros(N, jnp.int32), rng=jnp.asarray(seed, jnp.uint32))
+                bits=bits, phase=jnp.zeros(N, jnp.int32), rng=jnp.asarray(seed, jnp.uint32))
 
 
 def tick(net, st, ext):

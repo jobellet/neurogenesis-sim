@@ -26,6 +26,10 @@ def stack(nets):
     """Packed, padded and stacked arrays of a list of networks (leading axis = network)."""
     N, E, P = pad_sizes(nets)
     packs = [jax_backend.pack(n, N, E, P) for n in nets]
+    max_W = max((p["bits0"].shape[-1] if p["bits0"].ndim == 2 else 1) for p in packs)
+    if max_W > 1:
+        for p in packs:
+            p["bits0"] = np.zeros((N, max_W), np.uint32)
     return {k: np.stack([p[k] for p in packs]) for k in packs[0]}, N
 
 

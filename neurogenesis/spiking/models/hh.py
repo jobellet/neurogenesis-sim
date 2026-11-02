@@ -43,8 +43,9 @@ def init_state(net, seed=12345):
     N = np.shape(net["mode"])[-1]
     v0 = jnp.full(N, -65.0, jnp.float32)
     am, bm, ah, bh, an, bn = _rates(v0)
+    bits = jnp.zeros_like(net["bits0"], dtype=jnp.uint32) if "bits0" in net else jnp.zeros(N, jnp.uint32)
     return dict(v=v0, m=am / (am + bm), h=ah / (ah + bh), n=an / (an + bn), i_syn=jnp.zeros(N, jnp.float32),
-                refr=jnp.zeros(N, jnp.int32), bits=jnp.zeros(N, jnp.uint32), phase=jnp.zeros(N, jnp.int32),
+                refr=jnp.zeros(N, jnp.int32), bits=bits, phase=jnp.zeros(N, jnp.int32),
                 rng=jnp.asarray(seed, jnp.uint32))
 
 
