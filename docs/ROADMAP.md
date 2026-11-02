@@ -236,12 +236,11 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 
 ### Phase C, second wave: developmental stages C14–C24 (from a literature review)
 
-Eleven stages proposed from the maintainer's literature review (NotebookLM notes, 2026-11-02). Each follows the stage
+Eleven stages proposed from the maintainer's literature review (2026-11-02). Each follows the stage
 contract (`Tissue × Params × rng → Tissue`), every parameter a `Param`, neutral parameters = no-op, cost declared
 O(N) or O(E) (cell list for neighbours), and a test of the documented behaviour on a toy tissue, phrased as "in this
 simulation". Numbers (cycle lengths, fractions, bouton counts, ages) are `Param`s with defaults taken from the cited
-sources; the sources and default values are to be filled in from the review (see the PLACEHOLDER below) before each
-task starts.
+sources, listed below the table.
 
 | Task | Stage | Mechanism | What it changes | Needs |
 |---|---|---|---|---|
@@ -267,14 +266,84 @@ task starts.
 
 **Order and priorities.** C14 → C15 first (they make birth-order-dependent layering emerge in G2.3, instead of being
 imposed); C21, C22, C23 next (they use existing P3 / P4 and C11); C18 and C24 independent; C16, C17, C19 after N2 / N3;
-C20 after K5.
+C20 deferred (interim approximation below; K5 later).
 
-```{admonition} PLACEHOLDER
-:class: placeholder
-Sources and default values for C14–C24, to be taken from the maintainer's literature review: cell-cycle lengths and
-Q per cycle (C14), competence windows (C15), contact counts per connection type (C19), the timing of the chloride
-switch (C21), elimination rules (C22), critical-period onset and closure (C23).
-```
+**Defaults and sources** (from the maintainer's literature review, 2026-11-02; each default is a `Param` that a gene,
+field or fit can replace; values are about the cited species and ages, and results are "in this simulation"):
+
+- **C14 `cell_cycle_clock`** — mouse neocortex, neuronogenetic interval E11–E17 (Takahashi, Nowakowski and Caviness
+  1995, J Neurosci 15:6046–6057; 1996, J Neurosci 16:6183–6196; Caviness, Takahashi and Nowakowski 2000, in Nelson and
+  Luciana, eds., Handbook of Developmental Cognitive Neuroscience, MIT Press, pp. 7–22).
+  - 11 integer cycles (CC1–CC11).
+  - Cycle length T_C from about 8.1 h (CC1, E11) to about 20 h (CC11, E17); T_S and T_G2+M constant; the lengthening
+    is almost entirely G1 (about 3 h → 14 h).
+  - Leaving fraction `Q(CC) = min(1, k · CC^a)`, defaults `k = 0.009`, `a = 1.97`; P = 1 − Q.
+  - Check of these defaults (computed): Q = 0.31 at CC6, 0.42 at CC7, 0.54 at CC8, 1 at CC11; about 27 % of the
+    neurons are made in CC1–CC7; a founder yields about 156 neurons. This matches the review's pivot at CC8 (P = Q =
+    0.5, about 75 % of the interval), its "about 30 % of neurons in the first 7 cycles" and "about 140 neurons per
+    founder", but not its "Q < 0.30 up to CC7" (the formula gives Q < 0.30 up to CC5): the first source must settle
+    which one the default reproduces.
+  - Acceptance test: with the defaults, Q per cycle and the neuron output per cycle match the formula (and its
+    expected values) across development seeds, and division times follow T_C(CC).
+- **C15 `temporal_competence`** — ferret neocortex (McConnell and Kaznowski 1991, Science 254:282–285; McConnell 1995,
+  Neuron 15:761–768; for the invertebrate temporal cascade, Isshiki et al. 2001, Cell 106:511–521).
+  - Birth order to layer: layer VI E30–E34, layer V E35–E38, layer IV E39–P0, layers II/III P1–P3.
+  - Rules the stage must reproduce, from heterochronic transplantation: postmitotic neurons keep their fate; young
+    progenitors transplanted in S phase into an old host adopt the host's (later) fate; old progenitors in a young host
+    do not regain early fates. Hence: competence moves one way only, it can be advanced by the environment (a `Param`
+    field), never reversed, and it is fixed at cell-cycle exit.
+  - Acceptance test: the three transplantation outcomes, simulated as moving cells between tissues of different
+    competence stages.
+- **C19 `cluster_boutons`** — neocortex (cat, rat, macaque, human; DeFelipe 2002; Douglas and Martin 2004 and
+  Shepherd and Grillner, eds., 2010, Handbook of Brain Microcircuits; Somogyi et al. 1982, 1983; Peters 1984; Shepherd,
+  ed., 2004, The Synaptic Organization of the Brain, ch. 12).
+  - Placement (with morphology): pyramidal → pyramidal on distal spines (not soma or axon initial segment); basket-cell
+    boutons about one third each on spines, proximal dendritic shafts and soma; chandelier cartridges (up to about 40
+    symmetric synapses) only on the axon initial segment; 3–5 chandelier cells per superficial-layer pyramidal axon
+    initial segment; one chandelier cell contacts about 300 pyramidal neurons within 200–400 µm.
+  - Contacts per connection: to be reconciled before implementation. The review gives 1–2 (rarely 4–5) for pyramidal
+    → pyramidal, while paired recordings with anatomical reconstruction in layer 5 report about 4–8 contacts per
+    connection (Markram et al. 1997, J Physiol 500:409–440; to verify). "10 to 30" for basket cells is the convergence
+    of different basket cells onto one soma, not a contact count per connection. The stage needs per-connection
+    contact distributions per type pair.
+- **C21 `transporter_switch`** — rat and mouse (Rivera et al. 1999, Nature 397:251–255; Ben-Ari 2002, Nat Rev Neurosci
+  3:728–739; retina: Vu et al. 2000, Zhang et al. 2003).
+  - Immature: high NKCC1, [Cl⁻]i about 25–40 mM, E_Cl about −50 to −40 mV (above a rest of −65 to −70 mV): GABA
+    depolarises. Mature: KCC2, [Cl⁻]i about 4–5 mM, E_Cl about −75 mV: GABA hyperpolarises.
+  - Timing: NKCC1-dominated from E12 to about P4; functional switch between P5 and P10 (hippocampus and neocortex), up
+    to P12–P14 in superficial layers.
+  - Mechanism: onset programmed by age, timing accelerated by activity (GABA-driven depolarisation → Ca²⁺ → BDNF /
+    TrkB → KCC2). Default rule: E_Cl(cell) moves from E_Cl,immature to E_Cl,mature with the cell's age (a sigmoid with
+    midpoint and width as `Param`s), and its accumulated activity shifts the midpoint earlier (gain `Param`, 0 = purely
+    programmed).
+- **C22 `competitive_elimination`** — neonatal rat and mouse neuromuscular junction, P0 (poly-innervated) to P14
+  (single input), and climbing fibres on Purkinje cells (P0–P20) (Willshaw 1981, Proc R Soc Lond B 212:401–419; Gouzé,
+  Lasry and Changeux 1983, Biol Cybern 46:207–215; Balice-Gordon and Lichtman 1994, Nature 372:519–524).
+  - Rule: an input is weakened or removed only when a competing input on the same target drives it above threshold
+    while it is inactive or asynchronous; if the target is silent (no suprathreshold activity), nothing is eliminated.
+  - Acceptance test: silent target → no elimination; one active input + inactive ones → the inactive ones are removed;
+    synchronous inputs → both kept.
+- **C23 `critical_period_gate`** — ocular dominance in V1 (Hensch 2005, Nat Rev Neurosci 6:877–888; Pizzorusso et al.
+  2002, Science 298:1248–1251; Hubel and Wiesel 1970, J Physiol 206:419–436).
+  - Mouse: opens at P19–P21 (about a week after eye opening at P13–P14), peaks at P26–P28, closes P32–P35. Cat: opens
+    in weeks 3–4, peaks around week 6, closes by about 3 months.
+  - Opening when parvalbumin-cell inhibition reaches a threshold (a `Param` on that type's mean inhibitory weight or
+    maturity); closing by perineuronal-net condensation around parvalbumin cells (and myelin-associated factors),
+    which the `plastic` mask represents; removing the mask (as chondroitinase ABC does) reopens plasticity.
+- **C24 `tissue_expand`** — mouse, CC1–CC8 (E11–E15): ventricular epithelium volume × about 50, surface × about 25
+  (about × 5 per tangential dimension) (Caviness, Takahashi and Nowakowski 2000). Growth simulators (Zubler and Douglas
+  2009, Front Comput Neurosci 3:25; De Schutter 2023, Front Neuroinform 17:1212384) move cells with overdamped
+  mechanics (`γ dx/dt = Σ repulsion + adhesion`, repulsion `k · max(0, R_i + R_j − |x_i − x_j|)`); too costly here.
+  Default rule instead: after each proliferation step, dilate positions about a centre (or along chosen axes)
+  by `1 + κ · N_new / N_total`, with κ and the axes as `Param`s; the existing `min_distance` collisions of `migrate`
+  (cell list) handle local overlaps. Acceptance test: with κ chosen to give × 5 per tangential axis over CC1–CC8, the
+  cell density stays bounded while the count grows.
+- **C20 `gap_junction_couple`** — deferred. Bidirectional, instantaneous coupling (`I = g (V_i − V_j)`) does not fit
+  the kernels' causal, delayed event scheme without an implicit solver or substeps, which would cost an order of
+  magnitude and touch all four bit-identical kernels (K5). Interim approximation, no kernel change: reciprocal
+  excitatory chemical synapses of delay 0 (first effect after one tick) between neighbouring cells within a
+  developmental window. This passes spikes, not subthreshold currents: it can carry early synchronous waves, but it is
+  not an electrical synapse, and the docs must say so. K5 stays on the roadmap for later.
 
 ### Phase D: performance
 
