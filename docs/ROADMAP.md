@@ -451,6 +451,7 @@ Transmitter action depends on receptors and developmental context, never a stati
 
 **P5. Neuromodulation & volume transmission.**
 - Diffuse neuromodulatory fields acting on plasticity eligibility traces (interfacing Phase E `ThreeFactorRule`).
+- **Status:** done: `neurogenesis.neuromodulation` (`VolumeModulator`, `apply_modulated_plasticity`, `neuromodulate` stage).
 
 ### Phase N: Branching Neurites & Arbor Morphology
 
@@ -481,6 +482,7 @@ Grow realistic arbor morphologies and calculate conduction delays based on neuri
 
 **N5. Compartmental & dendritic attenuation simulation (post P4).**
 - Multi-compartment or passive dendritic filtering approximation in spiking simulation to capture distal vs proximal synaptic efficacy based on `dendritic_distance`.
+- **Status:** done: `neurogenesis.dendritic` (`apply_dendritic_attenuation`, `dendritic_attenuate` stage, distal compartment routing for `two_compartment`).
 
 ### Phase G: modules, docs and examples
 
