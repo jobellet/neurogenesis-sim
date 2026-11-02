@@ -2,7 +2,19 @@
 
 **Grow spiking neural networks the way nervous systems are built, by hand, by genes, or both, and simulate them
 cheaply.**
-
+## Documentation
+**<https://jobellet.github.io/neurogenesis-sim/>**: tutorials, use cases, integration guides, stage and API
+reference, related work. The site is built from `docs/` by `.github/workflows/docs.yml`; to build it locally:
+`pip install -r docs/requirements.txt && sphinx-build -b html docs docs/_build/html`. Key files:
+- `docs/ROADMAP.md`: target architecture (geometry, fields, tissue, stages, parameter sources, GUI), design rules and
+  the task list.
+- `AGENTS.md`: rules for contributors and agents (determinism, backward compatibility, low compute, tests).
+- `docs/EXTENDING.md`: rules, plugins, knockouts, tonic currents, module projects.
+- `docs/STAGES.md`: the registered stages, geometries, fields and sparse guidance: parameters, defaults, limits.
+- `docs/NEURON_MODELS.md`: neuron models, units, cost estimates.
+- `CONTRIBUTING.md`: code and module contributions.
+- `docs/THIRD_PARTY.md`: software used and the literature behind each mechanism.
+  
 neurogenesis-sim is a general toolbox for building circuits through development. You describe where tissue is (2D or 3D
 shapes) and what is already known about it (layers, areas, maps, cell positions). You then choose a sequence of
 developmental stages (cell division, migration, differentiation, axon growth, pruning, activity-dependent refinement
@@ -75,19 +87,6 @@ counts = simulate_counts([net], [currents], ticks=100, model="lif_int")   # or "
 Module("demo", plan, genome, inputs=["sensor"], outputs=["map"]).save("demo.module.json")
 ```
 
-## Documentation
-The full documentation (tutorials, use cases, integration guides, API reference, literature) is a Sphinx site in
-`docs/`. It is built by `.github/workflows/docs.yml` and published on GitHub Pages once the repository is public. To
-build it locally: `pip install -r docs/requirements.txt && sphinx-build -b html docs docs/_build/html`. Key pages:
-- `docs/ROADMAP.md`: target architecture (geometry, fields, tissue, stages, parameter sources, GUI), design rules and
-  the task list.
-- `AGENTS.md`: rules for contributors and agents (determinism, backward compatibility, low compute, tests).
-- `docs/EXTENDING.md`: rules, plugins, knockouts, tonic currents, module projects.
-- `docs/STAGES.md`: the registered stages, geometries, fields and sparse guidance: parameters, defaults, limits.
-- `docs/NEURON_MODELS.md`: neuron models, units, cost estimates.
-- `CONTRIBUTING.md`: code and module contributions.
-- `docs/THIRD_PARTY.md`: software used and the literature behind each mechanism.
-
 ## Continuous integration
 GitHub Actions (`.github/workflows/ci.yml`), on every push:
 - every test on Python 3.10 and 3.12;
@@ -102,5 +101,9 @@ GitHub Actions (`.github/workflows/ci.yml`), on every push:
   per platform.
 - Projects that depend on the toolbox should freeze fingerprints of the networks their results come from, and test them.
 
+## Citing
+See `CITATION.cff` (GitHub's "Cite this repository" button), and cite the methods and datasets you use
+(`docs/THIRD_PARTY.md`).
+
 ## Licence
-MIT (`LICENSE`).
+MIT (`LICENSE`). Third-party software and data keep their own licences (`docs/THIRD_PARTY.md`).
