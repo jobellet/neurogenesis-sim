@@ -477,6 +477,7 @@ Grow realistic arbor morphologies and calculate conduction delays based on neuri
 
 **N4. Connectome SWC skeleton import & simplification.**
 - Import reconstructed arbor skeletons from connectome datasets into `ArborStore` format with automatic downsampling/simplification to target compartment budgets.
+- **Status:** done: `neurogenesis.data.skeletons` (`simplify_arbor_rdp`, `import_connectome_skeletons`, `attach_connectome_skeletons`).
 
 **N5. Compartmental & dendritic attenuation simulation (post P4).**
 - Multi-compartment or passive dendritic filtering approximation in spiking simulation to capture distal vs proximal synaptic efficacy based on `dendritic_distance`.
