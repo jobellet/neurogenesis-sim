@@ -4,7 +4,11 @@
 cheaply.**
 ## Documentation
 **<https://jobellet.github.io/neurogenesis-sim/>**: tutorials, use cases, integration guides, stage and API
-reference, related work. The site is built from `docs/` by `.github/workflows/docs.yml`; to build it locally:
+reference, related work. **For AI assistants:** the whole documentation, with a generated status section (what
+exists, what is not done, open pull requests), as one Markdown file to paste or upload into a chat:
+[neurogenesis-sim-context.md](https://jobellet.github.io/neurogenesis-sim/neurogenesis-sim-context.md) (~70k tokens)
+or the short [neurogenesis-sim-brief.md](https://jobellet.github.io/neurogenesis-sim/neurogenesis-sim-brief.md)
+(~11k tokens); `python scripts/build_context.py` makes them locally. The site is built from `docs/` by `.github/workflows/docs.yml`; to build it locally:
 `pip install -r docs/requirements.txt && sphinx-build -b html docs docs/_build/html`. Key files:
 - `docs/ROADMAP.md`: target architecture (geometry, fields, tissue, stages, parameter sources, GUI), design rules and
   the task list.

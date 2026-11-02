@@ -110,7 +110,17 @@ def _cost_projections(params: Dict[str, Param]) -> Tuple[int, bool, List[float]]
         keys = [k for k, _ in entries]
     pairs = [_normalize_proj_key(k) if isinstance(k, str) else (tuple(k) if isinstance(k, (list, tuple))
              and len(k) == 2 else None) for k in keys]
-    distinct = bool(pairs) and all(p is not None and str(p[0]) != str(p[1]) for p in pairs)
+    region_map = worst_case(params.get("region_map"), None)
+    rmap = region_map if isinstance(region_map, dict) else {}
+
+    def _res(end: Any) -> str:
+        if end in rmap:
+            return str(rmap[end])
+        if str(end) in rmap:
+            return str(rmap[str(end)])
+        return str(end)
+
+    distinct = bool(pairs) and all(p is not None and _res(p[0]) != _res(p[1]) for p in pairs)
     sigmas = [float(worst_case(g.get("sigma"), 0.1)) for _, g in entries] or [0.1]
     return max(1, len(keys)), distinct, sigmas
 

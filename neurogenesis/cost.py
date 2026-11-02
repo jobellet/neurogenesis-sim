@@ -51,11 +51,13 @@ def available_memory():
         return None
 
 
-def memory_bytes(model, n_neurons, n_synapses, n_records=1):
+def memory_bytes(model, n_neurons, n_synapses, n_records=1, max_delay=31):
     """Bytes needed: parameters and state of every neuron, synapse arrays and their per-tick buffers, recorded counts."""
     from .spiking.models import get_model
     m = get_model(model)
-    return int(n_neurons * (PARAM_BYTES + m.state_bytes + 4 * n_records) + n_synapses * (SYNAPSE_BYTES + SYNAPSE_WORK_BYTES))
+    W = max(1, (max_delay + 32) // 32)
+    history_overhead = (W - 1) * 4
+    return int(n_neurons * (PARAM_BYTES + m.state_bytes + history_overhead + 4 * n_records) + n_synapses * (SYNAPSE_BYTES + SYNAPSE_WORK_BYTES))
 
 
 def _load():
@@ -107,12 +109,12 @@ def calibrate(model, refresh=False):
     return cache[key]
 
 
-def estimate(model, n_neurons, n_synapses, ticks, n_records=1, calibrated=True):
+def estimate(model, n_neurons, n_synapses, ticks, n_records=1, calibrated=True, max_delay=31):
     """dict: memory (bytes), available memory, fits (bool), operations per tick, seconds per tick and in total (None if
     not calibrated and calibrated=False), and a one-line verdict."""
     from .spiking.models import get_model
     m = get_model(model)
-    mem = memory_bytes(model, n_neurons, n_synapses, n_records)
+    mem = memory_bytes(model, n_neurons, n_synapses, n_records, max_delay=max_delay)
     avail = available_memory()
     ops = n_neurons * m.substeps * m.flops + n_synapses * 6
     out = dict(model=model, neurons=int(n_neurons), synapses=int(n_synapses), ticks=int(ticks), memory_bytes=mem,
@@ -151,10 +153,10 @@ def verdict(e):
     return f"fits ({mem}); time not calibrated on this device yet"
 
 
-def check(model, n_neurons, n_synapses, ticks, force=False, warn_seconds=3600):
+def check(model, n_neurons, n_synapses, ticks, force=False, warn_seconds=3600, max_delay=31):
     """Called before every batched simulation: refuses networks that do not fit in memory (CostError, unless force), and
     warns when a calibrated time estimate exceeds warn_seconds. Never runs a benchmark itself."""
-    e = estimate(model, n_neurons, n_synapses, ticks, calibrated=False)
+    e = estimate(model, n_neurons, n_synapses, ticks, calibrated=False, max_delay=max_delay)
     if not e["fits"] and not force:
         raise CostError(e["verdict"] + " (pass force=True to try anyway)")
     if e.get("seconds_total", 0) > warn_seconds:

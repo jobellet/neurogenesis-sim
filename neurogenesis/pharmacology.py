@@ -147,4 +147,39 @@ def compile_weights(tissue, profile: Profile, context: Optional[str] = None, gen
     new = np.round(w).astype(np.int32)
     changed = int(np.sum(new != c.weight))
     c.weight = new
+    if any(r.reversal_mV is not None or (context and context in r.contexts and "reversal_mV" in r.contexts[context])
+           for r in profile.receptors):
+        e_rev = np.full(len(profile.receptors), np.nan, dtype=np.float32)
+        for k, r in enumerate(profile.receptors):
+            over = r.contexts.get(context, {}) if context else {}
+            rv = over.get("reversal_mV", r.reversal_mV)
+            if rv is not None:
+                e_rev[k] = float(resolve(rv, genome, {}))
+        c.e_rev = e_rev[rc]
+    if any(r.tau_ms is not None or (context and context in r.contexts and "tau_ms" in r.contexts[context])
+           for r in profile.receptors):
+        tau_decay = np.full(len(profile.receptors), np.nan, dtype=np.float32)
+        for k, r in enumerate(profile.receptors):
+            over = r.contexts.get(context, {}) if context else {}
+            tm = over.get("tau_ms", r.tau_ms)
+            if tm is not None:
+                tau_decay[k] = float(resolve(tm, genome, {}))
+        c.tau_decay = tau_decay[rc]
     return dict(changed=changed, silenced=int(silenced.sum()))
+
+
+def compile_conductances(tissue, profile: Profile, context: Optional[str] = None, genome: Optional[Dict[str, Any]] = None,
+                         require_transmitter: bool = True) -> Dict[str, int]:
+    """Maps each synapse's (transmitter, receptor_class, context) into reversal potential E_rev (mV, float32),
+    tau_decay (ms, float32), and signed weight using the profile entries."""
+    c = tissue.connectivity
+    c._sync()
+    E = len(c.pre)
+    if E == 0:
+        return dict(changed=0, silenced=0)
+    res = compile_weights(tissue, profile, context=context, genome=genome, require_transmitter=require_transmitter)
+    if c.e_rev is None:
+        c.e_rev = np.full(E, np.nan, dtype=np.float32)
+    if c.tau_decay is None:
+        c.tau_decay = np.full(E, np.nan, dtype=np.float32)
+    return res

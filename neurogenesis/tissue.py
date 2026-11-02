@@ -4,17 +4,18 @@ from dataclasses import dataclass, field
 from typing import Optional, List
 from neurogenesis.spiking.network import SNNNetwork, NeuronData, SynapseData
 
-# Optional per-synapse morphology arrays (K2) and the value of a synapse that has none.
+# Optional per-synapse morphology and conductance arrays (K2, P4) and the value of a synapse that has none.
 _SYNAPSE_OPTIONAL = {"pre_node": (np.int32, -1), "post_node": (np.int32, -1),
-                     "path_length": (np.float32, np.nan), "dendritic_distance": (np.float32, np.nan)}
+                     "path_length": (np.float32, np.nan), "dendritic_distance": (np.float32, np.nan),
+                     "e_rev": (np.float32, np.nan), "tau_decay": (np.float32, np.nan)}
 
 
 @dataclass
 class SparseConnectivity:
     """Synapses as struct of arrays. `receptor_class` (E,) uint8 (0 = the classic signed synapse) always exists; the
     morphology arrays `pre_node`, `post_node` (arbor node indices, -1 = soma / none), `path_length` and
-    `dendritic_distance` (space units, NaN = unknown) are None until a stage sets them. Use `take` and `concat` to
-    filter or join synapses so that every array stays aligned."""
+    `dendritic_distance` (space units, NaN = unknown) and conductance arrays `e_rev` (mV), `tau_decay` (ms) are None
+    until a stage sets them. Use `take` and `concat` to filter or join synapses so that every array stays aligned."""
     pre: np.ndarray
     post: np.ndarray
     weight: np.ndarray
@@ -24,6 +25,8 @@ class SparseConnectivity:
     post_node: Optional[np.ndarray] = None
     path_length: Optional[np.ndarray] = None
     dendritic_distance: Optional[np.ndarray] = None
+    e_rev: Optional[np.ndarray] = None
+    tau_decay: Optional[np.ndarray] = None
 
     def __post_init__(self) -> None:
         if self.receptor_class is None or len(self.receptor_class) != len(self.pre):
@@ -571,17 +574,22 @@ class Tissue:
         weight = self.connectivity.weight[valid_synapses]
         delay = self.connectivity.delay[valid_synapses]
         
-        net.synapses = [
-            SynapseData(
-                pre=int(pre[i]),
-                post=int(post[i]),
-                weight=int(weight[i]),
-                delay=int(delay[i])
-            )
-            for i in range(len(pre))
-        ]
-        
-        return net
+        syn_arrays = {
+            "pre": pre.astype(np.uint32),
+            "post": post.astype(np.uint32),
+            "weight": weight.astype(np.int16),
+            "delay": delay.astype(np.uint8),
+        }
+        for key in ("e_rev", "tau_decay"):
+            val = getattr(self.connectivity, key, None)
+            if val is not None:
+                syn_arrays[key] = np.asarray(val[valid_synapses], dtype=np.float32)
+        return SNNNetwork.from_arrays(
+            version="1.0.0",
+            morphology="Custom",
+            neurons=net.neurons,
+            synapse_arrays=syn_arrays,
+        )
 
     @classmethod
     def from_network(cls, net: SNNNetwork) -> Tissue:
@@ -635,11 +643,21 @@ class Tissue:
         
         M = net.num_synapses
         if M > 0:
-            pre = np.array([s.pre for s in net.synapses], dtype=np.int32)
-            post = np.array([s.post for s in net.synapses], dtype=np.int32)
-            weight = np.array([s.weight for s in net.synapses], dtype=np.int32)
-            delay = np.array([s.delay for s in net.synapses], dtype=np.int32)
-            t.connectivity = SparseConnectivity(pre, post, weight, delay)
+            extra = {}
+            if net.synapse_arrays is not None:
+                pre = net.synapse_arrays["pre"].astype(np.int32)
+                post = net.synapse_arrays["post"].astype(np.int32)
+                weight = net.synapse_arrays["weight"].astype(np.int32)
+                delay = net.synapse_arrays["delay"].astype(np.int32)
+                for key in ("e_rev", "tau_decay"):
+                    if key in net.synapse_arrays:
+                        extra[key] = np.asarray(net.synapse_arrays[key], dtype=np.float32)
+            else:
+                pre = np.array([s.pre for s in net.synapses], dtype=np.int32)
+                post = np.array([s.post for s in net.synapses], dtype=np.int32)
+                weight = np.array([s.weight for s in net.synapses], dtype=np.int32)
+                delay = np.array([s.delay for s in net.synapses], dtype=np.int32)
+            t.connectivity = SparseConnectivity(pre, post, weight, delay, **extra)
             
         return t
 
