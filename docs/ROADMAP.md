@@ -400,8 +400,9 @@ field or fit can replace; values are about the cited species and ages, and resul
 **D1. Cell lists / spatial hash.**
 - Shared neighbour search: radius queries and k-nearest, in NumPy, with optional JAX.
 - **Tests:** exact against brute force on small sets; O(N) scaling measured.
-- **Status:** partial: `CellList` radius and k-nearest queries, vectorised in NumPy (#45) with chunked memory and a
-  declared cost; no JAX path.
+- **Status:** done: `CellList` radius and k-nearest queries, vectorised in NumPy (#45) with chunked memory and a
+  declared cost, plus an optional `backend="jax"` path (float64 on the default JAX device, same indices as NumPy,
+  distances within floating-point tolerance, plain NumPy arrays returned).
 
 **D2. Sparse guidance.**
 - Candidate targets only within c·σ of the target point (cell lists), then the same probabilities as the dense version.
