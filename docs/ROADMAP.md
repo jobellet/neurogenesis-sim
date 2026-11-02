@@ -726,8 +726,9 @@ repository is public.
 3. a fully genetic development with proliferation → migration → differentiation → proliferation of differentiated cells → axon growth (unsupervised, evolved on a toy objective);
 4. a fully hand-built network (supervised), compiled and simulated.
 - **Status:** done: `examples/hand_drawn_column.py` (1), `examples/pinwheel_sheet.py` (2),
-  `examples/evolved_development.py` and `examples/layered_sheet.py` (3), `examples/hand_built_network.py` (4), each
-  tested in `tests/test_examples.py`.
+  `examples/evolved_development.py` and `examples/layered_sheet.py` (3, with emergent inside-out layering via C14
+  `cell_cycle_clock` -> C15 `temporal_competence` -> `differentiate` -> `migrate`, Spearman $r \ge 0.8$ across 5 seeds),
+  `examples/hand_built_network.py` (4), each tested in `tests/test_examples.py`.
 
 **G3. Documentation.** A tutorial per workflow (supervised / unsupervised / semi-supervised), the stage reference generated from the registry, and the cost guide.
 

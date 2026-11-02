@@ -51,16 +51,15 @@ def test_layered_sheet_example(tmp_path):
     assert stats["delay_max"] <= 31
     assert stats["delay_min"] <= stats["delay_mean"] <= stats["delay_max"]
 
-    # Validate birth order predicts laminar depth (rank correlation > 0.7)
-    assert stats["birth_order_rank_corr"] > 0.7
+    # Validate birth cycle predicts laminar depth (rank correlation >= 0.8)
+    assert stats["birth_order_rank_corr"] >= 0.8
 
 
 def test_layered_sheet_birth_order_predicts_layer_across_seeds(tmp_path):
-    """Birth order consistently predicts laminar depth (inside-out) across 5 seeds."""
-    from scipy.stats import spearmanr
+    """Birth cycle consistently predicts laminar depth (inside-out, Spearman r >= 0.8) across 5 seeds."""
     from neurogenesis.stages.base import run_schedule
     sys.path.insert(0, str(ROOT))
-    from examples.layered_sheet import build_project
+    from examples.layered_sheet import build_project, _spearmanr
 
     proj = build_project()
     proj_dict = proj.to_dict()
@@ -68,14 +67,14 @@ def test_layered_sheet_birth_order_predicts_layer_across_seeds(tmp_path):
     correlations = []
     for seed in [42, 101, 7, 1234, 999]:
         tissue = run_schedule(proj_dict, genome=proj.genome, seed=seed)
-        corr, _ = spearmanr(tissue.birth_stage, tissue.positions[:, 2])
+        corr, _ = _spearmanr(tissue.generation, tissue.positions[:, 2])
         correlations.append(corr)
         # Verify both excitatory and inhibitory synapses are formed in every seed
         assert np.sum(tissue.connectivity.weight < 0) > 0
         assert np.sum(tissue.connectivity.weight > 0) > 0
 
-    assert all(c > 0.7 for c in correlations)
-    assert np.mean(correlations) > 0.75
+    assert all(c >= 0.8 for c in correlations)
+    assert np.mean(correlations) >= 0.85
 
 
 
