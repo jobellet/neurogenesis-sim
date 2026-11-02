@@ -88,10 +88,6 @@ jobs:
           NG_NGB_FIXTURES: ${{ runner.temp }}/ngbfixtures
         run: dotnet test desktop/avalonia/Neurogenesis.Desktop.sln --configuration Release --no-build --verbosity normal --logger "trx"
 
-      - name: Fetch H4 runtime branch
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
-        run: git fetch origin task/H4-runtime-release
-
       - name: Build Linux package (AppImage + tar.gz)
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         shell: bash
@@ -180,10 +176,6 @@ jobs:
           NG_PYTHON: python
           NG_NGB_FIXTURES: ${{ runner.temp }}/ngbfixtures
         run: dotnet test desktop/avalonia/Neurogenesis.Desktop.sln --configuration Release --no-build --verbosity normal --logger "trx"
-
-      - name: Fetch H4 runtime branch
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
-        run: git fetch origin task/H4-runtime-release
 
       - name: Build Windows package (Installer + Portable Zip)
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'

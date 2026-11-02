@@ -24,8 +24,9 @@ Write-Host "Publishing self-contained .NET 8 app (win-x64)..."
 dotnet publish "$Root\desktop\avalonia\src\Neurogenesis.App\Neurogenesis.App.csproj" `
     -c Release -r win-x64 --self-contained true `
     -o $PublishDir
+if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed with exit code $LASTEXITCODE" }
 
-# 2. Copy native nglif library
+# 2. Copy native nglif library (mandatory)
 $NglifDll = Join-Path $Root "build\nglif\nglif.dll"
 if (-not (Test-Path $NglifDll)) {
     $NglifDll = Join-Path $Root "build\nglif\Release\nglif.dll"
@@ -37,32 +38,38 @@ if (Test-Path $NglifDll) {
     throw "Packaging error: nglif.dll was not found in build\nglif. Native simulation library is required."
 }
 
-# 3. Provision embedded Python runtime using shared script
+# 3. Package UI schema files
+Write-Host "Packaging UI schema..."
+$SchemaCommonDir = Join-Path $PublishDir "desktop\common"
+New-Item -ItemType Directory -Force -Path $SchemaCommonDir | Out-Null
+Copy-Item (Join-Path $Root "desktop\common\ui_schema.example.json") -Destination $PublishDir -Force
+Copy-Item (Join-Path $Root "desktop\common\ui_schema.schema.json") -Destination $PublishDir -Force
+Copy-Item (Join-Path $Root "desktop\common\ui_schema.example.json") -Destination $SchemaCommonDir -Force
+Copy-Item (Join-Path $Root "desktop\common\ui_schema.schema.json") -Destination $SchemaCommonDir -Force
+
+# 4. Provision embedded Python runtime using shared script
 Write-Host "Provisioning standalone Python runtime via desktop/common/runtime/build_runtime.py..."
 $RuntimeScript = Join-Path $Root "desktop\common\runtime\build_runtime.py"
-if (-not (Test-Path $RuntimeScript)) {
-    Write-Host "Checking out build_runtime.py from origin/task/H4-runtime-release..."
-    git fetch origin task/H4-runtime-release
-    git checkout FETCH_HEAD -- desktop/common/runtime
-}
 if (-not (Test-Path $RuntimeScript)) {
     throw "Packaging error: build_runtime.py not found at $RuntimeScript."
 }
 
 $RuntimeDir = Join-Path $PublishDir "runtime"
 python "$RuntimeScript" --target windows-x86_64 --out "$RuntimeDir" --toolbox "$Root"
+if ($LASTEXITCODE -ne 0) { throw "build_runtime.py failed with exit code $LASTEXITCODE" }
 
 # Marker for packaged build
 New-Item -ItemType File -Force -Path (Join-Path $PublishDir ".packaged") | Out-Null
 
-# 4. Create portable ZIP archive
+# 5. Create portable ZIP archive
 $ZipPath = Join-Path $OutputDir "Neurogenesis-windows-x64-portable.zip"
 if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
 Write-Host "Creating portable ZIP archive: $ZipPath..."
 tar -a -c -f "$ZipPath" -C "$PublishDir" .
+if ($LASTEXITCODE -ne 0) { throw "tar failed with exit code $LASTEXITCODE" }
 Write-Host "Created: $ZipPath" -ForegroundColor Green
 
-# 5. Compile Inno Setup installer if available
+# 6. Compile Inno Setup installer if available
 $IsccCandidates = @(
     "ISCC.exe",
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
@@ -85,6 +92,7 @@ foreach ($c in $IsccCandidates) {
 if ($IsccPath) {
     Write-Host "Compiling Inno Setup installer using $IsccPath..."
     & $IsccPath "/O$OutputDir" "$PSScriptRoot\setup.iss"
+    if ($LASTEXITCODE -ne 0) { throw "ISCC compilation failed with exit code $LASTEXITCODE" }
     Write-Host "Installer created in $OutputDir" -ForegroundColor Green
 } else {
     Write-Host "Inno Setup compiler (ISCC.exe) not found. Skipping .exe installer generation." -ForegroundColor Yellow
