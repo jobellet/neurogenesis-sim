@@ -8,9 +8,9 @@ class Add(Field):
         self.a = a
         self.b = b
 
-    def sample(self, points: np.ndarray) -> np.ndarray:
-        val_a = self.a.sample(points) if isinstance(self.a, Field) else self.a
-        val_b = self.b.sample(points) if isinstance(self.b, Field) else self.b
+    def values(self, points: np.ndarray) -> np.ndarray:
+        val_a = self.a.values(points) if isinstance(self.a, Field) else self.a
+        val_b = self.b.values(points) if isinstance(self.b, Field) else self.b
         return val_a + val_b
 
     def to_dict(self) -> Dict[str, Any]:
@@ -35,8 +35,8 @@ class Threshold(Field):
         self.value_below = value_below
         self.value_above = value_above
 
-    def sample(self, points: np.ndarray) -> np.ndarray:
-        vals = self.base_field.sample(points)
+    def values(self, points: np.ndarray) -> np.ndarray:
+        vals = self.base_field.values(points)
         return np.where(vals >= self.threshold, self.value_above, self.value_below)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -67,8 +67,8 @@ class GaussianSmooth(Field):
         from scipy.ndimage import gaussian_filter
         return gaussian_filter(data, sigma=sigmas)
 
-    def sample(self, points: np.ndarray) -> np.ndarray:
-        return self.smoothed_field.sample(points)
+    def values(self, points: np.ndarray) -> np.ndarray:
+        return self.smoothed_field.values(points)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -109,8 +109,8 @@ class DistanceTransform(Field):
         
         return GridField(dist_grid, min_b, spacing, method='trilinear')
 
-    def sample(self, points: np.ndarray) -> np.ndarray:
-        return self.grid_field.sample(points)
+    def values(self, points: np.ndarray) -> np.ndarray:
+        return self.grid_field.values(points)
 
     def to_dict(self) -> Dict[str, Any]:
         return {

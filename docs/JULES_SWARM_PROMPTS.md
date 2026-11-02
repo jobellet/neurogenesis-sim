@@ -25,6 +25,11 @@ This document contains isolated, copy-paste prompts for autonomous Jules agents 
 4. **General Biological Conventions**:
    - Generic API names: no organ or species names in `neurogenesis/` (e.g. `stop_field`, `morphogen`, `adhesion_rule`). Biological names and mechanisms are cited in docstrings.
    - Self-contained tests: each stage test creates its own toy `Tissue` directly; tests never depend on an unmerged sister branch.
+5. **CI Minute Conservation (Strictly Enforced until Dec 1)**:
+   - Run the test suite locally before pushing (`JAX_PLATFORMS=cpu pytest -q`).
+   - Batch commits into a single push per finished task/PR; avoid push-per-commit.
+   - Use `[skip ci]` in commit messages for docs or non-code changes.
+   - PR merges require pasting local test command + summary line in the PR description instead of waiting for green checks.
 
 ---
 

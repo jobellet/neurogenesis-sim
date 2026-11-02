@@ -97,7 +97,7 @@ GUI (viz/): geometry and field editor, schedule editor, step-by-step development
 ## 4. Tasks
 
 Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencies.**
-- A task is done when its tests pass in CI and its documentation is written.
+- A task is done when its tests pass locally (and in CI when run) and its documentation is written. (Until Dec 1, CI minutes are capped: local test runs with command + summary line are pasted into PRs for merge).
 - Interfaces marked **[contract]** are shared by several tasks: change them only through task A1, and announce it in the PR.
 
 ### Phase A: foundations (start here; A1–A4 mostly sequential)
