@@ -239,3 +239,161 @@ class Differentiate:
                         arr[mask] = value(key).astype(arr.dtype)
 
         return tissue
+
+
+@register_stage("temporal_competence")
+class TemporalCompetence:
+    """Progressive, irreversible progenitor competence cascade (McConnell & Kaznowski 1991, Science;
+    McConnell 1995, Neuron; Isshiki et al. 2001, Cell).
+
+    Competence channels in `Tissue.expression` advance one way only for cycling alive cells (`alive & cycling`)
+    and are fixed once a cell leaves the cell cycle (`cycling == False`). Driven by `generation` (or `driver` /
+    `mapping` `Param`) and optionally advanced by an environmental cue (`environment` / `field` `Param`), never
+    reversed. Supports both:
+    - cascade channels (`[{"channel": c, "until": threshold}, ...]`), which start competent (`1.0`) and switch
+      irreversibly off (`0.0`) once the effective driver exceeds `until`;
+    - monotonic state channels (`channels: [c, ...]`), which advance monotonically via `maximum(expr[:, c], driver)`.
+    Without `channels`, the stage is a no-op.
+    """
+
+    @staticmethod
+    def cost(N: int, E: int, params: Dict[str, Any]) -> Tuple[int, int]:
+        ch = worst_case(params.get("channels"), [])
+        n_ch = len(ch) if isinstance(ch, (list, tuple)) else (1 if ch is not None else 1)
+        n_ch = max(1, n_ch)
+        n = max(1, N)
+        return (n * max(24, n_ch * 8), n * max(12, n_ch * 8))
+
+    def run(self, tissue: Tissue, params: Dict[str, Any], genome: Dict[str, Any], fields: Dict[str, Any],
+            rng: np.random.Generator) -> Tissue:
+        N = len(tissue.alive)
+        if N == 0 or not params:
+            return tissue
+
+        channels_raw = params.get("channels")
+        if channels_raw is None:
+            return tissue
+        channels_val = resolve(channels_raw, genome, fields, None)
+        if not isinstance(channels_val, (list, tuple, np.ndarray)):
+            if channels_val is None:
+                return tissue
+            channels_val = [channels_val]
+        if len(channels_val) == 0:
+            return tissue
+
+        exited_this_cycle = getattr(tissue, "_clock_exited_mask", None)
+        if exited_this_cycle is not None and len(exited_this_cycle) == N:
+            mask = tissue.alive & (tissue.cycling | exited_this_cycle)
+            tissue._clock_exited_mask = None
+        else:
+            mask = tissue.alive & tissue.cycling
+        if not np.any(mask):
+            return tissue
+
+        env = {
+            **(genome if isinstance(genome, dict) else {}),
+            "np": np,
+            "N": N,
+            "generation": tissue.generation,
+            "cycling": tissue.cycling,
+            "birth_stage": tissue.birth_stage,
+            "birth_time": tissue.birth_time,
+            "cell_type": tissue.cell_type,
+            "region": tissue.region,
+            "x": tissue.positions[:, 0],
+            "y": tissue.positions[:, 1],
+            "z": tissue.positions[:, 2],
+        }
+        for k, v in fields.items():
+            if isinstance(v, Field):
+                env[f"field_{k}"] = v.values(tissue.positions)
+            elif isinstance(v, Geometry):
+                env[f"geom_{k}"] = v.contains(tissue.positions)
+                env[f"field_{k}"] = v.contains(tissue.positions).astype(np.float32)
+            elif callable(v):
+                env[f"field_{k}"] = v(tissue.positions)
+            else:
+                env[f"field_{k}"] = np.full(N, v, dtype=np.float32)
+
+        driver_param = params.get("driver", params.get("mapping", params.get("target")))
+        if driver_param is None:
+            driver_arr = tissue.generation.astype(np.float32)
+        else:
+            d_val = resolve(driver_param, genome, fields, positions=tissue.positions, context_vars=env)
+            if isinstance(d_val, dict):
+                driver_arr = np.array(
+                    [float(d_val.get(int(g), d_val.get(str(int(g)), g))) for g in tissue.generation],
+                    dtype=np.float32,
+                )
+            elif isinstance(d_val, (list, tuple)) or (
+                isinstance(d_val, np.ndarray) and d_val.ndim == 1 and len(d_val) != N
+            ):
+                table = np.asarray(d_val, dtype=np.float32)
+                idx = np.clip(tissue.generation, 0, max(0, len(table) - 1))
+                driver_arr = table[idx] if len(table) > 0 else tissue.generation.astype(np.float32)
+            elif np.isscalar(d_val):
+                driver_arr = np.full(N, float(d_val), dtype=np.float32)
+            else:
+                driver_arr = np.asarray(d_val, dtype=np.float32).reshape(N)
+
+        env_param = params.get("environment", params.get("field"))
+        if env_param is not None:
+            if isinstance(env_param, str) and env_param in fields:
+                f_obj = fields[env_param]
+                e_val = f_obj.values(tissue.positions) if isinstance(f_obj, Field) else resolve(env_param, genome, fields, positions=tissue.positions, context_vars=env)
+            else:
+                e_val = resolve(env_param, genome, fields, positions=tissue.positions, context_vars=env)
+            if np.isscalar(e_val):
+                env_arr = np.full(N, float(e_val), dtype=np.float32)
+            else:
+                env_arr = np.asarray(e_val, dtype=np.float32).reshape(N)
+            driver_arr = np.maximum(driver_arr, env_arr)
+
+        # Determine required expression columns K
+        cascade_specs = []
+        monotonic_cols = []
+        thresholds_param = params.get("thresholds")
+        thresholds_val = resolve(thresholds_param, genome, fields, None) if thresholds_param is not None else None
+
+        for idx, item in enumerate(channels_val):
+            if isinstance(item, dict):
+                c_idx = int(item.get("channel", idx))
+                u_param = item.get("until", item.get("max_driver", item.get("threshold")))
+                cascade_specs.append((c_idx, u_param))
+            elif thresholds_val is not None and idx < len(thresholds_val):
+                cascade_specs.append((int(item), thresholds_val[idx]))
+            else:
+                monotonic_cols.append(int(item))
+
+        all_cols = [c for c, _ in cascade_specs] + monotonic_cols
+        req_k = (max(all_cols) + 1) if all_cols else 0
+        if req_k > tissue.expression.shape[1]:
+            new_expr = np.zeros((N, req_k), dtype=np.float32)
+            old_k = tissue.expression.shape[1]
+            if old_k > 0:
+                new_expr[:, :old_k] = tissue.expression
+            tissue.expression = new_expr
+
+        if cascade_specs:
+            cascade_cols = [c for c, _ in cascade_specs]
+            # Initialize brand-new cycling cells (whose cascade channels are all 0) to competent (1.0)
+            uninit = mask & (np.sum(tissue.expression[:, cascade_cols], axis=1) == 0.0)
+            if np.any(uninit):
+                for c in cascade_cols:
+                    tissue.expression[uninit, c] = 1.0
+
+            for c, u_param in cascade_specs:
+                if u_param is None:
+                    continue
+                u_val = resolve(u_param, genome, fields, positions=tissue.positions, context_vars=env)
+                if np.isscalar(u_val):
+                    u_arr = np.full(N, float(u_val), dtype=np.float32)
+                else:
+                    u_arr = np.asarray(u_val, dtype=np.float32).reshape(N)
+                competent = (driver_arr <= u_arr).astype(np.float32)
+                tissue.expression[mask, c] = np.minimum(tissue.expression[mask, c], competent[mask])
+
+        for c in monotonic_cols:
+            tissue.expression[mask, c] = np.maximum(tissue.expression[mask, c], driver_arr[mask])
+
+        return tissue

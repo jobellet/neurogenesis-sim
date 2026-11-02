@@ -316,6 +316,9 @@ field or fit can replace; values are about the cited species and ages, and resul
     field), never reversed, and it is fixed at cell-cycle exit.
   - Acceptance test: the three transplantation outcomes, simulated as moving cells between tissues of different
     competence stages.
+  - **Status:** done: `temporal_competence` in `neurogenesis/stages/differentiation.py`, reference profile
+    `examples/profiles/temporal_competence.json`, and heterochronic transplantation tests in
+    `tests/test_stages_temporal_competence.py`.
 - **C19 `cluster_boutons`** — neocortex (cat, rat, macaque, human; DeFelipe 2002; Douglas and Martin 2004 and
   Shepherd and Grillner, eds., 2010, Handbook of Brain Microcircuits; Somogyi et al. 1982, 1983; Peters 1984; Shepherd,
   ed., 2004, The Synaptic Organization of the Brain, ch. 12).

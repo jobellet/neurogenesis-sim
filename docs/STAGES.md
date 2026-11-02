@@ -128,7 +128,7 @@ nearest-neighbour regularity index of each type (Galli-Resta et al. 1997, J Neur
 | `steps`, `rate`, `jitter` | 1, 1.0, 0.0 | iterations, fraction of the overlap removed, motility std |
 | `types`, `boundary` | all, none | cell types that interact; geometry that cells may not leave |
 
-## Expression and differentiation (C6–C7, `neurogenesis/stages/differentiation.py`)
+## Expression and differentiation (C6–C7, C15, `neurogenesis/stages/differentiation.py`)
 
 **`express` (C6).** One gene-regulatory step on the expression matrix (N, K):
 `E ← E·(1 − decay·dt) + sigmoid(W·E + Σ_m f_m·w_m + W_n·Σ_neighbours E)·dt`.
@@ -159,6 +159,20 @@ listed properties (later entries override earlier ones).
 Every value in an entry (`sign`, `base_weight` and the neuron parameters) may be a `Param`; a `Field` value
 is applied per cell. An empty or absent `types` is a no-op. Limits: `type_id` and `condition` are plain values; a
 condition must give one value per cell.
+
+**`temporal_competence` (C15).** Progressive, irreversible progenitor competence cascade (McConnell & Kaznowski 1991,
+Science; McConnell 1995, Neuron; Isshiki et al. 2001, Cell). Updates competence channels in `Tissue.expression` for
+cycling alive cells (`alive & cycling`, plus cells exiting in the current cycle's `cell_cycle_clock`); postmitotic cells
+from earlier cycles keep their competence frozen.
+| Param | Default | Meaning |
+|---|---|---|
+| `channels` | none (no-op) | list of cascade specs `{"channel": c, "until": Param}` (starts at `1.0`, switches irreversibly off to `0.0` when the effective driver exceeds `until`) or integer channel indices (advances monotonically via `maximum(expr[c], driver)`) |
+| `thresholds` | none | optional list of `until` thresholds paired with integer `channels` |
+| `driver` (or `mapping`, `target`) | `Tissue.generation` | intrinsic competence driver (`Const`, `Gene`, `Field`, `Expr` or per-generation table) |
+| `environment` (or `field`) | none | optional environmental `Field` / `Param`; effective driver is `max(driver, environment)`, so an older environment advances young cycling progenitors without reversing older ones |
+
+`differentiate` conditions read `expr[c]` (or `generation`), so one rule table assigns birth-order-dependent fates.
+Reference neocortical birth-order windows: `examples/profiles/temporal_competence.json`.
 
 ## Connectivity (C8–C9, `neurogenesis/stages/connectivity.py`)
 
