@@ -20,8 +20,8 @@ def sparse_guidance(
         p_formed (np.ndarray): The probabilities used to form these synapses (can be used for debugging).
     """
     gd = ctx.gd
-    sigma = gd["sigma"]
-    p0 = gd["p0"]
+    sigma = float(gd.get("sigma", 0.1))  # defaults as in grow_axons
+    p0 = float(gd.get("p0", 0.0))
 
     if exact:
         # EXACT MODE: Identical to dense grow.py

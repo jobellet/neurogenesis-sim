@@ -165,7 +165,10 @@ def _fingerprint(t):
     h = hashlib.sha256()
     for name in ["positions", "cell_id", "parent_id", "clone_id", "cell_type", "region", "expression", "sign",
                  "mode", "shift_v", "base_weight", "threshold", "alive"]:
-        h.update(np.ascontiguousarray(getattr(t, name)).tobytes())
+        a = getattr(t, name)
+        if name == "base_weight":  # recorded when add_cells still widened base_weight to int64; values unchanged
+            a = a.astype(np.int64)
+        h.update(np.ascontiguousarray(a).tobytes())
     return h.hexdigest()
 
 

@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import ast
-import operator as op
-import zlib
 from dataclasses import dataclass
 from typing import Union, List, Dict, Any, Optional, Tuple
 import numpy as np
@@ -139,6 +136,23 @@ def param_from_dict(d: Union[Dict[str, Any], Any]) -> Param:
     if t == "Fit":
         return Fit(target=d["target"], init=float(d["init"]), lo=float(d["lo"]), hi=float(d["hi"]))
     return Expr(formula=d["formula"])
+
+
+def worst_case(param: Any, default: Any) -> Any:
+    """Value of a Param for cost estimates (declared before the genome is known).
+
+    A Const gives its value, a Gene or Fit its upper bound `hi`, a Field or Expr (or None) gives `default`; a dict is
+    read with `param_from_dict` first, and any other value is returned as is.
+    """
+    if isinstance(param, dict):
+        param = param_from_dict(param)
+    if isinstance(param, Const):
+        return param.value
+    if isinstance(param, (Gene, Fit)):
+        return param.hi
+    if param is None or isinstance(param, Param.__args__):
+        return default
+    return param
 
 
 def param_to_dict(param: Union[Param, Any]) -> Dict[str, Any]:

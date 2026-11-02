@@ -86,7 +86,7 @@ GUI (viz/): geometry and field editor, schedule editor, step-by-step development
 | Area | Present | Missing |
 |---|---|---|
 | Spiking | integer LIF kernel, bit-identical in Python, JAX and the browser; `two_compartment` and `hh` models; batched runs; cost estimator with machine calibration | plasticity during simulation as a reusable component (STDP, three-factor); per-region choice of model |
-| Development | `BodyPlan` (regions, projections), one fixed growth order (placement → sign → differentiation → identity → axons), rule registry in 5 phases (placement, shift, target, probability, weight), knockouts, tonic currents; geometry, fields, `Tissue`, stage schedule (A1–A5, B1–B5, C1–C12, D2; see `docs/STAGES.md`) | `freeze` (C13), the development cost model on the command line (D3; per-stage costs and `schedule_cost` exist), chunked growth (D4), and the parts of B4, C1–C12 and D2 marked partial below |
+| Development | `BodyPlan` (regions, projections), one fixed growth order (placement → sign → differentiation → identity → axons), rule registry in 5 phases (placement, shift, target, probability, weight), knockouts, tonic currents; geometry, fields, `Tissue`, stage schedule (A1–A5, B1–B5, C1–C12, D2; see `docs/STAGES.md`) | `freeze` (C13), the development cost model on the command line (D3; per-stage costs and `schedule_cost` exist), chunked growth (D4), and the parts of B4, B5, C1–C12, D1 and D2 marked partial below |
 | Genome / evolution | gene paths, [0, 1] coding, gene groups, JSON; island model, robust fitness, audits; `Param` sources (A3) | supervised fitting (`Fit` params resolve to their initial value); multi-objective |
 | Modules | save / load, composition, plugins, neuron model recorded | module registry and versioning; validation harness |
 | GUI | 3D viewer and per-neuron editing of a finished network | geometry and field editor, schedule editor, development preview, Project import / export |
@@ -162,8 +162,8 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 - Voxel masks from `.npz`.
 - **Tests:** closed-mesh containment; voxelisation volume within 2 %.
 - **Dependencies:** B1.
-- **Status:** done after #39 (vectorised ray parity, uniform mesh sampling, `.npz` voxel masks); on `main` before #39:
-  partial (Python loop over faces, no `.npz` loader). See `docs/STAGES.md`.
+- **Status:** done: OBJ / STL import, ray parity vectorised over faces with a voxel cache, uniform sampling on the
+  mesh volume, voxel masks from `.npz` (`VoxelMaskGeometry`). See `docs/STAGES.md`.
 
 **B3. Scalar, vector and label fields.**
 - **Field kinds:**
@@ -172,25 +172,26 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
   - layer stacks: label by depth with hand-set boundaries, e.g. a "cortical layering" helper with any number of layers and thicknesses as `Param`s.
 - **Tests:** sampling accuracy; layer labels match boundaries.
 - **Dependencies:** B1.
-- **Status:** done after #39 (grid, analytic, vector, label and layer-stack fields; thicknesses as `Param`s); before
-  #39: partial (thicknesses not `Param`s, no vector or label field types).
+- **Status:** done: grid, analytic, vector, label and layer-stack fields; layer thicknesses are `Param`s, resolved
+  by `Field.bind(genome)` in `run_schedule`.
 
 **B4. Point patterns and maps.**
 - **Patterns:** point sets (blobs, centres); regular, jittered and Poisson-disc (minimum distance) generation.
 - **Orientation maps:** pinwheel maps from hand-placed singularities with given charges (±1/2), or from band-pass noise. Output: a vector or angle field and the pinwheel positions.
 - **Tests:** pinwheel charges recovered; minimum distances respected.
 - **Dependencies:** B3.
-- **Status:** partial: point patterns are functions returning arrays (not field types); `PinwheelField` and
-  `pinwheel_charges` after #39; band-pass maps do not return their pinwheel positions.
+- **Status:** partial: regular, jittered and Poisson-disc point patterns are functions returning arrays (not field
+  types); `PinwheelField` (hand-placed singularities) and `pinwheel_charges`; band-pass maps do not return their
+  pinwheel positions.
 
 **B5. Field operations.**
 - Arithmetic, thresholding, smoothing, distance transforms (distance to a boundary or a point set), gradients.
 - Everything must be usable as a `Field` param.
 - **Tests:** against analytic results.
 - **Dependencies:** B3.
-- **Status:** partial: `Add`, `Threshold`, `GaussianSmooth`, distance to a point set; after #39 also `Gradient` and
-  `DistanceToBoundary` in NumPy (no SciPy). Missing: subtraction / multiplication fields, `bind` through `Add` and
-  `Threshold`.
+- **Status:** partial: `Add`, `Threshold`, `GaussianSmooth`, `DistanceTransform` (distance to a point set),
+  `Gradient` and `DistanceToBoundary`, in NumPy (no SciPy); composite fields pass `bind(genome)` to their sub-fields.
+  Missing: subtraction / multiplication fields.
 
 ### Phase C: developmental stages (parallel after A4; each a registered stage with tests and cost declaration)
 
@@ -214,13 +215,13 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 | Task | Status |
 |---|---|
 | C1 | partial: count in a geometry or at one position; no density `Param` or field |
-| C2 | partial: probability, displacement, lineage, daughter type; no `max_cells` bound, no expression noise |
+| C2 | done: probability, displacement, lineage and `generation`, daughter type, asymmetric division, expression noise, `max_cells` bound |
 | C3 | done: probability, density (cell list above N = 2048), neurotrophic in / out degree |
-| C4 | partial: steps along a direction, radial, stop field, boundary; no chemotaxis, target layer or collisions |
-| C5 | partial: `sort` (reorders positions along an axis by a key); no `mosaic` stage, repulsion or adhesion |
+| C4 | done except a tangential mode: steps along a direction (or a per-cell vector `Param`), radial, chemotaxis up / down a scalar field, stop field, boundary, target layer, `min_distance` collisions through the cell list |
+| C5 | partial: `sort` ranks positions along an axis by a key, and differential adhesion (types × types matrix, negative entries repel) through the cell list; no `mosaic` stage |
 | C6 | partial: sigmoid step with morphogen and contact (cell-list) inputs; no Hill function |
 | C7 | done for expression, field and lineage conditions (values as `Param`s after #40); birth order not available |
-| C8 | partial: guidance rules as a stage; dense by default (`exact=True`); errors on missing guidance after #38 |
+| C8 | partial: guidance rules as a stage; dense only up to 2048 cells per side, sparse cell-list search above (only three probability rules there, see D2); errors on missing guidance |
 | C9 | partial: `place_by_hand`, `connect_by_hand` (index lists); no connection matrices or rules |
 | C10 | partial: `prune` by weight, `scale` to a target sum; no activity criterion |
 | C11 | partial: `lif_int` run with Poisson drivers or injected spikes, then STDP / Hebbian; no waves or twitches |
@@ -237,6 +238,8 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 **D1. Cell lists / spatial hash.**
 - Shared neighbour search: radius queries and k-nearest, in NumPy, with optional JAX.
 - **Tests:** exact against brute force on small sets; O(N) scaling measured.
+- **Status:** partial: `CellList` radius and k-nearest queries, vectorised in NumPy (#45) with chunked memory and a
+  declared cost; no JAX path.
 
 **D2. Sparse guidance.**
 - Candidate targets only within c·σ of the target point (cell lists), then the same probabilities as the dense version.
@@ -245,8 +248,9 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 - **Tests:** equality in exact mode; memory O(E) for 10⁵ cells.
 - **Dependencies:** D1.
 - **Status:** partial: `sparse_guidance` with an exact (dense) mode and a cell-list mode supporting three probability
-  rules; the sparse mode draws different random numbers from the dense one, is not the default for large tissues and
-  is not used by `grow()`.
+  rules (`identity_expression`, `no_autapse`, `source_sign`); `grow_axons` uses the cell-list mode by default above
+  2048 cells per side (#44). The sparse mode draws different random numbers from the dense one, and the legacy `grow()`
+  stays dense (fingerprints).
 
 **D3. Development cost model.**
 - Per-stage cost declarations summed by `neurogenesis.cost`, with machine calibration as for simulations.
@@ -262,11 +266,10 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 
 ### Fix wave (F1–F6, review fixes of Wave 2; not the Phase F viewer tasks)
 - **F1** field and geometry instantiation: done (#28).
-- **F2** remove `eval`: partial (#29): fields, conditions and `Expr` use the restricted evaluator; `CurvedSheet` in
-  `neurogenesis/geometry/primitives.py` still calls `eval`.
+- **F2** remove `eval`: done (#29, #44): fields, conditions, `Expr` and `CurvedSheet` use the restricted evaluator.
 - **F3** guidance through `Param`s, `"src->dst"` keys: done (#30); stricter errors in #38.
-- **F4** low compute: partial (#31): apoptosis uses the cell list; `grow_axons` still builds dense Ns × Nd arrays by
-  default (`exact=True`) whatever the size.
+- **F4** low compute: done (#31, #44): apoptosis uses the cell list; `grow_axons` builds dense Ns × Nd arrays only up
+  to 2048 cells per side (or with `exact=True` up to 2^24 pairs) and uses the sparse cell-list search above.
 - **F5** delay limit of 31 ticks: done (#35).
 - **F6** `refine_by_activity` correctness and sign preservation: done (#37).
 

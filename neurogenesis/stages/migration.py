@@ -2,10 +2,9 @@ import numpy as np
 from typing import Dict, Any, Tuple
 
 from neurogenesis.tissue import Tissue
-from neurogenesis.params import Param, resolve, Const
+from neurogenesis.params import Param, resolve, Const, worst_case
 from neurogenesis.spatial import CellList
 from neurogenesis.stages.base import register_stage
-from neurogenesis.stages.differentiation import _worst_case
 
 # Mean neighbours per cell assumed by the costs of neighbour interactions (cell-list bins of side the radius).
 _MEAN_NEIGHBOURS = 27
@@ -72,13 +71,13 @@ class MigrateStage:
 
     @classmethod
     def cost(cls, N: int, E: int, params: Dict[str, Param]) -> Tuple[int, int]:
-        steps = max(1, int(_worst_case(params.get("steps"), 1)))
+        steps = max(1, int(worst_case(params.get("steps"), 1)))
         bytes_cost = N * 8 * 10
         ops_cost = N * 10
         if params.get("chemotaxis_field") is not None:
             bytes_cost += N * 8 * 3 * 6 * 2
             ops_cost += N * 6 * 20
-        if float(_worst_case(params.get("min_distance"), 0.0)) > 0:
+        if float(worst_case(params.get("min_distance"), 0.0)) > 0:
             cl_bytes, cl_ops = CellList.declared_cost(N, N, _MEAN_NEIGHBOURS)
             bytes_cost += N * _MEAN_NEIGHBOURS * _PAIR_BYTES
             ops_cost += cl_ops + N * _MEAN_NEIGHBOURS * 20
@@ -217,7 +216,7 @@ class SortStage:
         bytes_cost = N * 8 * 7
         ops_cost = int(N * np.log2(max(2, N)) + N * 3)
         if params.get("adhesion") is not None:
-            steps = max(1, int(_worst_case(params.get("steps"), 1)))
+            steps = max(1, int(worst_case(params.get("steps"), 1)))
             cl_bytes, cl_ops = CellList.declared_cost(N, N, _MEAN_NEIGHBOURS)
             bytes_cost += N * _MEAN_NEIGHBOURS * _PAIR_BYTES
             ops_cost += steps * (cl_ops + N * _MEAN_NEIGHBOURS * 20)

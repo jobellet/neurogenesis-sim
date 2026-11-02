@@ -55,13 +55,6 @@ class ScaleStage:
         # Apply scaling, maintaining the original sign
         new_weights = tissue.connectivity.weight * scale_factors[tissue.connectivity.post]
         tissue.connectivity.weight = np.round(new_weights).astype(np.int32)
-        
-        # Ensure that weights do not flip signs if they round to zero
-        sign = np.sign(tissue.connectivity.weight)
-        # Assuming all weights > 0 are exc and < 0 are inh
-        # We can just leave them as is, because scaling doesn't change sign.
-        # But if we want to ensure non-zero? Let's just leave it as rounded.
-        
         return tissue
 
 
@@ -95,7 +88,7 @@ class MyelinateStage:
         return tissue
 
 
-from neurogenesis.spiking.plasticity import STDPRule, HebbianRule, ThreeFactorRule
+from neurogenesis.spiking.plasticity import STDPRule, HebbianRule
 from neurogenesis.spiking.jax_backend import tick, init_state, pack
 import jax.numpy as jnp
 import jax

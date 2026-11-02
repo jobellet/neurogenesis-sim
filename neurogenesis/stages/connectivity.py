@@ -5,10 +5,11 @@ import numpy as np
 from typing import Dict, Any, List, Optional, Tuple, Union
 
 from neurogenesis.tissue import Tissue, SparseConnectivity
-from neurogenesis.params import Param, resolve
+from neurogenesis.params import Param, resolve, worst_case
 from neurogenesis.stages.base import register_stage
 from neurogenesis.development.rules import RULES, GuidanceContext, WeightContext
 from neurogenesis.development.sparse_guidance import sparse_guidance
+from neurogenesis.spatial import CHUNK_PAIRS, _BYTES_PER_PAIR
 
 def _sigmoid(x: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-np.clip(x, -30.0, 30.0)))
@@ -83,6 +84,36 @@ DENSE_MAX_CELLS = 2048
 EXACT_MAX_PAIRS = 1 << 24
 
 
+# Declared cost of grow_axons: bytes and operations per cell, per (source, destination) pair on the dense path (float64
+# Ns x Nd x 3 difference, distances, probabilities, uniform draws; measured peak 32 B per pair), and per sparse candidate pair within
+# 5 sigma (cell-list output, distances, probabilities, draws).
+_CELL_BYTES, _CELL_OPS = 256, 100
+_DENSE_PAIR_BYTES, _DENSE_PAIR_OPS = 32, 30
+_SPARSE_PAIR_BYTES, _SPARSE_PAIR_OPS = 48, 20
+
+
+def _cost_projections(params: Dict[str, Param]) -> Tuple[int, bool, List[float]]:
+    """Worst-case view of grow_axons params for its cost: number of projections, whether every projection joins two
+    different ends (then Ns + Nd <= N), and the sigma upper bounds found in the guidance (default 0.1)."""
+    guidance = worst_case(params.get("guidance"), None)
+    entries = []
+    if isinstance(guidance, dict):
+        entries = [(k, v) for k, v in guidance.items() if isinstance(v, dict)] or [(None, guidance)]
+    elif isinstance(guidance, list):
+        entries = [((g.get("src", g.get("source")), g.get("dst", g.get("target"))), g)
+                   for g in guidance if isinstance(g, dict)]
+    projections = worst_case(params.get("projections"), None)
+    if isinstance(projections, (list, tuple)):
+        keys = list(projections)
+    else:
+        keys = [k for k, _ in entries]
+    pairs = [_normalize_proj_key(k) if isinstance(k, str) else (tuple(k) if isinstance(k, (list, tuple))
+             and len(k) == 2 else None) for k in keys]
+    distinct = bool(pairs) and all(p is not None and str(p[0]) != str(p[1]) for p in pairs)
+    sigmas = [float(worst_case(g.get("sigma"), 0.1)) for _, g in entries] or [0.1]
+    return max(1, len(keys)), distinct, sigmas
+
+
 class _PlanRulesAdapter:
     def __init__(self, prob_rules: List[str]):
         self.rules = {"probability": prob_rules}
@@ -133,8 +164,23 @@ class GrowAxons:
     """
     @classmethod
     def cost(cls, N: int, E: int, params: Dict[str, Param]) -> tuple[int, int]:
-        return (N * 64, N * 100)
-    
+        """Cost of the largest projection, taken as Ns = Nd = N / 2 when every projection joins two different ends,
+        else N: below DENSE_MAX_CELLS cells per side (or with exact=True) the dense path holds all Ns x Nd pairs,
+        above it the sparse path holds the pairs within 5 sigma (a fraction 4/3 pi (5 sigma)^3 of the unit box,
+        sigma the largest upper bound in the guidance) plus one cell-list chunk. Memory is that of one projection,
+        operations the sum over projections."""
+        n_proj, distinct, sigmas = _cost_projections(params)
+        exact = worst_case(params.get("exact"), None)
+        side = N // 2 if distinct else N
+        sigma = max(sigmas)
+        if exact or (side <= DENSE_MAX_CELLS and (exact is None or sigma > 1.0)):
+            pairs = min(side * side, EXACT_MAX_PAIRS) if exact else side * side
+            nbytes, ops = pairs * _DENSE_PAIR_BYTES, pairs * _DENSE_PAIR_OPS
+        else:
+            pairs = int(side * side * min(1.0, 4.0 / 3.0 * np.pi * (5.0 * sigma) ** 3))
+            nbytes, ops = pairs * _SPARSE_PAIR_BYTES + CHUNK_PAIRS * _BYTES_PER_PAIR, pairs * _SPARSE_PAIR_OPS
+        return int(N * _CELL_BYTES + nbytes), int(N * _CELL_OPS + n_proj * ops)
+
     def run(self, tissue: Tissue, params: Dict[str, Param], genome: Dict[str, Any], fields: Dict[str, Any], rng: np.random.Generator) -> Tissue:
         if not tissue.alive.any():
             return tissue
@@ -303,7 +349,6 @@ class GrowAxons:
                 p_ij = ctx.p
                 edges_pre, edges_post = np.nonzero(rng.random(p_ij.shape) < p_ij)
             else:
-                ctx.gd = {**gd, "sigma": sigma, "p0": p0}
                 edges_pre, edges_post, _ = sparse_guidance(
                     ctx, _PlanRulesAdapter(p_prob_rules), rng, c=5.0, exact=False
                 )
