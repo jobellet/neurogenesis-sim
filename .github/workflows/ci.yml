@@ -4,14 +4,14 @@ name: CI
 #   LINUX_RUNNER    detect-changes, python, viewer, nglif-ubuntu
 #   MAC_RUNNER      nglif-macos, mac-app
 #   WINDOWS_RUNNER  nglif-windows
-# Self-hosted runners use no Actions minutes. On pull requests, macOS and Windows jobs run on a self-hosted runner, or on
-# hosted runners (10x / 2x minutes) only with the label "full-ci". Self-hosted runners never run pull requests from forks.
+# The repository is public, so hosted runners are free: every job runs on every non-draft pull request whose files it
+# covers. Self-hosted runners never run pull requests from forks.
 
 on:
   push:
     branches: [main]
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 concurrency:
@@ -182,15 +182,15 @@ jobs:
         run: ctest --test-dir build/nglif -C Release --output-on-failure
 
   nglif-macos:
-    # Pull requests: on a self-hosted Mac, or on hosted macOS (10x minutes) with the 'full-ci' label.
+    # nglif golden fixtures on macOS: every non-draft PR touching nglif.
     needs: detect-changes
     if: >-
       (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.nglif == 'true') &&
       (github.event_name != 'pull_request' ||
        (github.event.pull_request.draft == false &&
-        ((vars.MAC_RUNNER != '' && github.event.pull_request.head.repo.full_name == github.repository) ||
-         (vars.MAC_RUNNER == '' && contains(github.event.pull_request.labels.*.name, 'full-ci')))))
+        (vars.MAC_RUNNER == '' || github.event.pull_request.head.repo.full_name == github.repository)))
     runs-on: ${{ fromJSON(vars.MAC_RUNNER || '"macos-latest"') }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
       - name: Build nglif and its fixture test
@@ -201,15 +201,15 @@ jobs:
         run: ctest --test-dir build/nglif -C Release --output-on-failure
 
   nglif-windows:
-    # Pull requests: on a self-hosted Windows runner, or on hosted Windows (2x minutes) with the 'full-ci' label.
+    # nglif golden fixtures on Windows: every non-draft PR touching nglif.
     needs: detect-changes
     if: >-
       (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.nglif == 'true') &&
       (github.event_name != 'pull_request' ||
        (github.event.pull_request.draft == false &&
-        ((vars.WINDOWS_RUNNER != '' && github.event.pull_request.head.repo.full_name == github.repository) ||
-         (vars.WINDOWS_RUNNER == '' && contains(github.event.pull_request.labels.*.name, 'full-ci')))))
+        (vars.WINDOWS_RUNNER == '' || github.event.pull_request.head.repo.full_name == github.repository)))
     runs-on: ${{ fromJSON(vars.WINDOWS_RUNNER || '"windows-latest"') }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - name: Build nglif and its fixture test
@@ -220,15 +220,15 @@ jobs:
         run: ctest --test-dir build/nglif -C Release --output-on-failure
 
   mac-app:
-    # The macOS app. Pull requests: on a self-hosted Mac, or on hosted macOS (10x minutes) with the 'full-ci' label.
+    # The macOS app: every non-draft PR touching the app, the shared desktop code or the bridge.
     needs: detect-changes
     if: >-
       (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.mac-app == 'true') &&
       (github.event_name != 'pull_request' ||
        (github.event.pull_request.draft == false &&
-        ((vars.MAC_RUNNER != '' && github.event.pull_request.head.repo.full_name == github.repository) ||
-         (vars.MAC_RUNNER == '' && contains(github.event.pull_request.labels.*.name, 'full-ci')))))
+        (vars.MAC_RUNNER == '' || github.event.pull_request.head.repo.full_name == github.repository)))
     runs-on: ${{ fromJSON(vars.MAC_RUNNER || '"macos-latest"') }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6

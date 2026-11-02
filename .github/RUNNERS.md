@@ -1,7 +1,7 @@
 # CI runners
 
-GitHub-hosted minutes are limited on a private repository, and macOS minutes count 10×, Windows 2×. Jobs can run on
-our own machines instead (self-hosted runners), which use no minutes.
+The repository is public, so GitHub-hosted runners (Linux, macOS and Windows) are free and are the default. Jobs can
+still run on our own machines (self-hosted runners), for example for faster or specific hardware.
 
 ## How the workflows choose a runner
 Repository variables (Settings → Secrets and variables → Actions → Variables), each a JSON label or list of labels.
@@ -17,8 +17,9 @@ Unset means GitHub-hosted.
 `RELEASE_LINUX_RUNNER`, `RELEASE_WINDOWS_RUNNER`, `MAC_X64_RUNNER` (Intel) and `MAC_ARM64_RUNNER` (Apple Silicon).
 
 Jobs run only when their files changed (`detect-changes`), or on manual runs (`workflow_dispatch`). On pull requests:
-- macOS and Windows jobs run on a self-hosted runner, or on hosted runners only with the label `full-ci`;
+- every job runs on every non-draft PR whose files it covers (Linux, macOS and Windows alike; no label needed);
 - draft PRs run the Python tests only;
+- macOS and Windows jobs stop after 30 minutes (the macOS app after 45);
 - self-hosted runners never run pull requests from forks.
 
 ## A Mac as runner
@@ -40,6 +41,6 @@ gh variable set WINDOWS_RUNNER -R jobellet/neurogenesis-sim --body '["self-hoste
 The PC needs Git, CMake, Visual Studio Build Tools (C++), and the .NET 8 SDK for the Avalonia app.
 
 ## Security
-A self-hosted runner executes the code of every workflow run on that machine. Keep self-hosted runners for the
-private phase. When the repository becomes public, hosted runners are free: run `--uninstall` and delete the
-variables.
+A self-hosted runner executes the code of every workflow run on that machine. On a public repository anyone can open a
+pull request, so the workflows never run fork pull requests on self-hosted runners; hosted runners are free, so the
+simplest setup is none: run `--uninstall` and delete the variables.
