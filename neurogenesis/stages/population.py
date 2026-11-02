@@ -5,9 +5,22 @@ from typing import Dict, Any, Tuple
 
 from neurogenesis.stages.base import register_stage
 from neurogenesis.tissue import Tissue
-from neurogenesis.params import resolve
+from neurogenesis.params import resolve, Param, param_from_dict, Const, Gene, Fit
 from neurogenesis.geometry import Geometry
 from neurogenesis.spatial import CellList
+
+def _worst_case(param: Any, default: Any) -> Any:
+    """Value of a Param for cost estimates: a Const's value, the upper bound of a Gene or Fit, else `default`."""
+    if isinstance(param, dict):
+        param = param_from_dict(param)
+    if isinstance(param, Const):
+        return param.value
+    if isinstance(param, (Gene, Fit)):
+        return param.hi
+    if param is None or isinstance(param, Param.__args__):
+        return default
+    return param
+
 
 @register_stage("seed_cells")
 class SeedCells:
@@ -17,14 +30,7 @@ class SeedCells:
     """
     @classmethod
     def cost(cls, N: int, E: int, params: Dict[str, Any]) -> Tuple[int, int]:
-        M = 100
-        if "N" in params:
-            from neurogenesis.params import Const
-            p_n = params["N"]
-            if isinstance(p_n, Const):
-                M = int(p_n.value)
-            elif isinstance(p_n, (int, float, np.integer, np.floating)):
-                M = int(p_n)
+        M = int(_worst_case(params.get("N"), 100))
         bytes_cost = M * 128
         ops_cost = M * 15
         return bytes_cost, ops_cost
@@ -85,22 +91,35 @@ class SeedCells:
 
 @register_stage("proliferate")
 class Proliferate:
-    """Cell division and proliferation.
+    """Cell division: each alive cell divides with probability `prob` (a `Param`, per cell).
 
-    Linear O(N) allocation of daughter cells.
+    The parent row stays in place as one daughter; the other daughter is appended, displaced by Gaussian `jitter`
+    (space units), with `parent_id`, `clone_id` and the parent's state. Both daughters get `generation` + 1. The
+    appended daughter's `birth_stage` is the `birth_stage` Param, or by default one more than the latest
+    `birth_stage` of the alive cells, so later-born cells sort after earlier ones (birth order).
+
+    Options (neutral defaults reproduce the plain symmetric division):
+    - `max_cells`: upper bound on alive cells; if all divisions would exceed it, a random subset divides so the
+      bound holds exactly (a safety bound, not a mechanism).
+    - `asymmetric_prob`, `daughter_type`: with probability `asymmetric_prob` a division is asymmetric and the
+      appended daughter takes `cell_type = daughter_type`, while the parent row keeps its (progenitor) type, as in
+      asymmetric neurogenic divisions of neural progenitors (Götz & Huttner, 2005, Nat Rev Mol Cell Biol).
+    - `expression_noise`: std of Gaussian noise added to both daughters' expression channels, clipped at 0.
+    - `new_type`: cell type of every appended daughter of a symmetric division.
+
+    Linear O(N) work and allocation, no loops over cells.
     """
+    BYTES_PER_CELL = 136
+
     @classmethod
     def cost(cls, N: int, E: int, params: Dict[str, Any]) -> Tuple[int, int]:
-        prob = 0.5
-        if "prob" in params:
-            from neurogenesis.params import Const
-            p_val = params["prob"]
-            if isinstance(p_val, Const) and isinstance(p_val.value, (int, float)):
-                prob = float(p_val.value)
-            elif isinstance(p_val, (int, float)):
-                prob = float(p_val)
-        M = max(1, int(N * prob))
-        bytes_cost = M * 128
+        M = int(N * min(1.0, float(_worst_case(params.get("prob"), 0.5))))
+        max_cells = _worst_case(params.get("max_cells"), None)
+        if max_cells is not None:
+            M = min(M, max(0, int(max_cells) - N))
+        M = max(1, M)
+        # add_cells reallocates every per-cell array (N + M rows); measured peak is 1.1-1.7x this.
+        bytes_cost = (N + M) * cls.BYTES_PER_CELL
         ops_cost = N * 10 + M * 20
         return bytes_cost, ops_cost
 
@@ -116,27 +135,36 @@ class Proliferate:
         else:
             prob = np.asarray(prob)
 
-        dividing = rng.random(N) < prob
-        M = int(np.sum(dividing))
-        
+        dividing = (rng.random(N) < prob) & tissue.alive
+        div_indices = np.where(dividing)[0]
+
+        max_cells_param = params.get("max_cells", None)
+        if max_cells_param is not None:
+            room = max(0, int(resolve(max_cells_param, genome, fields)) - int(np.sum(tissue.alive)))
+            if len(div_indices) > room:
+                div_indices = np.sort(rng.choice(div_indices, size=room, replace=False))
+
+        M = len(div_indices)
         if M == 0:
             return tissue
-
-        div_indices = np.where(dividing)[0]
 
         parent_positions = tissue.positions[div_indices]
         parent_ids = tissue.cell_id[div_indices]
         parent_clones = tissue.clone_id[div_indices]
-        # Treat birth_stage as generation to increment
-        new_birth_stage = tissue.birth_stage[div_indices] + 1
-        
+        generation = tissue.generation[div_indices] + 1
+        birth_param = params.get("birth_stage", None)
+        if birth_param is None:
+            birth_stage = np.full(M, int(np.max(tissue.birth_stage[tissue.alive])) + 1, dtype=np.int32)
+        else:
+            birth_stage = np.full(M, int(resolve(birth_param, genome, fields)), dtype=np.int32)
+
         jitter_param = params.get("jitter", 0.1)
         jitter = resolve(jitter_param, genome, fields, positions=parent_positions)
         if np.isscalar(jitter):
             jitter = np.full((M, 1), jitter)
         elif len(np.asarray(jitter).shape) == 1:
             jitter = np.asarray(jitter)[:, np.newaxis]
-            
+
         daughter_positions = parent_positions + rng.standard_normal((M, 3)) * jitter
 
         cell_type = tissue.cell_type[div_indices].copy()
@@ -148,15 +176,36 @@ class Proliferate:
              else:
                  cell_type = np.asarray(new_type, dtype=np.int32)
 
+        asym = resolve(params.get("asymmetric_prob", 0.0), genome, fields, positions=parent_positions)
+        if np.any(np.asarray(asym) > 0):
+            daughter_type_param = params.get("daughter_type", None)
+            if daughter_type_param is None:
+                raise ValueError("proliferate: asymmetric_prob > 0 requires daughter_type.")
+            daughter_type = np.broadcast_to(np.asarray(
+                resolve(daughter_type_param, genome, fields, positions=daughter_positions), dtype=np.int32), (M,))
+            asymmetric = rng.random(M) < asym
+            cell_type = np.where(asymmetric, daughter_type, cell_type).astype(np.int32)
+
+        K = tissue.expression.shape[1]
+        expression = tissue.expression[div_indices].copy() if K > 0 else np.zeros((M, 0), dtype=np.float32)
+        noise = float(resolve(params.get("expression_noise", 0.0), genome, fields))
+        if noise > 0.0 and K > 0:
+            eps = (rng.standard_normal((2, M, K)) * noise).astype(np.float32)
+            tissue.expression[div_indices] = np.maximum(expression + eps[0], 0.0)
+            expression = np.maximum(expression + eps[1], 0.0)
+
+        tissue.generation[div_indices] = generation
+
         tissue.add_cells(
             M,
             positions=daughter_positions,
             parent_ids=parent_ids,
             clone_id=parent_clones,
-            birth_stage=new_birth_stage,
+            birth_stage=birth_stage,
+            generation=generation,
             cell_type=cell_type,
             region=tissue.region[div_indices].copy(),
-            expression=tissue.expression[div_indices].copy() if tissue.expression.shape[1] > 0 else np.zeros((M, 0), dtype=np.float32),
+            expression=expression,
             sign=tissue.sign[div_indices].copy(),
             mode=tissue.mode[div_indices].copy(),
             shift_v=tissue.shift_v[div_indices].copy(),
