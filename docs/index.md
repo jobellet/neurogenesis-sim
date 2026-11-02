@@ -40,7 +40,7 @@ A sensor sheet → map circuit grown from a genome (see {doc}`use-cases/topograp
 :class: warning
 The spiking kernels, neuron models, cost estimates, body plans with the fixed growth procedure, genomes, evolution,
 modules, the browser viewer and the bridge are tested and usable. Configurable developmental stages, fields and
-geometries exist but are **experimental**: their API may change and known defects are being fixed (see
+geometries work end to end from a JSON project but are **experimental**: their API may still change (see
 {doc}`development/roadmap`).
 ```
 

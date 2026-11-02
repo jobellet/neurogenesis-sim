@@ -2,8 +2,8 @@
 
 ```{admonition} Experimental
 :class: warning
-Geometries and fields (roadmap phase B) are new. Project-level instantiation of fields and of mesh / voxel
-geometries is being fixed (fix wave F1); the Python objects below work directly.
+Geometries and fields (roadmap phase B) are new and their API may still change. Geometries and fields declared in
+a Project's `fields` are built when the schedule runs, and unknown types raise an error.
 ```
 
 ## Geometries

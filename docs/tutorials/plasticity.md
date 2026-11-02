@@ -29,11 +29,8 @@ for t in range(T):
 The `refine_by_activity` stage (C11) runs a simulation inside a schedule and applies a rule, so that spontaneous
 activity can shape connectivity before the network is used (see {doc}`schedules`).
 
-```{admonition} Known issue
-:class: warning
-With its defaults, `refine_by_activity` currently bounds all weights at `w_min = 0`, which removes inhibitory
-weights; a fix that keeps signs is planned (fix wave F6).
-```
+`refine_by_activity` does nothing unless a `rule` is given, and keeps every synapse's sign (Dale's principle):
+excitatory and inhibitory weights have separate bounds.
 
 Each rule declares its cost (`declared_cost(num_neurons, num_synapses, ticks)`).
 
