@@ -32,7 +32,7 @@ import numpy as np  # noqa: E402
 
 CONDITIONS = ("WT", "b2KO", "TTX", "EphAKO")
 RET_C, RET_S = np.array([50.0, 50.0, 0.0]), np.array([100.0, 100.0, 2.0])      # retina box (space units)
-REL_C, REL_S = np.array([50.0, 50.0, 1000.0]), np.array([60.0, 60.0, 20.0])    # relay box, far from the wave field
+REL_C, REL_S = np.array([50.0, 50.0, 40.0]), np.array([60.0, 60.0, 20.0])      # relay box, above the retina
 RGC, OTHER, RELAY, INTER = 1, 2, 3, 4                                           # cell types
 PROFILE = {
     "id": "retinothalamic",
@@ -90,7 +90,7 @@ def build_project(cond="WT", seed=0, n_prog=60, n_relay=200, n_waves=4, wave_tic
         dict(name="migrate", operator="migrate", params=dict(steps=5, min_distance=2.0)),
         dict(name="mosaic", operator="mosaic", params=dict(radius=12.0, steps=60, rate=0.5, types=[RGC])),
         dict(name="grow_axons", operator="grow_axons", params=dict(
-            projections=["0->1", "1->1"], conduction_velocity=200.0, w_clip=2047, exact=True,
+            projections=["0->1", "1->1"], conduction_velocity=8.0, w_clip=2047, exact=True,
             bounds_min={"0": (RET_C - RET_S / 2).tolist(), "1": (REL_C - REL_S / 2).tolist()},
             bounds_size={"0": RET_S.tolist(), "1": REL_S.tolist()},
             rules_probability=["no_autapse"],
@@ -112,10 +112,11 @@ def build_project(cond="WT", seed=0, n_prog=60, n_relay=200, n_waves=4, wave_tic
         rng = np.random.default_rng([seed, 2026])
         for k in range(n_waves):
             origin = (RET_C + (rng.random(3) - 0.5) * RET_S * np.array([1, 1, 0])).tolist()
-            refine = dict(rule="stdp", ticks=wave_ticks, A_plus=20.0, A_minus=21.0, w_min=0.0, w_max=1000.0)
+            refine = dict(rule="stdp", ticks=wave_ticks, A_plus=20.0, A_minus=21.0, w_min=0.0, w_max=1000.0,
+                          restore_modes=True)
             if g["wave_amp"] > 0:
                 refine["waves"] = dict(sources=[origin], speed=0.4, interval=wave_ticks, duration=1,
-                                       amplitude=gene("wave_amp", 2000.0))
+                                       amplitude=gene("wave_amp", 2000.0), cells={"region": [0]})   # retina only
             else:
                 ids = list(range(n_prog)) + list(range(n_prog + n_relay, n_prog + n_relay + 4 * n_prog))   # retinal ids
                 refine.update(sources=ids, poisson_hz=gene("poisson_hz", 100.0))
@@ -131,7 +132,7 @@ def build_project(cond="WT", seed=0, n_prog=60, n_relay=200, n_waves=4, wave_tic
         "one": {"type": "AnalyticField", "expr": "1.0 + 0.0 * x"},
         "grad_x": {"type": "AnalyticField", "expr": f"(x - {RET_C[0] - RET_S[0] / 2}) / {RET_S[0]}"},
         "grad_y": {"type": "AnalyticField", "expr": f"(y - {RET_C[1] - RET_S[1] / 2}) / {RET_S[1]}"},
-        "trophic_need": {"type": "AnalyticField", "expr": "3.0 * (z > 500.0)"},
+        "trophic_need": {"type": "AnalyticField", "expr": "3.0 * (z > 20.0)"},
     }
     geometry = {"retina": {"type": "Box", "center": RET_C.tolist(), "size": RET_S.tolist()},
                 "relay": {"type": "Box", "center": REL_C.tolist(), "size": REL_S.tolist()}}

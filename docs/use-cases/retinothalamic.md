@@ -9,6 +9,14 @@ set up and test a developmental hypothesis with the toolbox, not a biological fi
 
 The hypotheses, metrics and pass criteria were written before the runs: {doc}`../hypotheses/2026-11-02-retinothalamic`.
 
+![Development of the retina → relay projection, one frame per stage, then the final network and the EphA knockout](../_static/media/retinothalamic_development.gif)
+
+*Proof of principle (WT, seed 0, run 2 below): one frame per development checkpoint, then a turn around the final
+network and the same seed with EphA knocked out. Left: retina (bottom: grey progenitors and other cells, circles RGCs)
+and relay (top: squares relay cells, triangles interneurons); RGCs, their axons and relay cells are coloured by retinal
+x (relay cells: weighted mean over their retinal inputs). Right: each RGC's retinal position against the mean relay
+position of its targets, per axis; a diagonal is a topographic map. Made by `docs/_scripts/make_media.py retino`.*
+
 ```{toctree}
 :hidden:
 
@@ -16,7 +24,7 @@ The hypotheses, metrics and pass criteria were written before the runs: {doc}`..
 ```
 
 ## Model
-Two `Box` regions (a 100 × 100 retinal sheet, a 60 × 60 × 20 relay nucleus placed far away so that the retinal waves,
+Two `Box` regions (a 100 × 100 retinal sheet, a 60 × 60 × 20 relay nucleus; in run 1 placed far away so that the retinal waves,
 which spread through space, never reach it) and analytic x / y gradient fields. Stages (docs/STAGES.md):
 `seed_cells`, `proliferate`, `express` (one fate gene with lateral inhibition through `neighbor_weights`, and two
 graded genes read from the x / y gradient fields), `differentiate` (RGCs, other retinal cells, relay cells, relay
@@ -32,7 +40,7 @@ Conditions (genome values, `condition_genome`): **WT**; **b2KO**: no waves, RGCs
 at the same mean rate as one wave gives (one spike per RGC per 300-tick window); **TTX**: no refinement stages (no
 spikes); **EphAKO**: x chemoaffinity gain 0.
 
-## Results (10 development seeds per condition, seeds 0–9, mean ± SD)
+## Results, run 1 (as pre-registered; 10 development seeds per condition, seeds 0–9, mean ± SD)
 
 | Condition | Mosaic NND/SD | r_x | r_y | Topographic error | Corner separation |
 |---|---|---|---|---|---|
@@ -57,17 +65,42 @@ next to this page. About 66 RGCs, 145 relay cells and 710 retinal synapses per n
   refinement effect is **weak** in this model. With a broad initial projection and only four waves, STDP followed by
   scaling and pruning changes the map little; most of the map's precision comes from the chemoaffinity term.
 
+## Results, run 2 (after the toolbox fixes; not pre-registered)
+The defects listed below were fixed in #81 and #82, and the example was changed to use the fixes: waves reach only
+the retina (`waves.cells`), so the relay sits just above it (box centre z = 40 instead of 1000, `conduction_velocity`
+8 instead of 200 so that delays stay about the same, trophic field threshold z > 20); `restore_modes` turns the β2-KO
+Poisson drivers off after each refinement stage. Everything else, including the seeds, is unchanged. These changes
+were made after run 1 was seen, so run 2 is a check that the conclusions survive the fixes, not a new test.
+
+| Condition | Mosaic NND/SD | r_x | r_y | Topographic error | Corner separation |
+|---|---|---|---|---|---|
+| WT     | 2.77 ± 0.53 | 0.911 ± 0.021 | 0.911 ± 0.022 | 0.230 ± 0.016 | 0.671 ± 0.088 |
+| b2KO   | 2.77 ± 0.53 | 0.913 ± 0.019 | 0.911 ± 0.026 | 0.233 ± 0.014 | 0.665 ± 0.088 |
+| TTX    | 2.77 ± 0.53 | 0.914 ± 0.021 | 0.911 ± 0.027 | 0.234 ± 0.015 | 0.655 ± 0.100 |
+| EphAKO | 2.77 ± 0.53 | 0.033 ± 0.157 | 0.911 ± 0.026 | 0.394 ± 0.019 | 0.619 ± 0.105 |
+
+Paired differences from WT (same seed): TTX topographic error +0.0040 ± 0.0028 (higher in 9 of 10 seeds), separation
+−0.015 ± 0.027 (lower in 7 of 10); b2KO error +0.0029 ± 0.0027 (8 of 10), separation −0.006 ± 0.019 (7 of 10);
+EphAKO error +0.164 ± 0.022 (10 of 10), r_x −0.878 ± 0.163. Per-seed values: `retinothalamic-results-run2.json`.
+The conclusions of run 1 hold: H2 held, and H3 held in orientation with a **weak** blurring (every difference far
+smaller than one SD).
+
 ## Limits and toolbox findings
-- `refine_by_activity` used to ignore its `waves` (and `twitches`) settings when run from a schedule (`run_schedule`
-  wraps a dict param in `Const`). Found while writing this example and fixed in #81; the example now uses the stage
-  directly. The results below were measured with an equivalent workaround, so they are unchanged.
-- `grow_axons` resolves guidance values one level deep, so `B` cannot hold per-axis `Gene`s; the example builds `B`
-  from the condition genome in Python. The graded genes produced by `express` are not read by the guidance rules (no
-  expression-based target rule), so the EphA / EphB expression is illustrative and the gain in `B` carries the effect.
-- Waves are applied to every cell in space; the relay is placed 1000 space units away so the wave never reaches it
-  within a refinement window (`conduction_velocity` 200 keeps the delays short).
-- `mosaic` with a `boundary` cancels every step of cells that start outside the geometry (here, cells displaced in z
-  by `proliferate` jitter out of a thin retina box), so the example runs it without a boundary.
+Found while writing this example (run 1), fixed afterwards:
+- `refine_by_activity` ignored its `waves` (and `twitches`) settings when run from a schedule (`run_schedule` wraps a
+  dict param in `Const`); fixed in #81. Run 1 used an equivalent workaround, so its numbers are not affected.
+- `grow_axons` resolved guidance values one level deep, so `B` could not hold per-axis `Gene`s; fixed in #82 (the
+  example still builds `B` in Python from the condition genome).
+- Waves were applied to every cell in space, so run 1 placed the relay 1000 space units away; #82 adds `waves.cells`,
+  used in run 2.
+- `mosaic` with a `boundary` cancelled every step of cells that started outside the geometry; fixed in #82 (the example
+  still runs it without a boundary).
+- `sources` left β2-KO cells as Poisson drivers after refinement (also in the final network); #82 adds
+  `restore_modes`, used in run 2.
+
+Still open:
+- The graded genes produced by `express` are not read by any guidance rule (no expression-based target rule), so the
+  EphA / EphB expression is illustrative and the gain in `B` carries the effect.
 - Before the reported runs, the activity regime was set on pilot seeds 100–102 (not reported): wave drive of one
   600-unit tick (larger drive made RGCs and relay cells fire for tens of ticks), relay refractory period 5 ticks and a
   weak interneuron projection (otherwise the relay fired continuously under immature GABA), `scale` before `prune`, and
