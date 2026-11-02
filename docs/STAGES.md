@@ -13,7 +13,7 @@ a parameter uses them.
 - `when` is an expression evaluated by the restricted evaluator `neurogenesis.expressions.eval_expr` (no `eval`), with
   `N`, `N_alive`, `E`, `rep`, `tissue`, `genome`, `np`.
 - Units: one tick = 1 ms; positions and distances in space units (the Project's coordinates); weights and thresholds in
-  integer kernel units. Delays are clipped to the kernel limit of 31 ticks.
+  integer kernel units. Delays are limited only by the storage bound of 255 ticks (multi-word spike history in all four kernels; stages accept a `max_delay` Param).
 - `cost(N, E, params)` returns (bytes, ops); `neurogenesis.stages.base.schedule_cost` sums it over a schedule, and
   `neurogenesis.devcost.estimate_development` (command line: `python -m neurogenesis estimate --project p.json`)
   predicts N and E stage by stage, the peak memory and the time on this machine.
@@ -184,8 +184,8 @@ Reference neocortical birth-order windows: `examples/profiles/temporal_competenc
 | `projections` | the `guidance` keys | list of `"src->dst"` strings or pairs; regions are matched by id or through `region_map`; `[]` is the no-op |
 | `guidance` | none | per projection (`"src->dst"` keys, or a list of dicts with `src`, `dst`): `B` (identity), `c` (0), `sigma` (0.1), `p0` (0.0), `w` (1.0), `wc`, `inh`, per-projection rule lists, rule genes |
 | `rules_shift`, `rules_target`, `rules_probability`, `rules_weight` | [] | rule names applied in order; unknown names raise |
-| `conduction_velocity` | 1.0 | space units per tick; delay = round(distance / velocity) clipped to [1, min(`max_delay`, 31)], with a warning when clipped |
-| `max_delay` | 31 | ticks |
+| `conduction_velocity` | 1.0 | space units per tick; delay = round(distance / velocity) clipped to [1, `max_delay`], with a warning when clipped |
+| `max_delay` | unlimited (255, the storage bound) | ticks; also a Param of `myelinate` |
 | `w_clip`, `inh_weight_factor` | 512, 1.0 | weight clip and inhibitory factor (overridden per projection by `wc`, `inh`) |
 | `exact` | unset | unset: dense Ns × Nd when max(Ns, Nd) <= 2048, else sparse guidance (D2, cell list); `True`: always dense, error above 2²⁴ pairs; `False`: sparse when `sigma <= 1` |
 | `region_map`, `bounds_min`, `bounds_size`, `identities` | {} | region names → ids; region boxes for local coordinates (default: the bounding box of the region's cells); per-region identities |
@@ -201,7 +201,7 @@ default) and optional `cell_type`, `birth_stage`, `sign`, `mode`, `shift_v`, `sh
 `directions` (scalars or one value per cell). No positions = no-op.
 
 **`connect_by_hand` (C9).** Appends synapses `pre[i] → post[i]` (current cell indices, not cell ids) with `weight`
-(1.0, truncated to an integer) and `delay` (1 tick). Indices outside [0, N) and delays outside [1, 31] raise
+(1.0, truncated to an integer) and `delay` (1 tick). Indices outside [0, N) and delays outside [1, 255] raise
 `ValueError`. Empty lists = no-op. Two more supervised inputs (run before the index lists):
 - `matrix`: a dense N × N weight matrix (row = pre, column = post, 0 = no synapse), allowed up to N = 2048 cells,
   with `delay_matrix` (N × N) or a scalar `delay`.
@@ -210,7 +210,7 @@ default) and optional `cell_type`, `birth_stage`, `sign`, `mode`, `shift_v`, `sh
   expression over `cell_type`, `region`, `birth_stage`, `generation`, `sign`, `x`, `y`, `z`. Without `max_distance`
   the number of synapses is drawn from Binomial(N_pre · N_post, prob) and distinct pairs are drawn without building
   an N_pre × N_post array (O(E)); with `max_distance` candidates come from the cell list, each kept with `prob`
-  (times exp(−d²/2σ²) with `sigma`). `velocity` sets delay = round(distance / velocity) clipped to [1, 31] with a
+  (times exp(−d²/2σ²) with `sigma`). `velocity` sets delay = round(distance / velocity) clipped to [1, 255] with a
   warning; `dale` gives each synapse the presynaptic sign; autapses are dropped unless `allow_autapse`. Values may be
   `Param`s.
 
@@ -250,13 +250,13 @@ Without `rule` the stage is a no-op . Limits: plasticity acts on magnitudes and 
 are cast to integers. The three-factor eligibility counts arrivals that coincide with a postsynaptic spike in the same tick. **Not implemented:** pruning inside the stage (follow with `prune`), other neuron models.
 
 **`myelinate` (C12).** Multiplies delays by `factor` (alias `delay_factor`; absent = no-op; 1.0 is neutral), rounds
-and clips to [1, 31] ticks with a warning when clipped. By default every synapse is scaled; given criteria select
+and clips to [1, `max_delay`] ticks (default 255) with a warning when clipped. By default every synapse is scaled; given criteria select
 synapses passing all of them: `min_delay` (long projections, ticks), `pre_region` / `post_region` (lists of region
 ids), `min_rate` (presynaptic rate in Hz, from `spikes` or a simulation of `ticks`; activity-dependent myelination,
 Gibson et al. 2014, Science; needs a compacted tissue).
 
 **`freeze` (C13, `neurogenesis/stages/freeze.py`).** Validates the tissue (finite positions, synapse indices in
-range, delays in [1, 31], |weight| <= 32767 and, with `dale`, outgoing signs equal to the presynaptic sign) and raises
+range, delays in [1, 255], |weight| <= 32767 and, with `dale`, outgoing signs equal to the presynaptic sign) and raises
 `FreezeError` listing every problem; the tissue is unchanged. With `path` it writes the compiled network (NGB1 for a
 `.ngb` suffix, else JSON). The functions `freeze(tissue)` → `SNNNetwork` and `develop(project, genome, seed)` (run the
 schedule, then freeze) do the same from Python.
@@ -286,7 +286,7 @@ compartment changes); `read_swc` / `write_swc` for SWC files (`scale` converts u
 default axon and neurite) within `contact_distance` of dendritic nodes (`post_compartments`, default dendrite, neurite,
 soma) of another cell, found through the cell list over nodes. Each contact is kept with `p_contact` (1.0), at most
 `max_per_pair` (1) per cell pair, closest first. Delay = round(axonal path length / `axon_velocity` (1.0) +
-dendritic path length / `dendrite_velocity` (ignored if absent)), clipped to [1, 31] ticks with a counted warning.
+dendritic path length / `dendrite_velocity` (ignored if absent)), clipped to [1, 255] ticks with a counted warning.
 Weight `weight` (1) with the presynaptic sign (`dale`, True). Each synapse records `pre_node`, `post_node`,
 `path_length` and `dendritic_distance`. No arbors or no `contact_distance` is the no-op. The cost assumes 50 nodes per
 cell unless `expected_nodes` is given.
@@ -342,7 +342,7 @@ cells of synapses at or beyond that distance are marked compartment 1 (distal).
 | `distal_compartment_threshold` | none | distance (space units) beyond which targets are marked distal; a `Param` |
 
 Empty params = no-op. Limits: synapses without a dendritic distance are left unattenuated; the added delays are still
-clipped at 31 ticks (the kernels accept longer delays since K4).
+clipped to `max_delay` (default 255 ticks), with a warning when clipped.
 
 ## Geometry (B2, `neurogenesis/geometry/mesh.py`, `voxel.py`)
 - **`mesh`** (`MeshGeometry(vertices, faces, resolution=32)`, `from_obj`, `from_stl` for ASCII and binary STL).

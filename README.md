@@ -46,15 +46,15 @@ evolution, modules with a registry and validation assays, geometries and fields,
 stages (`docs/STAGES.md`), supervised fitting (CMA-ES), connectome data import, pharmacology profiles, branching arbors
 with SWC I/O, SONATA export / import, the bridge, the browser viewer and the macOS app. In progress: the Windows / Linux
 app (H5). Planned: the remaining stages of the second wave (C16–C24), further export formats (J3–J5: NIR, PyNN,
-NeuroML 2), and lifting the 31-tick delay clip in the developmental stages (K4b; the kernels already accept longer
-delays). Configurable stages are
+NeuroML 2), and lifting the remaining 31-tick delay clip in arbor synapses and the connectome importer (K4b; other
+stages accept delays up to 255 ticks). Configurable stages are
 young and their API may still change. Everything open is in `docs/ROADMAP.md` (tasks for parallel development, rules in
 `AGENTS.md`); the generated status section of the AI context file (`scripts/build_context.py`) lists it in one place.
 
 ## What exists today
 | Piece | Module | What it is |
 |---|---|---|
-| Spiking kernel | `neurogenesis.spiking` | Integer LIF neurons (bit-shift leak and synaptic decay, per-neuron threshold, refractory period, Poisson drivers, bursters, axonal delays of any length through a multi-word spike history, neuron indices up to 2³², an array-backed synapse store). Identical spikes in Python (`reference`), JAX (`jax_backend`, CPU or GPU), the browser and the C library `nglif`. Developmental stages still clip delays at 31 ticks (to be lifted). `batch.simulate_counts` runs many networks on sequences of stimuli. |
+| Spiking kernel | `neurogenesis.spiking` | Integer LIF neurons (bit-shift leak and synaptic decay, per-neuron threshold, refractory period, Poisson drivers, bursters, axonal delays up to 255 ticks through a multi-word spike history, neuron indices up to 2³², an array-backed synapse store). Identical spikes in Python (`reference`), JAX (`jax_backend`, CPU or GPU), the browser and the C library `nglif`. `batch.simulate_counts` runs many networks on sequences of stimuli. |
 | Neuron models | `neurogenesis.spiking.models` | `lif_int` (default), `two_compartment` (soma + dendrite) and `hh` (Hodgkin–Huxley), switchable per simulation on the same network, sharing synapses, delays and drivers. See `docs/NEURON_MODELS.md`. |
 | Cost estimates | `neurogenesis.cost` | Memory and time per model before running, calibrated on the actual machine (`python -m neurogenesis estimate --neurons 3e8 --synapses-per-neuron 5000`). Every simulation refuses networks that cannot fit. |
 | Body plans and growth | `neurogenesis.development` | Regions (fixed or grown placement, roles, imposed sign) and allowed projections; one growth procedure: placement and sign → lateral-inhibition differentiation → molecular identity → axon guidance. Deterministic per development seed; parallel growth. |

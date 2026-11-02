@@ -3,7 +3,7 @@
 ```{admonition} Experimental
 :class: warning
 The stage library (roadmap phase C) is new and its API may still change. Every stage is a no-op with empty
-parameters, stages that write delays clip them to the kernel limit (31 ticks) with a warning, and `grow_axons`
+parameters, stages that write delays clip them to `max_delay` (default: the storage bound of 255 ticks) with a warning, and `grow_axons`
 raises an error when a projection has no guidance. Every stage's parameters and known limits are listed in
 {doc}`../reference/stages`.
 ```
@@ -87,12 +87,11 @@ for model in ("lif_int", "two_compartment", "hh"):
     print(model, int(simulate_counts([net], [ext], ticks=100, model=model)[0].sum()))
 ```
 ```text
-UserWarning: grow_axons: 121 synapses clipped to maximum delay 31 ticks (kernel limit)
 lif_int 203
-two_compartment 206
+two_compartment 205
 hh 27
 ```
-The network has 131 cells and 319 synapses (166 inhibitory, from the type-2 cells), with delays of 10–16 ticks
+The network has 131 cells and 319 synapses (166 inhibitory, from the type-2 cells), with delays of 10–22 ticks
 after myelination. In this run `refine_by_activity` has no `rule`, so it leaves the weights unchanged.
 
 ## Genes of a schedule

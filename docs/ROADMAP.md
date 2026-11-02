@@ -535,7 +535,10 @@ Before implementing Phase I, P, and N, core contracts are updated in dedicated, 
 `connect_by_hand`, `myelinate` and `dendritic_attenuate` still clip computed delays at 31. Replace the hard-coded bound
 with the `max_delay` Param (default: no clip, or a documented bound tied to the cost model), warn only when a
 user-set bound clips, and test that a long projection keeps its delay and simulates identically in the four kernels.
-- **Status:** not done.
+- **Status:** partial (#72): `grow_axons` (and its streamed variant), `connect_by_hand`, `myelinate`,
+  `dendritic_attenuate` and `freeze` use the `max_delay` Param, default the storage bound of 255 ticks
+  (`MAX_DELAY_TICKS`), and warn only when clipping. Still clipped at 31: `arbor_synapses`
+  (`neurogenesis/stages/arbors.py`) and the connectome importer (`neurogenesis/data/importer.py`).
 
 ### Phase I: Connectome Data Layer
 
