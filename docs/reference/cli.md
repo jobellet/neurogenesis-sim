@@ -9,6 +9,8 @@
 | `stats` | topology and degree statistics | `--network` |
 | `export-presets` | three preset networks for the viewer | `--out-dir` |
 | `estimate` | memory and time per neuron model | `--neurons --synapses-per-neuron --seconds --model (repeatable)` |
+| `export` | write a network (JSON or NGB1) in another format; prints the export report | `network --format {sonata} --out` |
+| `import` | read a network from another format into network JSON | `path --format {sonata} --out` |
 
 Every command has `--help`. Worked examples: {doc}`../tutorials/cli`.
 

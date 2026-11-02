@@ -8,6 +8,7 @@
 | Module JSON (`neurogenesis-module/1`) | plan, genome, interface, validation, provenance | `Module.save`, `Module.load` | {doc}`../tutorials/modules` |
 | Genome JSON | genome with `"src->dst"` projection keys | `neurogenesis.genome.to_json`, `from_json` | {doc}`../getting-started/concepts` |
 | CSR arrays | `row_ptr`, `col_idx`, `weights`, `delays` | `net.to_csr()` | kernels |
+| SONATA | nodes / edges HDF5, type tables, circuit config, for BMTK, NEST, NEURON, libsonata | `neurogenesis.interop` (`export_network(net, "sonata", dir)`, `import_network`) | {doc}`other-simulators` |
 
 ## Exchanging networks
 ```python
@@ -20,6 +21,6 @@ graph library.
 
 ```{admonition} PLACEHOLDER
 :class: placeholder
-Exporters to community formats: SONATA (Dai et al. 2020), NeuroML / LEMS (Gleeson et al. 2010), and import of
-SWC morphologies (planned, task N4).
+Further formats (roadmap phase J): NIR, PyNN scripts, NeuroML 2 / LEMS (Gleeson et al. 2010), SWC morphologies
+(with N4), gene-expression atlas grids as fields, NWB / neo recordings as fitting targets.
 ```

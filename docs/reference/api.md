@@ -80,6 +80,18 @@ Generated from the docstrings of the installed package.
    :members: fi_curve, nearest_neighbour_regularity
 ```
 
+## Interoperability
+```{eval-rst}
+.. automodule:: neurogenesis.interop.core
+   :members: export_network, import_network, formats, register_format, ExportReport
+
+.. automodule:: neurogenesis.interop.dynamics
+   :members: tau_ms, shift_from_tau, delay_ms, delay_ticks, lif_params, LIFParams
+
+.. automodule:: neurogenesis.interop.sonata
+   :members: export_sonata, import_sonata
+```
+
 ## Bridge
 ```{eval-rst}
 .. automodule:: neurogenesis.bridge.ngb

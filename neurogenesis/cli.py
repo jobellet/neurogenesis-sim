@@ -120,6 +120,21 @@ def cmd_estimate(args: argparse.Namespace) -> None:
         print(f"  {m:16s} {r['verdict']}")
 
 
+def cmd_export(args: argparse.Namespace) -> None:
+    """Write a network (JSON or NGB1) in another simulator's format, and print what was kept."""
+    from .interop import export_network
+    report = export_network(args.network, args.format, args.out)
+    print(report)
+
+
+def cmd_import(args: argparse.Namespace) -> None:
+    """Read a network written in another format and save it as network JSON."""
+    from .interop import import_network
+    net = import_network(args.format, args.path)
+    net.save_json(args.out)
+    print(f"✓ {net.num_neurons:,} neurons, {net.num_synapses:,} synapses -> {Path(args.out).resolve()}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="python -m neurogenesis",
@@ -174,6 +189,19 @@ def main() -> None:
     p_est.add_argument("--seconds", default="1", help="simulated seconds")
     p_est.add_argument("--model", action="append", help="neuron model (repeatable; default: all)")
     p_est.set_defaults(func=cmd_estimate)
+
+    # Subcommands: export / import (roadmap phase J)
+    from .interop import formats
+    p_exp = subparsers.add_parser("export", help="Write a network in another simulator's format (e.g. SONATA)")
+    p_exp.add_argument("network", help="network JSON or NGB1 file")
+    p_exp.add_argument("--format", required=True, choices=formats())
+    p_exp.add_argument("--out", required=True, help="output path (a directory for SONATA)")
+    p_exp.set_defaults(func=cmd_export)
+    p_imp = subparsers.add_parser("import", help="Read a network from another format into network JSON")
+    p_imp.add_argument("path", help="input path (for SONATA: a directory with circuit_config.json, or the config)")
+    p_imp.add_argument("--format", required=True, choices=formats())
+    p_imp.add_argument("--out", default="network.json", help="output network JSON (default: network.json)")
+    p_imp.set_defaults(func=cmd_import)
 
     args = parser.parse_args()
     args.func(args)
