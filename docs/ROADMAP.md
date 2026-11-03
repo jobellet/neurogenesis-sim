@@ -221,7 +221,7 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 | C5 | done: `sort` ranks positions along an axis by a key, differential adhesion (types × types matrix) through the cell list, and the `mosaic` stage (homotypic exclusion zones) |
 | C6 | done: sigmoid or Hill step with morphogen and contact (cell-list) inputs |
 | C7 | done for expression, field, lineage, birth order and position conditions (values as `Param`s) |
-| C8 | partial: guidance rules as a stage; dense only up to 2048 cells per side, sparse cell-list search above (only three probability rules there, see D2); errors on missing guidance |
+| C8 | partial: guidance rules as a stage; dense only up to 2048 cells per side, sparse cell-list search above (only three probability rules there, see D2); errors on missing guidance; `expression_gradient` target rule (target map from named graded expression columns, per axis gain and sign, min-max or raw levels; dense and sparse) |
 | C9 | done: `place_by_hand`, `connect_by_hand` (index lists, dense matrices up to 2048 cells, connection rules by region / type / expression with probability, distance and velocity) |
 | C10 | done: `prune` by weight and by coactivity (activity criterion), `scale` to a target sum with a `rate` |
 | C11 | done: `lif_int` run with Poisson drivers, injected spikes, spontaneous waves or motor twitches with sensory feedback, then STDP, Hebbian or three-factor plasticity (follow with `prune`) |

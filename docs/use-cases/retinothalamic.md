@@ -39,6 +39,7 @@ position of its targets, per axis; a diagonal is a topographic map. Made by `doc
 :hidden:
 
 ../hypotheses/2026-11-02-retinothalamic
+../hypotheses/2026-11-03-retinothalamic-expression
 ```
 
 ## Model
@@ -102,6 +103,40 @@ Paired differences from WT (same seed): TTX topographic error +0.0040 ± 0.0028 
 EphAKO error +0.164 ± 0.022 (10 of 10), r_x −0.878 ± 0.163. Per-seed values: `retinothalamic-results-run2.json`.
 The conclusions of run 1 hold: H2 held, and H3 held in orientation with a **weak** blurring (every difference far
 smaller than one SD).
+
+## Results, map read from expression (pre-registered variant, 2026-11-03)
+In runs 1–4 the graded EphA / EphB genes are computed but the map comes from `B`. In this variant
+(`--map-source expression`) the `expression_gradient` target rule reads them: `B = 0` on x and y, EphA sets the x
+target and EphB the y target (gain 2, attraction, min-max normalised over the RGCs), and EphAKO sets the EphA gene to 0
+in every cell (`express(knockout=["EphA"])`) instead of setting a gain to 0. The hypotheses were written and committed
+before the variant was ever grown (no pilot run): {doc}`../hypotheses/2026-11-03-retinothalamic-expression`. Same
+seeds 0–9, genome and metrics as run 2, which was rerun on the same commit as the comparison and reproduced the run 2
+table exactly.
+
+    python examples/retinothalamic.py --cpu --seeds 10 --map-source expression
+
+| Condition | Mosaic NND/SD | r_x | r_y | Topographic error | Corner separation |
+|---|---|---|---|---|---|
+| WT     | 2.77 ± 0.53 | 0.896 ± 0.021 | 0.889 ± 0.033 | 0.254 ± 0.013 | 0.763 ± 0.078 |
+| b2KO   | 2.77 ± 0.53 | 0.890 ± 0.027 | 0.891 ± 0.032 | 0.257 ± 0.012 | 0.760 ± 0.076 |
+| TTX    | 2.77 ± 0.53 | 0.896 ± 0.020 | 0.891 ± 0.034 | 0.257 ± 0.011 | 0.758 ± 0.079 |
+| EphAKO | 2.77 ± 0.53 | 0.031 ± 0.074 | 0.890 ± 0.031 | 0.400 ± 0.017 | 0.690 ± 0.075 |
+
+Paired differences (same seed), mean ± SD. Against the `B` variant (run 2), WT: topographic error +0.023 ± 0.010
+(higher in 10 of 10 seeds; pooled SD 0.014), r_x −0.015 ± 0.018, r_y −0.022 ± 0.017 (lower in 9 of 10), corner
+separation +0.092 ± 0.057 (higher in 10 of 10). Within the variant, against its WT: TTX error +0.0034 ± 0.0035 (higher
+in 8 of 10), separation −0.005 ± 0.021 (lower in 6 of 10); b2KO error +0.0033 ± 0.0024 (10 of 10), separation
+−0.003 ± 0.024 (5 of 10); EphAKO r_x −0.866 ± 0.087 (10 of 10), r_y +0.001 ± 0.019, error +0.146 ± 0.014 (10 of 10).
+The mosaic is identical to run 2 for every seed and condition; about 676 retinal synapses per network (521 in
+EphAKO). Per-seed values: `retinothalamic-results-expression.json`.
+
+Predictions: E1 (both axes kept in WT, b2KO, TTX) held; E2 (EphAKO |r_x| < 0.3, r_y within 0.1 of WT) held; E3
+(higher error than `B` by more than one pooled SD, r within 0.1) held; E4 (activity effects in the predicted direction
+but below one SD) held as weak, with the separation drop smaller than in runs 1–3 (5–6 of 10 seeds); E5 (mosaic
+unchanged) held. Not predicted: the corner separation is higher than with `B` in every seed. A likely reason, not
+tested, is that the convex EphA / EphB levels pull the targets of the low corner towards one end of each axis and
+spread the two corners further apart in the relay. As for the other runs, these are properties of this simulation:
+the expression profiles are made up (sigmoid of an analytic gradient) and say nothing about real Eph levels.
 
 ## Relay shaped by an atlas (P4)
 The relay box can be replaced by the shape of a structure from an annotation atlas, here the Allen Developing Mouse
@@ -220,8 +255,11 @@ Found while writing this example (run 1), fixed afterwards:
   `restore_modes`, used in run 2.
 
 Still open:
-- The graded genes produced by `express` are not read by any guidance rule (no expression-based target rule), so the
-  EphA / EphB expression is illustrative and the gain in `B` carries the effect.
+- Runs 1–4 still take the map from the gain in `B`, and their EphA / EphB expression is illustrative. The
+  `expression_gradient` target rule now reads graded genes; the variant above uses it with the EphA knockout as a null
+  allele. The expression profiles and the ligand side (no ephrin gradient in the relay: the rule maps receptor level to
+  a target coordinate directly) are still made up, and the rule has no competition between axons (Brown et al. 2000,
+  Cell: relative, not absolute, EphA levels).
 - Before the reported runs, the activity regime was set on pilot seeds 100–102 (not reported): wave drive of one
   600-unit tick (larger drive made RGCs and relay cells fire for tens of ticks), relay refractory period 5 ticks and a
   weak interneuron projection (otherwise the relay fired continuously under immature GABA), `scale` before `prune`, and
