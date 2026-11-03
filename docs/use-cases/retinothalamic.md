@@ -105,7 +105,7 @@ The conclusions of run 1 hold: H2 held, and H3 held in orientation with a **weak
 smaller than one SD).
 
 ## Results, map read from expression (pre-registered variant, 2026-11-03)
-In runs 1–3 the graded EphA / EphB genes are computed but the map comes from `B`. In this variant
+In runs 1–4 the graded EphA / EphB genes are computed but the map comes from `B`. In this variant
 (`--map-source expression`) the `expression_gradient` target rule reads them: `B = 0` on x and y, EphA sets the x
 target and EphB the y target (gain 2, attraction, min-max normalised over the RGCs), and EphAKO sets the EphA gene to 0
 in every cell (`express(knockout=["EphA"])`) instead of setting a gain to 0. The hypotheses were written and committed
@@ -255,7 +255,7 @@ Found while writing this example (run 1), fixed afterwards:
   `restore_modes`, used in run 2.
 
 Still open:
-- Runs 1–3 still take the map from the gain in `B`, and their EphA / EphB expression is illustrative. The
+- Runs 1–4 still take the map from the gain in `B`, and their EphA / EphB expression is illustrative. The
   `expression_gradient` target rule now reads graded genes; the variant above uses it with the EphA knockout as a null
   allele. The expression profiles and the ligand side (no ephrin gradient in the relay: the rule maps receptor level to
   a target coordinate directly) are still made up, and the rule has no competition between axons (Brown et al. 2000,

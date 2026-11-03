@@ -281,7 +281,7 @@ def main():
     ap.add_argument("--compare-matched-box", action="store_true",
                     help="also run a box with the atlas mask's volume and bounding-box aspect ratio")
     ap.add_argument("--map-source", choices=MAP_SOURCES, default="B",
-                    help="B: target map from the gains in B (runs 1-3); expression: from the EphA / EphB expression")
+                    help="B: target map from the gains in B (runs 1-4); expression: from the EphA / EphB expression")
     args = ap.parse_args()
     if args.cpu:
         os.environ["JAX_PLATFORMS"] = "cpu"
