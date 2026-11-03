@@ -376,3 +376,33 @@ def test_k6_plastic_mask_defaults_and_carried_through_operations():
     t.compact()
     assert t.connectivity.plastic.tolist() == [False, True]
     assert t.connectivity.plastic_mask().tolist() == [False, True]
+
+def test_k6_contacts_carried_through_operations():
+    t = Tissue.empty()
+    t.add_cells(4)
+    c = SparseConnectivity(np.array([0, 1, 2, 3], np.int32), np.array([1, 2, 3, 0], np.int32),
+                           np.array([5, 6, 7, 8], np.int32), np.array([1, 1, 1, 1], np.int32))
+    t.connectivity = c
+    assert c.contacts is None
+
+    nbytes = t.memory_bytes()
+    assert Tissue.from_network(t.to_network()).connectivity.contacts is None
+    assert t.memory_bytes() == nbytes
+
+    t.connectivity.contacts = np.array([1, 2, 3, 4], dtype=np.int32)
+    # Default is 1 for appended synapses
+    app = t.connectivity.append([0], [2], [1], [1])
+    assert app.contacts.tolist() == [1, 2, 3, 4, 1]
+
+    sub = t.subset(np.array([1, 2, 3]))                          # keeps synapses 1->2, 2->3
+    assert sub.connectivity.contacts.tolist() == [2, 3]
+
+    cat = Tissue.concatenate([sub, t])
+    assert cat.connectivity.contacts.tolist() == [2, 3, 1, 2, 3, 4]
+
+    back = Tissue.from_network(t.to_network())
+    assert back.connectivity.contacts.tolist() == [1, 2, 3, 4]
+
+    t.kill(np.array([True, False, False, False]))                 # drops synapses 0->1 and 3->0
+    t.compact()
+    assert t.connectivity.contacts.tolist() == [2, 3]

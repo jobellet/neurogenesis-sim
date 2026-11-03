@@ -14,3 +14,4 @@ for _, module_name, _ in pkgutil.iter_modules(__path__):
 
 import neurogenesis.dendritic  # noqa: F401, E402
 import neurogenesis.neuromodulation  # noqa: F401, E402
+import neurogenesis.stages.boutons  # noqa: F401, E402
