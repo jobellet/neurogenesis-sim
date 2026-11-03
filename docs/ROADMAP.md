@@ -572,7 +572,7 @@ Enable importing public connectome datasets (supervised) and using them as stati
 - Space units set conduction delays; region-local $[0, 1]^3$ coordinates are derived only inside regions.
 - Neuropil ROI masks and column coordinates interfaced via `Geometry` and `Field` adapters.
 - Clip delays $>31\text{ ms}$ with a counted warning until K4 merges.
-- **Status:** partial: affine registration (voxel size, origin, mirroring) and clipped delays; ROI masks and column coordinates through `Geometry` / `Field` adapters are not done (use `VoxelMaskGeometry` and fields directly).
+- **Status:** done: affine registration (voxel size, origin, mirroring) and clipped delays; ROI masks and column coordinates interfaced via `Geometry` and `Field` adapters (`neurogenesis.data.registration`), with local tests in PR ([skip ci]).
 
 **I4. Synapse count to synaptic weight mapping.**
 - Configurable mapping from anatomical synapse counts to functional weights (linear, Hill/saturating, or `Param`).
