@@ -132,6 +132,22 @@ def test_evolved_development_example(tmp_path):
     assert stats["cells_type1"] > 0 and stats["synapses"] > 0
 
 
+def test_retinothalamic_step_by_step_cli(tmp_path):
+    """Retina -> relay CLI stage-slicing: steps 0->1 and 1->2 advance correctly through --from-stage and --until-stage."""
+    import subprocess
+    r1 = subprocess.run([sys.executable, str(ROOT / "examples" / "retinothalamic.py"), "--cpu", "--seed", "0",
+                         "--small", "--from-stage", "start", "--until-stage", "proliferate",
+                         "--out", str(tmp_path / "step_01.ngb")], capture_output=True, text=True, cwd=tmp_path)
+    assert r1.returncode == 0, r1.stderr
+    assert (tmp_path / "step_01.ngb").exists()
+    r2 = subprocess.run([sys.executable, str(ROOT / "examples" / "retinothalamic.py"), "--cpu", "--seed", "0",
+                         "--small", "--in", str(tmp_path / "step_01.ngb"),
+                         "--from-stage", "proliferate", "--until-stage", "express",
+                         "--out", str(tmp_path / "step_02.ngb")], capture_output=True, text=True, cwd=tmp_path)
+    assert r2.returncode == 0, r2.stderr
+    assert (tmp_path / "step_02.ngb").exists()
+
+
 def test_retinothalamic_example(tmp_path):
     """Retina -> relay example: the four conditions develop (small tissue, 2 seeds) and every metric is finite."""
     import json
@@ -147,6 +163,20 @@ def test_retinothalamic_example(tmp_path):
             assert all(np.isfinite(row[k]) for k in ("mosaic_nnri", "r_x", "r_y", "topo_error", "separation")), (cond, row)
             assert row["n_rgc"] > 10 and row["n_retinal_synapses"] > 0
     assert stats["summary"]["WT"]["r_x"][0] > 0.5 and abs(stats["summary"]["EphAKO"]["r_x"][0]) < 0.3
+
+
+def test_retinothalamic_map_from_expression():
+    """--map-source expression: the expression_gradient rule reads EphA / EphB (B = 0), so WT has a map and the EphA
+    knockout (gene at 0 in every cell) loses its x axis; the default B projects are not affected."""
+    sys.path.insert(0, str(ROOT))
+    from examples.retinothalamic import build_project, run, summary
+    from neurogenesis.stages.base import run_schedule
+    p = build_project("EphAKO", 0, n_prog=45, n_relay=100, n_waves=1, wave_ticks=250, map_source="expression")
+    t = run_schedule(p.to_dict(), p.genome, 0)
+    assert t.expression_names == ["fate", "EphA", "EphB"] and not t.expression[:, 1].any()
+    assert "expression_gradient" not in str(build_project("WT", 0).to_dict())
+    s = summary(run(range(2), small=True, conditions=("WT", "EphAKO"), map_source="expression"))
+    assert s["WT"]["r_x"][0] > 0.5 and s["WT"]["r_y"][0] > 0.5 and abs(s["EphAKO"]["r_x"][0]) < 0.3
 
 
 def test_retinothalamic_waves_reach_the_stage():
@@ -179,7 +209,7 @@ def test_retinothalamic_with_an_atlas_shaped_relay(tmp_path):
                         "--out", str(tmp_path / "mask.npz")], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     sys.path.insert(0, str(ROOT))
-    from examples.retinothalamic import RELAY, build_project, measure
+    from examples.retinothalamic import RELAY, build_project, measure, volume_matched_box
     from neurogenesis.geometry.voxel import VoxelMaskGeometry
     from neurogenesis.stages.base import run_schedule
     mask = tmp_path / "mask.npz"
@@ -189,6 +219,17 @@ def test_retinothalamic_with_an_atlas_shaped_relay(tmp_path):
     assert np.all(geom.contains(t.positions[t.cell_type == RELAY]))
     m = measure(t, relay_mask=mask)
     assert m["n_retinal_synapses"] > 0 and m["r_x"] > 0.5 and m["r_y"] > 0.5
+    assert np.isfinite(m["topo_error_feasible"])
+    center, size = volume_matched_box(mask)
+    assert np.isclose(np.prod(size), geom.mask.sum() * np.prod(geom.pitch), rtol=1e-6)
+    box = dict(center=center.tolist(), size=size.tolist())
+    bp = build_project("WT", 0, n_prog=45, n_relay=100, n_waves=1, wave_ticks=250, relay_box=box)
+    bt = run_schedule(bp.to_dict(), bp.genome, 0)
+    blo = center - size / 2
+    assert np.all((bt.positions[bt.cell_type == RELAY] >= blo) &
+                  (bt.positions[bt.cell_type == RELAY] <= blo + size))
+    bm = measure(bt, relay_box=box)
+    assert np.isfinite(bm["topo_error_feasible"])
 
 
 def test_allen_annotation_unpack_and_manifest(tmp_path):

@@ -1,0 +1,222 @@
+name: Avalonia Desktop App (Windows & Linux)
+
+# Runners. Each job family reads its runner from a repository variable (Settings > Secrets and variables > Actions >
+# Variables), as a JSON label or list of labels; unset means GitHub-hosted:
+#   LINUX_RUNNER    default "ubuntu-latest"    jobs: linux
+#   WINDOWS_RUNNER  default "windows-latest"   jobs: windows
+# Self-hosted runners use no Actions minutes (.github/RUNNERS.md). On a private repository, hosted Windows minutes count
+# 2x, so on pull requests Windows jobs run only with a self-hosted runner, or on hosted runners when the PR carries the
+# label "full-ci". They always run on main and on manual runs. Draft PRs skip non-essential jobs. Jobs on self-hosted
+# runners never run for pull requests from forks.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - 'desktop/avalonia/**'
+      - 'desktop/common/**'
+      - 'neurogenesis/bridge/**'
+      - '.github/workflows/avalonia-app.yml'
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    paths:
+      - 'desktop/avalonia/**'
+      - 'desktop/common/**'
+      - 'neurogenesis/bridge/**'
+      - '.github/workflows/avalonia-app.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: avalonia-app-${{ github.ref }}-${{ github.event.action == 'labeled' && 'label' || 'code' }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux
+    runs-on: ${{ fromJSON(vars.LINUX_RUNNER || '"ubuntu-latest"') }}
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.action != 'labeled' && !github.event.pull_request.draft &&
+       (vars.LINUX_RUNNER == '' || github.event.pull_request.head.repo.full_name == github.repository))
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies (in per-job venv)
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/venv/bin/pip" install -e ".[test]"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+
+      - name: Generate NGB fixtures
+        run: |
+          python desktop/avalonia/tests/make_ngb_fixtures.py ${{ runner.temp }}/ngbfixtures
+
+      - name: Build nglif C kernel
+        run: |
+          cmake -S desktop/common/native/nglif -B build/nglif
+          cmake --build build/nglif --config Release
+          ctest --test-dir build/nglif -C Release --output-on-failure
+
+      - name: Restore dependencies
+        run: dotnet restore desktop/avalonia/Neurogenesis.Desktop.sln
+
+      - name: Build solution
+        run: dotnet build desktop/avalonia/Neurogenesis.Desktop.sln --configuration Release --no-restore
+
+      - name: Copy nglif library to tests output
+        shell: bash
+        run: |
+          mkdir -p desktop/avalonia/tests/Neurogenesis.Tests/bin/Release/net8.0/
+          cp build/nglif/libnglif.so desktop/avalonia/tests/Neurogenesis.Tests/bin/Release/net8.0/
+
+      - name: Run xUnit tests
+        env:
+          NG_PYTHON: python
+          NG_NGB_FIXTURES: ${{ runner.temp }}/ngbfixtures
+        run: dotnet test desktop/avalonia/Neurogenesis.Desktop.sln --configuration Release --no-build --verbosity normal --logger "trx"
+
+      - name: Build Linux package (AppImage + tar.gz)
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          chmod +x desktop/avalonia/packaging/build-appimage.sh
+          ./desktop/avalonia/packaging/build-appimage.sh dist
+          ls -lh dist
+
+      - name: Smoke test packaged Python bridge (Linux)
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          PY="build/AppDir/usr/runtime/python/bin/python3"
+          RESPONSE=$(env -i JAX_PLATFORMS=cpu PYTHONNOUSERSITE=1 "${PY}" -m neurogenesis.bridge <<<'{"id": 1, "method": "ping"}')
+          echo "Bridge output: ${RESPONSE}"
+          if [[ "${RESPONSE}" != *'"result": "pong"'* ]]; then
+            echo "Bridge smoke test failed: did not receive pong in clean environment" >&2
+            exit 1
+          fi
+
+      - name: Upload packages as artifacts
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-Linux
+          path: dist/*
+          if-no-files-found: error
+
+  windows:
+    name: Windows
+    runs-on: ${{ fromJSON(vars.WINDOWS_RUNNER || '"windows-latest"') }}
+    if: >-
+      github.event_name != 'pull_request' ||
+      (!github.event.pull_request.draft &&
+       ((vars.WINDOWS_RUNNER != '' && github.event.action != 'labeled' &&
+         github.event.pull_request.head.repo.full_name == github.repository) ||
+        (vars.WINDOWS_RUNNER == '' && contains(github.event.pull_request.labels.*.name, 'full-ci'))))
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies (in per-job venv)
+        shell: pwsh
+        run: |
+          $venvDir = Join-Path $env:RUNNER_TEMP "venv"
+          $venvScripts = Join-Path $venvDir "Scripts"
+          python -m venv $venvDir
+          & "$venvScripts\python.exe" -m pip install --upgrade pip
+          & "$venvScripts\pip.exe" install -e ".[test]"
+          $venvScripts | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Generate NGB fixtures
+        run: |
+          python desktop/avalonia/tests/make_ngb_fixtures.py ${{ runner.temp }}/ngbfixtures
+
+      - name: Build nglif C kernel
+        run: |
+          cmake -S desktop/common/native/nglif -B build/nglif
+          cmake --build build/nglif --config Release
+          ctest --test-dir build/nglif -C Release --output-on-failure
+
+      - name: Restore dependencies
+        run: dotnet restore desktop/avalonia/Neurogenesis.Desktop.sln
+
+      - name: Build solution
+        run: dotnet build desktop/avalonia/Neurogenesis.Desktop.sln --configuration Release --no-restore
+
+      - name: Copy nglif library to tests output
+        shell: bash
+        run: |
+          mkdir -p desktop/avalonia/tests/Neurogenesis.Tests/bin/Release/net8.0/
+          cp build/nglif/Release/nglif.dll desktop/avalonia/tests/Neurogenesis.Tests/bin/Release/net8.0/ || cp build/nglif/nglif.dll desktop/avalonia/tests/Neurogenesis.Tests/bin/Release/net8.0/
+
+      - name: Run xUnit tests
+        env:
+          NG_PYTHON: python
+          NG_NGB_FIXTURES: ${{ runner.temp }}/ngbfixtures
+        run: dotnet test desktop/avalonia/Neurogenesis.Desktop.sln --configuration Release --no-build --verbosity normal --logger "trx"
+
+      - name: Build Windows package (Installer + Portable Zip)
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File desktop/avalonia/packaging/build-windows.ps1 -OutputDir dist
+          Get-ChildItem dist
+
+      - name: Smoke test packaged Python bridge (Windows)
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          $py = (Resolve-Path "publish/win-x64/runtime/python/python.exe").Path
+          $psi = New-Object System.Diagnostics.ProcessStartInfo
+          $psi.FileName = $py
+          $psi.Arguments = "-m neurogenesis.bridge"
+          $psi.UseShellExecute = $false
+          $psi.RedirectStandardInput = $true
+          $psi.RedirectStandardOutput = $true
+          $psi.RedirectStandardError = $true
+          $psi.EnvironmentVariables.Clear()
+          $psi.EnvironmentVariables["SystemRoot"] = $env:SystemRoot
+          $psi.EnvironmentVariables["JAX_PLATFORMS"] = "cpu"
+          $psi.EnvironmentVariables["PYTHONNOUSERSITE"] = "1"
+          $proc = [System.Diagnostics.Process]::Start($psi)
+          $proc.StandardInput.WriteLine('{"id": 1, "method": "ping"}')
+          $proc.StandardInput.Flush()
+          $proc.StandardInput.Close()
+          $out = $proc.StandardOutput.ReadToEnd()
+          $err = $proc.StandardError.ReadToEnd()
+          $proc.WaitForExit(30000)
+          Write-Host "Bridge output: $out"
+          if ($out -notmatch '"result":\s*"pong"') {
+              Write-Error "Bridge stderr: $err"
+              throw "Bridge smoke test failed: did not receive pong in clean environment"
+          }
+
+      - name: Upload packages as artifacts
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-Windows
+          path: dist/*
+          if-no-files-found: error

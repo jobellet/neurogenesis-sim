@@ -142,6 +142,8 @@ nearest-neighbour regularity index of each type (Galli-Resta et al. 1997, J Neur
 | `dt`, `decay` | 1.0, 0.0 | step size and linear decay rate |
 | `activation` | `"sigmoid"` | `"sigmoid"`, or `"hill"`: x⁺ⁿ / (kⁿ + x⁺ⁿ) of the positive part x⁺ of the input |
 | `hill_n`, `hill_k` | 2.0, 1.0 | Hill coefficient and half-activation input |
+| `names` | unset | K distinct gene names stored in `Tissue.expression_names` (read by the `expression_gradient` rule); unset leaves the names as they are |
+| `knockout` | [] | genes (names or column indices) set to 0 in every cell after the step (a null allele) |
 
 Dead cells are kept (only the runner compacts). Limits: with `K > 0` the step is not a no-op even with zero weights (sigmoid(0) = 0.5 is
 added); weight matrices of the wrong shape are silently replaced by zeros (the Hill activation is 0 for zero input). The
@@ -193,7 +195,9 @@ Reference neocortical birth-order windows: `examples/profiles/temporal_competenc
 Guidance values are resolved at any depth, so a `Gene` may be one entry of `B`. Weights are `w · (1 or −inh) · U(0.9, 1.1)`, rounded and clipped. The stage does not read
 `genome["guidance"]` (use `Gene` values inside `guidance`), and raises `ValueError` when neither `projections` nor
 `guidance` is given, when a listed projection has no guidance entry, or when a region name is not in `region_map`; a
-region without alive cells is a no-op for that projection. Limits: the dense path uses O(Ns·Nd) memory (only up to 2048 cells per side by default); no probability rule (not even `no_autapse`) applies unless listed; the sparse path supports only the
+region without alive cells is a no-op for that projection. Target rules (e.g. `topographic`, `lamina`,
+`expression_gradient`, which reads the source cells' named expression columns) run before the dense or sparse path,
+so both paths support them. Limits: the dense path uses O(Ns·Nd) memory (only up to 2048 cells per side by default); no probability rule (not even `no_autapse`) applies unless listed; the sparse path supports only the
 `identity_expression`, `no_autapse` and `source_sign` probability rules and uses a fixed cutoff of 5σ.
 
 **`place_by_hand` (C9).** Appends cells at explicit `positions` (M, 3), with `region` (0), `cycling` (`False` by
@@ -261,6 +265,13 @@ inputs score alike and are all kept; non-plastic synapses (K6) compete but are n
 (T, N) raster) or the raster recorded by `refine_by_activity` with `record: true`; without either it is a no-op
 (`ticks`, default 100, only sizes the cost). Grouping by target: one sort and `np.maximum.reduceat`; cost O(T · E).
 Differs from `prune` (absolute weight or coactivity thresholds).
+
+**`partner_select` (C18, `neurogenesis/stages/partner.py`).** Keeps a candidate synapse with probability
+`compat[i][j]` (a `Param` matrix, pre channel i × post channel j, clipped to [0, 1]). A cell's channel is its
+`cell_type` (default), the argmax of its expression (`channels: "expression"`) or an explicit per-cell list; channels
+outside the matrix are kept. Filters synapses from `grow_axons`, `arbor_synapses` or `connect_by_hand`; an identity
+matrix reproduces the `identity_expression` rule. Neutral: no `compat` = no-op. Cost O(E). Transmitter–receptor
+matching (P2) is not implemented.
 
 **`fasciculate` (C16, `neurogenesis/stages/fasciculation.py`).** Follower axons bundle along pioneer tracts through
 homophilic adhesion (L1, NCAM, Fasciclin II). For morphological arbors, active neurite growth cone nodes steer towards
