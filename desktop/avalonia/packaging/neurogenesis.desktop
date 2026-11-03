@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Neurogenesis
+Comment=Spiking neural network growth, simulation and analysis
+Exec=Neurogenesis %F
+Icon=neurogenesis
+Terminal=false
+Categories=Science;Education;ArtificialIntelligence;
+MimeType=application/x-neurogenesis-network;application/json;
+StartupWMClass=Neurogenesis
