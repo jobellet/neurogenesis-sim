@@ -149,6 +149,20 @@ def test_retinothalamic_example(tmp_path):
     assert stats["summary"]["WT"]["r_x"][0] > 0.5 and abs(stats["summary"]["EphAKO"]["r_x"][0]) < 0.3
 
 
+def test_retinothalamic_map_from_expression():
+    """--map-source expression: the expression_gradient rule reads EphA / EphB (B = 0), so WT has a map and the EphA
+    knockout (gene at 0 in every cell) loses its x axis; the default B projects are not affected."""
+    sys.path.insert(0, str(ROOT))
+    from examples.retinothalamic import build_project, run, summary
+    from neurogenesis.stages.base import run_schedule
+    p = build_project("EphAKO", 0, n_prog=45, n_relay=100, n_waves=1, wave_ticks=250, map_source="expression")
+    t = run_schedule(p.to_dict(), p.genome, 0)
+    assert t.expression_names == ["fate", "EphA", "EphB"] and not t.expression[:, 1].any()
+    assert "expression_gradient" not in str(build_project("WT", 0).to_dict())
+    s = summary(run(range(2), small=True, conditions=("WT", "EphAKO"), map_source="expression"))
+    assert s["WT"]["r_x"][0] > 0.5 and s["WT"]["r_y"][0] > 0.5 and abs(s["EphAKO"]["r_x"][0]) < 0.3
+
+
 def test_retinothalamic_waves_reach_the_stage():
     """The example's refinement stage honours its `waves` settings from a schedule (wave speed changes the weights)."""
     sys.path.insert(0, str(ROOT))

@@ -36,3 +36,16 @@ monotonic but distorted version of the `B` target, pushed towards the low end of
 Seeds 0–9 for every condition, `python examples/retinothalamic.py --cpu --seeds 10 --map-source expression`, compared
 with run 2 (the `B` variant, rerun on the same commit). Mean ± SD per condition and paired differences per seed. Each
 prediction is reported as held / not held / weak, whatever the outcome.
+
+## Outcome (appended 2026-11-03, after the runs)
+10 seeds (0–9) per condition, `python examples/retinothalamic.py --cpu --seeds 10 --map-source expression`, and the
+`B` variant rerun on the same commit (identical to run 2); table in {doc}`../use-cases/retinothalamic`.
+- E1: held: r_x, r_y between 0.889 and 0.896 in WT, b2KO and TTX.
+- E2: held: EphAKO r_x 0.031 ± 0.074; r_y 0.890 ± 0.031 (WT 0.889 ± 0.033).
+- E3: held: WT error 0.254 ± 0.013 against 0.230 ± 0.016 with `B` (paired +0.023 ± 0.010, pooled SD 0.014; 10 of 10
+  seeds); r_x −0.015, r_y −0.022.
+- E4: held as weak: TTX error +0.0034, separation −0.005; b2KO +0.0033, −0.003 (paired means), all below one SD.
+- E5: held: the mosaic is identical to run 2 for every seed.
+- Not predicted: the corner separation is higher than with `B` (0.763 ± 0.078 against 0.671 ± 0.088, higher in 10 of
+  10 seeds).
+- Deviations from the plan: none.
