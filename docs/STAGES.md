@@ -262,6 +262,17 @@ inputs score alike and are all kept; non-plastic synapses (K6) compete but are n
 (`ticks`, default 100, only sizes the cost). Grouping by target: one sort and `np.maximum.reduceat`; cost O(T · E).
 Differs from `prune` (absolute weight or coactivity thresholds).
 
+**`fasciculate` (C16, `neurogenesis/stages/fasciculation.py`).** Follower axons bundle along pioneer tracts through
+homophilic adhesion (L1, NCAM, Fasciclin II). For morphological arbors, active neurite growth cone nodes steer towards
+nearby pioneer branch tangents within `radius`, weighted by `adhesion_matrix` [pre_type, post_type]; defasciculation
+occurs where `defasciculation_field` exceeds threshold. For point-to-point connections, bundles correlate target
+offsets. Neutral: no `adhesion_matrix` = no-op. Cost O(N + E).
+
+**`choice_point` (C17, `neurogenesis/stages/fasciculation.py`).** Midline and choice points where guidance receptors or target
+rules switch. When cells or growth cones enter a choice point `geometry` or `choice_field`, guidance receptor channels
+are updated (e.g. switching attraction to repulsion to prevent re-crossing). For projections, routes via an intermediate
+`waypoint_region`. Neutral: no `geometry`, `choice_field` or `waypoint_region` = no-op. Cost O(N + E).
+
 **`critical_period_gate` (C23, `neurogenesis/stages/critical_period.py`).** Opens and closes a critical period of
 plasticity by setting the K6 `plastic` mask of the gated synapses (those onto `target_type` cells, all by default):
 `False` before opening, `True` while open, `False` after closing. Opening when the maturity of inhibition from
