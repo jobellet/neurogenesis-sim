@@ -266,6 +266,13 @@ inputs score alike and are all kept; non-plastic synapses (K6) compete but are n
 (`ticks`, default 100, only sizes the cost). Grouping by target: one sort and `np.maximum.reduceat`; cost O(T · E).
 Differs from `prune` (absolute weight or coactivity thresholds).
 
+**`partner_select` (C18, `neurogenesis/stages/partner.py`).** Keeps a candidate synapse with probability
+`compat[i][j]` (a `Param` matrix, pre channel i × post channel j, clipped to [0, 1]). A cell's channel is its
+`cell_type` (default), the argmax of its expression (`channels: "expression"`) or an explicit per-cell list; channels
+outside the matrix are kept. Filters synapses from `grow_axons`, `arbor_synapses` or `connect_by_hand`; an identity
+matrix reproduces the `identity_expression` rule. Neutral: no `compat` = no-op. Cost O(E). Transmitter–receptor
+matching (P2) is not implemented.
+
 **`critical_period_gate` (C23, `neurogenesis/stages/critical_period.py`).** Opens and closes a critical period of
 plasticity by setting the K6 `plastic` mask of the gated synapses (those onto `target_type` cells, all by default):
 `False` before opening, `True` while open, `False` after closing. Opening when the maturity of inhibition from
