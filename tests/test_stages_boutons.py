@@ -78,4 +78,4 @@ def test_cluster_boutons_weight_clipping():
     rng = np.random.default_rng(42)
     t2 = stage.run(t, {}, {}, rng)
 
-    assert t2.connectivity.weight[0] == 5000
+    assert t2.connectivity.weight[0] == 512

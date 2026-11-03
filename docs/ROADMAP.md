@@ -278,7 +278,7 @@ sources, listed below the table.
 | C21 | done: `transporter_switch` (#74), per-cell chloride reversal potential from maturation (NKCC1 → KCC2 switch) |
 | C22 | done: `competitive_elimination` in `neurogenesis/stages/competition.py`, coactivity with the target versus a `fraction` of the strongest competitor, weaken by `delta` or remove; silent targets and non-plastic synapses unchanged; raster from `spikes` or `refine_by_activity` with `record` |
 | C23 | done: `critical_period_gate`, sets the K6 `plastic` mask (#73): opens on inhibitory maturity from a source cell type (or a maturity `Param`, or explicitly), closes after a number of gate calls, a maturity threshold or explicitly; `reopen`; mouse / cat ages in `examples/profiles/critical_period_gate.json` |
-| C19 | done: `cluster_boutons`, sets the K6 `contacts` mask, scales weight linearly |
+| C19 | partial: `contacts` and weight scaling done; `post_node` placement waits for N2/N3 |
 | C16–C18, C20, C24 | not done |
 
 **Order and priorities.** C14 → C15 first (they make birth-order-dependent layering emerge in G2.3, instead of being

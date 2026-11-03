@@ -76,8 +76,10 @@ class ClusterBoutons:
                 vals = rng.choice(len(probs), p=probs, size=count)
                 contacts[mask] = np.maximum(1, vals).astype(np.int32)
 
+        wc = int(resolve(params.get("w_clip", 512), genome, fields))
         tissue.connectivity.contacts = contacts
-        tissue.connectivity.weight = (tissue.connectivity.weight * contacts).astype(tissue.connectivity.weight.dtype)
+        scaled_weight = (tissue.connectivity.weight * contacts)
+        tissue.connectivity.weight = np.clip(scaled_weight, -wc, wc).astype(tissue.connectivity.weight.dtype)
 
         if tissue.morphology is not None:
             pass # Morphology not fully integrated yet, per ROADMAP C19 after N2/N3
