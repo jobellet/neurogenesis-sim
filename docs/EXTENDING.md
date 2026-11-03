@@ -44,6 +44,7 @@ Built-in rules, each inactive unless its gene is present:
 | shift | `identity_offset` | `guidance[p]["type_c"]` with `genome["identity"][region]` |
 | target | `topographic` | `guidance[p]["topographic"] = [1, 1, 0]` |
 | target | `lamina` | `guidance[p]["lamina"]` |
+| target | `expression_gradient` | `guidance[p]["expression_gradient"] = [{"gene": "EphA", "axis": 0, "gain": 2, "sign": "attract", "normalize": "minmax"}, ...]` (or `{"genes": [...], "mode": "replace" / "modulate"}`); reads `Tissue.expression` columns named by `express(names=...)`; a missing gene or no expression raises `ValueError` |
 | probability | `identity_expression` | `guidance[p]["type_s"]` |
 | probability | `no_autapse` | always active |
 | probability | `source_sign` | `guidance[p]["source"] = "exc" / "inh"` |

@@ -112,6 +112,74 @@ def topographic(ctx):
         ctx.target[:, m] = ctx.pos_src[:, m]
 
 
+_EXPR_NORMS = ("minmax", "none")
+
+
+@register("target", "expression_gradient")
+def expression_gradient(ctx):
+    """Chemoaffinity read from graded receptor expression (Sperry, 1963, PNAS; EphA / ephrin-A and EphB / ephrin-B
+    gradients, McLaughlin & O'Leary, 2005, Annu Rev Neurosci): along each listed axis the target logit is
+    4 sum_g gain_g sign_g (e_g - 1/2) + shift, e_g the source cell's normalised expression of gene g.
+
+    gd["expression_gradient"]: a list of entries, or {"genes": [...], "mode": ...}. Each entry:
+      gene: name in tissue.expression_names (or an int column); axis: 0, 1 or 2 (target u, v, w);
+      gain (default 1); sign: +1 / "attract" (high expression -> high target coordinate) or -1 / "repel";
+      normalize: "minmax" (default, over the projection's source cells; a constant gene gives 1/2, i.e. no map along
+      its axis) or "none" (raw levels, expected in [0, 1]).
+    mode: "replace" (default; the listed axes ignore B) or "modulate" (the terms are added to the logit of the current
+    target). Requires ctx.expression_src (set by grow_axons from tissue.expression); a missing gene raises ValueError.
+    """
+    spec = ctx.gd.get("expression_gradient")
+    if spec is None:
+        return
+    entries, mode = (spec.get("genes", []), spec.get("mode", "replace")) if isinstance(spec, dict) else (spec, "replace")
+    if mode not in ("replace", "modulate"):
+        raise ValueError(f"expression_gradient: mode {mode!r} is not 'replace' or 'modulate'")
+    expr = getattr(ctx, "expression_src", None)
+    if expr is None or np.asarray(expr).size == 0:
+        raise ValueError(f"expression_gradient: projection {ctx.src}->{ctx.dst} has no source expression; "
+                         f"run 'express' before 'grow_axons'")
+    expr = np.asarray(expr, float)
+    names = list(getattr(ctx, "expression_names", None) or [])
+    shift = np.broadcast_to(np.asarray(ctx.shift if ctx.shift is not None else 0.0, float), ctx.target.shape)
+    logit = np.zeros_like(ctx.target)
+    axes = set()
+    for e in entries:
+        gene = e["gene"]
+        if isinstance(gene, str):
+            if gene not in names:
+                raise ValueError(f"expression_gradient: gene {gene!r} is not in expression_names {names}; name the "
+                                 f"columns with express(names=...)")
+            col = names.index(gene)
+        else:
+            col = int(gene)
+            if not 0 <= col < expr.shape[1]:
+                raise ValueError(f"expression_gradient: column {col} is outside the {expr.shape[1]} expression columns")
+        axis = int(e["axis"])
+        if axis not in (0, 1, 2):
+            raise ValueError(f"expression_gradient: axis {axis} is not 0, 1 or 2")
+        sign = e.get("sign", 1)
+        sign = {"attract": 1.0, "repel": -1.0}.get(sign, sign) if isinstance(sign, str) else float(sign)
+        if sign not in (1.0, -1.0):
+            raise ValueError(f"expression_gradient: sign {e.get('sign')!r} is not +1, -1, 'attract' or 'repel'")
+        norm = e.get("normalize", "minmax")
+        if norm not in _EXPR_NORMS:
+            raise ValueError(f"expression_gradient: normalize {norm!r} is not one of {_EXPR_NORMS}")
+        x = expr[:, col]
+        if norm == "minmax":
+            lo, span = x.min(), x.max() - x.min()
+            x = (x - lo) / span if span > 0 else np.full_like(x, 0.5)
+        logit[:, axis] += 4.0 * float(e.get("gain", 1.0)) * sign * (x - 0.5)
+        axes.add(axis)
+    if not axes:
+        return
+    m = sorted(axes)
+    t = np.clip(ctx.target[:, m], 1e-12, 1.0 - 1e-12)
+    base = shift[:, m] if mode == "replace" else np.log(t / (1.0 - t))
+    ctx.target = ctx.target.copy()
+    ctx.target[:, m] = 1.0 / (1.0 + np.exp(-np.clip(base + logit[:, m], -30.0, 30.0)))
+
+
 @register("placement", "mosaic")
 def mosaic(ctx, iters=None):
     """Homotypic repulsion (regular mosaics of a cell type): genome["mosaic"][region] = {"spacing": d, "iters": n}; cells
