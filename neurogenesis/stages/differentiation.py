@@ -140,7 +140,24 @@ class Express:
             raise ValueError(f"express: unknown activation {kind!r} (use 'sigmoid' or 'hill')")
         
         tissue.expression = tissue.expression * (1.0 - decay * dt) + activation * dt
-        
+
+        names = resolve(params.get("names"), genome, fields, None)
+        if names is not None:
+            names = [str(n) for n in names]
+            if len(names) != K or len(set(names)) != K:
+                raise ValueError(f"express: 'names' needs {K} distinct names, got {names}")
+            tissue.expression_names = names
+        knockout = resolve(params.get("knockout"), genome, fields, None) or []
+        for g in knockout:
+            if isinstance(g, str):
+                if g not in tissue.expression_names:
+                    raise ValueError(f"express: knockout gene {g!r} is not in expression_names "
+                                     f"{tissue.expression_names}")
+                g = tissue.expression_names.index(g)
+            if not 0 <= int(g) < K:
+                raise ValueError(f"express: knockout column {g} is outside the {K} expression columns")
+            tissue.expression[:, int(g)] = 0.0   # null allele: the gene is not expressed
+
         return tissue
 
 # Per-cell attributes a type spec may set (besides sign and base_weight); each value may be a Param.

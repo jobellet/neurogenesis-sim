@@ -221,7 +221,7 @@ Each task gives: **goal, deliverables, interfaces, acceptance tests, dependencie
 | C5 | done: `sort` ranks positions along an axis by a key, differential adhesion (types × types matrix) through the cell list, and the `mosaic` stage (homotypic exclusion zones) |
 | C6 | done: sigmoid or Hill step with morphogen and contact (cell-list) inputs |
 | C7 | done for expression, field, lineage, birth order and position conditions (values as `Param`s) |
-| C8 | partial: guidance rules as a stage; dense only up to 2048 cells per side, sparse cell-list search above (only three probability rules there, see D2); errors on missing guidance |
+| C8 | partial: guidance rules as a stage; dense only up to 2048 cells per side, sparse cell-list search above (only three probability rules there, see D2); errors on missing guidance; `expression_gradient` target rule (target map from named graded expression columns, per axis gain and sign, min-max or raw levels; dense and sparse) |
 | C9 | done: `place_by_hand`, `connect_by_hand` (index lists, dense matrices up to 2048 cells, connection rules by region / type / expression with probability, distance and velocity) |
 | C10 | done: `prune` by weight and by coactivity (activity criterion), `scale` to a target sum with a `rate` |
 | C11 | done: `lif_int` run with Poisson drivers, injected spikes, spontaneous waves or motor twitches with sensory feedback, then STDP, Hebbian or three-factor plasticity (follow with `prune`) |
@@ -573,7 +573,7 @@ Enable importing public connectome datasets (supervised) and using them as stati
 - Space units set conduction delays; region-local $[0, 1]^3$ coordinates are derived only inside regions.
 - Neuropil ROI masks and column coordinates interfaced via `Geometry` and `Field` adapters.
 - Clip delays $>31\text{ ms}$ with a counted warning until K4 merges.
-- **Status:** partial: affine registration (voxel size, origin, mirroring) and clipped delays; ROI masks and column coordinates through `Geometry` / `Field` adapters are not done (use `VoxelMaskGeometry` and fields directly).
+- **Status:** done: affine registration (voxel size, origin, mirroring) and clipped delays; ROI masks and column coordinates interfaced via `Geometry` and `Field` adapters (`neurogenesis.data.registration`), with local tests in PR ([skip ci]).
 
 **I4. Synapse count to synaptic weight mapping.**
 - Configurable mapping from anatomical synapse counts to functional weights (linear, Hill/saturating, or `Param`).
@@ -724,8 +724,10 @@ in-situ hybridisation over developmental ages) imported as `GridField`s, registe
 licence and citation.
 - **Status:** partial: annotation atlases as geometries (`neurogenesis.data.atlas`: NRRD / MetaImage volumes,
   structure ontologies with descendants, `structure_geometry` → `VoxelMaskGeometry`, `fit_to_box`), used by
-  `examples/atlas_relay_mask.py` for the retina → relay example. Gene-expression grids as fields and registration
-  between ages are not done.
+  `examples/atlas_relay_mask.py` for the retina → relay example, run on the real P4 annotation of the Allen Developing
+  Mouse Brain Atlas (manifest `examples/datasets/allen-devmouse-p4.json`; run 3 of the retina → relay use case, relay
+  shaped by p2A because the P4 3D annotation does not delineate the dLGN). Gene-expression grids as fields and
+  registration between ages are not done.
 
 **J9. Recordings as fit targets.** Spike data from NWB (pynwb units tables) and neo spike trains, reduced to target
 statistics (rates, CV, correlations, PSTHs) for `Fit` Params (E2) and validation (E4).

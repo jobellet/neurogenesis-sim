@@ -1,0 +1,75 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Neurogenesis.App.ViewModels"
+        xmlns:r="using:Neurogenesis.App.Rendering"
+        xmlns:c="using:Neurogenesis.App.Controls"
+        x:Class="Neurogenesis.App.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="{Binding Title}" Width="1380" Height="860"
+        Background="{Binding Style.UiWindowBackground}" Foreground="{Binding Style.UiWindowForeground}"
+        DragDrop.AllowDrop="True">
+  <DockPanel>
+    <!-- Top Toolbar -->
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="8">
+      <Button x:Name="OpenButton" Content="Open…" Click="OnOpen" HotKey="Ctrl+O" />
+      <Button Content="Undo" Click="OnUndo" HotKey="Ctrl+Z" IsEnabled="{Binding CanUndo}" />
+      <Button Content="Redo" Click="OnRedo" HotKey="Ctrl+Y" IsEnabled="{Binding CanRedo}" />
+      <Separator Width="1" Height="20" Margin="4,0" />
+      <Button Content="Frame (F)" Click="OnFrame" />
+      <Button x:Name="PlayButton" Content="{Binding SimButtonText}" Click="OnToggleSim" IsEnabled="{Binding CanSimulateNative}" />
+      <Button Content="Step" Click="OnStepSim" IsEnabled="{Binding CanSimulateNative}" />
+      <Separator Width="1" Height="20" Margin="4,0" />
+      <TextBlock Text="Colour by" VerticalAlignment="Center" Margin="4,0,0,0" />
+      <ComboBox x:Name="ColorModeBox" ItemsSource="{Binding ColorModes}" SelectedItem="{Binding ColorMode}" MinWidth="130" />
+    </StackPanel>
+
+    <!-- Bottom Status Bar -->
+    <Border DockPanel.Dock="Bottom" Padding="8,4" Background="{Binding Style.UiStatusBackground}">
+      <TextBlock x:Name="StatusText" Text="{Binding Status}" />
+    </Border>
+
+    <!-- Left Panel: Generated Panels from UI Schema -->
+    <Border DockPanel.Dock="Left" Width="380" Background="{Binding Style.UiPanelBackground}" BorderBrush="{Binding Style.UiPanelBorder}" BorderThickness="0,0,1,0">
+      <TabControl Margin="4">
+        <TabItem Header="Schedule">
+          <c:SchedulePanelControl />
+        </TabItem>
+        <TabItem Header="Catalogue">
+          <c:CataloguePanelControl />
+        </TabItem>
+        <TabItem Header="Project">
+          <c:ProjectPanelControl />
+        </TabItem>
+      </TabControl>
+    </Border>
+
+    <!-- Right Panel: Inspector -->
+    <Border DockPanel.Dock="Right" Width="280" Padding="8" Background="{Binding Style.UiPanelBackground}" BorderBrush="{Binding Style.UiPanelBorder}" BorderThickness="1,0,0,0">
+      <DockPanel>
+        <TextBlock DockPanel.Dock="Top" Text="Inspector" FontWeight="SemiBold" Margin="0,0,0,6" />
+        <TextBlock DockPanel.Dock="Top" Text="Click a neuron to show its fields." Opacity="0.6" TextWrapping="Wrap"
+                   IsVisible="{Binding !HasSelection}" />
+        <ScrollViewer>
+          <ItemsControl x:Name="InspectorList" ItemsSource="{Binding Inspector}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:FieldRow">
+                <Grid ColumnDefinitions="110,*" Margin="0,1">
+                  <TextBlock Text="{Binding Name}" Opacity="0.7" />
+                  <SelectableTextBlock Grid.Column="1" Text="{Binding Value}" TextWrapping="Wrap" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </DockPanel>
+    </Border>
+
+    <!-- Center: 3D Network View -->
+    <Panel>
+      <r:NetworkView x:Name="View" Scene="{Binding Scene}" Instances="{Binding Instances}" CurrentTick="{Binding CurrentTick}" />
+      <TextBlock x:Name="NoteText" Text="{Binding SceneNote}" IsVisible="{Binding SceneNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                 HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12"
+                 Padding="8,4" Background="{Binding Style.UiNoteBackground}" Foreground="{Binding Style.UiNoteForeground}" />
+    </Panel>
+  </DockPanel>
+</Window>
