@@ -54,3 +54,28 @@ def test_cluster_boutons_no_contacts():
     stage = Stage(name="cluster", operator="cluster_boutons", params={})
     t2 = stage.run(t, {}, {}, np.random.default_rng(0))
     assert getattr(t2.connectivity, "contacts", None) is None
+
+def test_cluster_boutons_weight_clipping():
+    t = Tissue.empty()
+    t.add_cells(2, cell_type=np.array([1, 2]))
+
+    t.connectivity = SparseConnectivity(
+        pre=np.array([0]),
+        post=np.array([1]),
+        weight=np.array([500]),
+        delay=np.array([1])
+    )
+
+    contacts_param = {
+        (1, 2): 10,
+    }
+
+    # Normally weights are clipped to bounds like [-wc, wc]
+    # cluster_boutons implements linear scaling. This is a linear scaling rule,
+    # not a biological placement rule that applies clipping, as requested in docs.
+    stage = Stage(name="cluster", operator="cluster_boutons", params={"contacts": Const(contacts_param)})
+
+    rng = np.random.default_rng(42)
+    t2 = stage.run(t, {}, {}, rng)
+
+    assert t2.connectivity.weight[0] == 5000

@@ -59,6 +59,8 @@ class ClusterBoutons:
                 contacts[mask] = int(dist)
             elif isinstance(dist, dict) and dist.get("type") == "truncated_poisson":
                 mean = dist.get("mean", 1.0)
+                if mean <= 0:
+                    raise ValueError("truncated_poisson mean must be > 0")
                 # Simple rejection sampling for truncated poisson (>= 1)
                 vals = rng.poisson(mean, size=count)
                 while True:
