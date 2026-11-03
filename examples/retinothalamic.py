@@ -252,6 +252,114 @@ def measure(tissue, n_stim_ticks=50, relay_mask=None, relay_box=None):
                 n_relay=int(len(relay)), n_retinal_synapses=int(m.sum()), relay_spikes=counts.sum(1).tolist())
 
 
+
+STEP_MAP = {
+    "proliferate": ["seed_retina", "seed_relay", "express_init", "proliferate"],
+    "express": ["express_fate"],
+    "differentiate": ["differentiate"],
+    "migrate": ["migrate"],
+    "mosaic": ["mosaic"],
+    "grow_axons": ["grow_axons"],
+    "apoptosis": ["apoptosis"],
+    "pharmacology_immature": ["set_transmitters", "express_receptors", "assign_receptors", "gaba_immature"],
+    "refine_by_activity": ["refine_0", "refine_1", "refine_2", "refine_3"],
+    "scale": ["gaba_mature", "scale"],
+    "prune": ["prune"],
+    "freeze": ["myelinate", "freeze"],
+}
+STEP_ORDER = [
+    "start",
+    "proliferate",
+    "express",
+    "differentiate",
+    "migrate",
+    "mosaic",
+    "grow_axons",
+    "apoptosis",
+    "pharmacology_immature",
+    "refine_by_activity",
+    "scale",
+    "prune",
+    "freeze",
+]
+
+
+def save_checkpoint(tissue, path):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if str(path).endswith(".json"):
+        net = tissue.to_network()
+        net.save_json(path)
+        return
+    from neurogenesis.bridge.ngb import write_network
+    net = tissue.to_network()
+    exts = {}
+    N = len(tissue.alive)
+    if getattr(tissue, "cell_type", None) is not None and len(tissue.cell_type) == N:
+        exts["cell_type"] = ("neuron", np.asarray(tissue.cell_type, dtype="<i4"))
+    if getattr(tissue, "region", None) is not None and len(tissue.region) == N:
+        exts["region"] = ("neuron", np.asarray(tissue.region, dtype="<i4"))
+    if getattr(tissue, "sign", None) is not None and len(tissue.sign) == N:
+        exts["sign"] = ("neuron", np.asarray(tissue.sign, dtype="<i1"))
+    if getattr(tissue, "expression", None) is not None and len(tissue.expression) == N:
+        exts["expression"] = ("neuron", np.asarray(tissue.expression, dtype="<f4"))
+    write_network(net, path, extensions=exts)
+
+
+def load_checkpoint(path):
+    path = Path(path)
+    if str(path).endswith(".json"):
+        from neurogenesis.spiking.network import SNNNetwork
+        from neurogenesis.tissue import Tissue
+        net = SNNNetwork.load_json(path)
+        return Tissue.from_network(net)
+    from neurogenesis.bridge.ngb import read_network, read_extensions
+    from neurogenesis.tissue import Tissue
+    net = read_network(path)
+    exts = read_extensions(path)
+    t = Tissue.from_network(net)
+    for name, (axis, arr) in exts.items():
+        setattr(t, name, np.array(arr, copy=True))
+    return t
+
+
+def run_stages_slice(p, seed, tissue=None, from_stage=None, until_stage=None):
+    import zlib
+    from neurogenesis.stages.base import Stage, _instantiate_fields
+    from neurogenesis.params import param_from_dict
+    from neurogenesis.fields import Field
+    from neurogenesis.tissue import Tissue
+
+    sched = p.to_dict()["schedule"]
+    raw_geoms = p.to_dict().get("geometry", {})
+    raw_fields = p.to_dict().get("fields", {})
+    fields = _instantiate_fields({**raw_geoms, **raw_fields})
+    fields = {k: (v.bind(p.genome) if isinstance(v, Field) else v) for k, v in fields.items()}
+
+    from_idx = STEP_ORDER.index(from_stage) if from_stage in STEP_ORDER else 0
+    until_idx = STEP_ORDER.index(until_stage) if until_stage in STEP_ORDER else len(STEP_ORDER) - 1
+
+    active_stage_names = []
+    for s_idx in range(from_idx + 1, until_idx + 1):
+        step_name = STEP_ORDER[s_idx]
+        active_stage_names.extend(STEP_MAP.get(step_name, [step_name]))
+
+    if tissue is None:
+        tissue = Tissue.empty()
+
+    for config in sched:
+        st_name = config["name"]
+        if st_name not in active_stage_names:
+            continue
+        name_salt = zlib.crc32(st_name.encode("utf-8")) & 0xFFFFFFFF
+        params = {k: (param_from_dict(v) if isinstance(v, dict) else v) for k, v in config.get("params", {}).items()}
+        st = Stage(name=st_name, operator=config["operator"], params=params, repeat=config.get("repeat", 1))
+        for rep in range(st.repeat):
+            rng = np.random.default_rng([seed, name_salt, rep])
+            tissue = st.run(tissue, p.genome, fields, rng, rep=rep)
+    return tissue
+
+
 def run(seeds, small=False, conditions=CONDITIONS, relay_mask=None, relay_box=None, map_source="B"):
     from neurogenesis.stages.base import run_schedule
     kw = dict(n_prog=45, n_relay=100, n_waves=2, wave_ticks=250) if small else {}
@@ -274,6 +382,8 @@ def summary(results):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--seeds", type=int, default=10)
+    ap.add_argument("--seed", type=int, default=0, help="single seed for stage slice execution")
+    ap.add_argument("--condition", default="WT", choices=CONDITIONS)
     ap.add_argument("--out", default="example_out")
     ap.add_argument("--cpu", action="store_true")
     ap.add_argument("--small", action="store_true", help="small tissue for tests")
@@ -282,9 +392,22 @@ def main():
                     help="also run a box with the atlas mask's volume and bounding-box aspect ratio")
     ap.add_argument("--map-source", choices=MAP_SOURCES, default="B",
                     help="B: target map from the gains in B (runs 1-4); expression: from the EphA / EphB expression")
+    ap.add_argument("--from-stage", help="start stage for stage slicing")
+    ap.add_argument("--until-stage", help="end stage for stage slicing")
+    ap.add_argument("--in", dest="in_file", help="input checkpoint file (.ngb or .json)")
     args = ap.parse_args()
     if args.cpu:
         os.environ["JAX_PLATFORMS"] = "cpu"
+
+    if args.until_stage is not None or args.from_stage is not None:
+        p = build_project(args.condition, args.seed, relay_mask=args.relay_mask, map_source=args.map_source,
+                          **({"n_prog": 45, "n_relay": 100, "n_waves": 2, "wave_ticks": 250} if args.small else {}))
+        tissue = load_checkpoint(args.in_file) if args.in_file else None
+        tissue = run_stages_slice(p, args.seed, tissue=tissue, from_stage=args.from_stage, until_stage=args.until_stage)
+        save_checkpoint(tissue, args.out)
+        print(f"saved checkpoint {args.out} (from {args.from_stage} to {args.until_stage}): {len(tissue.alive)} cells, {len(tissue.connectivity.pre)} synapses")
+        return
+
     res = run(range(args.seeds), small=args.small, relay_mask=args.relay_mask, map_source=args.map_source)
     summ = summary(res)
     print(f"{'condition':9s} " + " ".join(f"{k:>18s}" for k in next(iter(summ.values()))))

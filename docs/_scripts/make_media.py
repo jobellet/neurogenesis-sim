@@ -609,6 +609,14 @@ def make_retino():
     dur.append(2400)
     save_webp(frames, animation, dur)
 
+    # Export individual stage checkpoint frames for the interactive tutorial carousel
+    step_indices = [4, 10, 11, 12, 13, 14, 15, 19, 23, 25, 26, 28]
+    prefix = "retino_stage_p4_" if mask else "retino_stage_"
+    for step_num, idx in enumerate(step_indices, 1):
+        if idx < len(frames):
+            frames[idx].save(OUT / f"{prefix}{step_num:02d}.png")
+
+
 
 TASKS = dict(cli=make_cli, topo=make_topo, models=make_models, fi=make_fi, cost=make_cost, evo=make_evo,
              stages=make_stages, retino=make_retino)
