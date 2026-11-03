@@ -11,7 +11,7 @@ from neurogenesis.spiking.network import SNNNetwork
 from neurogenesis.stages.base import register_stage, run_schedule
 from neurogenesis.tissue import Tissue
 
-MAX_DELAY = 31          # ticks, kernel limit of the 32-bit spike history
+from neurogenesis.tissue import MAX_DELAY_TICKS as MAX_DELAY  # ticks, storage bound (multi-word spike history)
 MAX_WEIGHT = 32767      # int16 range of the weights in the NGB1 format and the kernels
 
 
@@ -21,7 +21,7 @@ class FreezeError(ValueError):
 
 def validate(tissue: Tissue, dale: bool = False) -> List[str]:
     """Problems that prevent compiling the tissue: non-finite positions, synapse indices out of range, delays outside
-    [1, 31] ticks, weights outside the int16 range and, with `dale`, outgoing weights whose sign differs from the
+    [1, 255] ticks, weights outside the int16 range and, with `dale`, outgoing weights whose sign differs from the
     presynaptic cell's sign. An empty list means the tissue is valid. O(N + E)."""
     problems = []
     N = len(tissue.alive)

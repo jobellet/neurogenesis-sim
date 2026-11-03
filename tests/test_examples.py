@@ -130,3 +130,88 @@ def test_evolved_development_example(tmp_path):
     assert stats["final_best"] > stats["first_best"] + 0.3
     assert ["div"] in stats["genes"] and ["p0"] in stats["genes"] and ["div2"] in stats["genes"]
     assert stats["cells_type1"] > 0 and stats["synapses"] > 0
+
+
+def test_retinothalamic_example(tmp_path):
+    """Retina -> relay example: the four conditions develop (small tissue, 2 seeds) and every metric is finite."""
+    import json
+    r = subprocess.run([sys.executable, str(ROOT / "examples" / "retinothalamic.py"), "--cpu", "--small", "--seeds", "2",
+                        "--out", str(tmp_path)], capture_output=True, text=True, cwd=tmp_path)
+    assert r.returncode == 0, r.stderr
+    stats = json.loads((tmp_path / "stats.json").read_text())
+    assert (tmp_path / "project.json").exists()
+    assert set(stats["summary"]) == {"WT", "b2KO", "TTX", "EphAKO"}
+    for cond, rows in stats["per_seed"].items():
+        assert len(rows) == 2
+        for row in rows:
+            assert all(np.isfinite(row[k]) for k in ("mosaic_nnri", "r_x", "r_y", "topo_error", "separation")), (cond, row)
+            assert row["n_rgc"] > 10 and row["n_retinal_synapses"] > 0
+    assert stats["summary"]["WT"]["r_x"][0] > 0.5 and abs(stats["summary"]["EphAKO"]["r_x"][0]) < 0.3
+
+
+def test_retinothalamic_waves_reach_the_stage():
+    """The example's refinement stage honours its `waves` settings from a schedule (wave speed changes the weights)."""
+    sys.path.insert(0, str(ROOT))
+    from examples.retinothalamic import build_project
+    from neurogenesis.stages.base import run_schedule
+    sums = []
+    for speed in (0.4, 100.0):
+        p = build_project("WT", 0, n_prog=45, n_relay=100, n_waves=1, wave_ticks=250).to_dict()
+        names = [s["name"] for s in p["schedule"]]
+        p["schedule"] = p["schedule"][:names.index("refine_0") + 1]
+        p["schedule"][-1]["params"]["waves"]["speed"] = speed
+        sums.append(int(np.abs(run_schedule(p, p["genome"], 0).connectivity.weight).sum()))
+    assert sums[0] != sums[1]
+
+
+def test_retinothalamic_with_an_atlas_shaped_relay(tmp_path):
+    """The relay can take its shape from an annotation atlas (synthetic here): cut a structure, fit it into the
+    model's relay box, grow the example in it; every relay cell lies inside the atlas shape."""
+    import json
+    vol = np.zeros((30, 20, 16), np.uint16)
+    i, j, k = np.meshgrid(np.arange(30), np.arange(20), np.arange(16), indexing="ij")
+    vol[((i - 15) / 12.0) ** 2 + ((j - 10) / 7.0) ** 2 + ((k - 8) / 5.0) ** 2 <= 1] = 7      # toy nucleus
+    np.savez(tmp_path / "atlas.npz", annotation=vol, origin=np.zeros(3), voxel_size=np.full(3, 20.0))
+    (tmp_path / "onto.json").write_text(json.dumps({"msg": [{"id": 1, "acronym": "root", "children": [
+        {"id": 7, "acronym": "TOY", "name": "toy nucleus", "children": []}]}]}))
+    r = subprocess.run([sys.executable, str(ROOT / "examples" / "atlas_relay_mask.py"), "--annotation",
+                        str(tmp_path / "atlas.npz"), "--ontology", str(tmp_path / "onto.json"), "--structure", "TOY",
+                        "--out", str(tmp_path / "mask.npz")], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    sys.path.insert(0, str(ROOT))
+    from examples.retinothalamic import RELAY, build_project, measure
+    from neurogenesis.geometry.voxel import VoxelMaskGeometry
+    from neurogenesis.stages.base import run_schedule
+    mask = tmp_path / "mask.npz"
+    p = build_project("WT", 0, n_prog=45, n_relay=100, n_waves=1, wave_ticks=250, relay_mask=mask)
+    t = run_schedule(p.to_dict(), p.genome, 0)
+    geom = VoxelMaskGeometry.from_npz(str(mask))
+    assert np.all(geom.contains(t.positions[t.cell_type == RELAY]))
+    m = measure(t, relay_mask=mask)
+    assert m["n_retinal_synapses"] > 0 and m["r_x"] > 0.5 and m["r_y"] > 0.5
+
+
+def test_allen_annotation_unpack_and_manifest(tmp_path):
+    """The P4 atlas manifest is valid, and the unpack script writes only annotation.mhd / .raw from a (toy) zip that
+    neurogenesis.data.atlas then reads."""
+    import zipfile
+    from neurogenesis.data import load_manifest
+    from neurogenesis.data.atlas import read_volume
+    m = load_manifest(ROOT / "examples" / "datasets" / "allen-devmouse-p4.json")
+    assert {f["name"] for f in m["files"]} == {"P4_DevMouse2012_annotation.zip", "structure_graph_17.json"}
+    assert all(len(f["sha256"]) == 64 and f["size"] > 0 for f in m["files"])
+    vol = np.arange(4 * 3 * 2, dtype="<u4").reshape(2, 3, 4)                   # file order: x fastest
+    mhd = ("ObjectType = Image\nNDims = 3\nBinaryData = True\nBinaryDataByteOrderMSB = False\nCompressedData = False\n"
+           "Offset = 0 0 0\nElementSpacing = 16 16 20\nDimSize = 4 3 2\nElementType = MET_UINT\n"
+           "ElementDataFile = annotation.raw\n")
+    with zipfile.ZipFile(tmp_path / "toy.zip", "w") as z:
+        z.writestr("annotation.mhd", mhd)
+        z.writestr("annotation.raw", vol.tobytes())
+        z.writestr("../outside.txt", "not extracted")
+    r = subprocess.run([sys.executable, str(ROOT / "examples" / "allen_unpack_annotation.py"), str(tmp_path / "toy.zip"),
+                        "--out", str(tmp_path / "out")], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert sorted(p.name for p in (tmp_path / "out").iterdir()) == ["annotation.mhd", "annotation.raw"]
+    assert not (tmp_path / "outside.txt").exists()
+    v, origin, spacing = read_volume(tmp_path / "out" / "annotation.mhd")
+    assert v.size == 24 and set(np.unique(v)) == set(range(24)) and np.allclose(spacing, [16, 16, 20])

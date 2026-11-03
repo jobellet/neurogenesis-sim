@@ -1,3 +1,11 @@
+"""Maturation stages (C10-C12): activity-dependent refinement during development.
+
+`prune` (weak or uncorrelated synapses; Katz, 1996, Science), `scale` (homeostatic synaptic scaling; Turrigiano, 1998,
+Nature), `myelinate` (shorter delays for active or long projections; Gibson, 2014, Science) and `refine_by_activity`
+(spontaneous activity simulated with the `lif_int` kernel, then STDP, Hebbian or three-factor updates; Izhikevich,
+2007, Cerebral Cortex). Helpers: `simulate_tissue` (spike raster of a tissue) and `coactivity` (pre / post
+coincidences per synapse).
+"""
 import warnings
 from typing import Dict, Any, Optional, Tuple
 import numpy as np
@@ -160,16 +168,18 @@ class MyelinateStage:
         factor = resolve(factor_param, genome, fields)
         sel = self._selected(tissue, params, genome, fields, rng)
 
-        # Scale delays down, clipping to [1, 31]
+        # Scale delays down, clipping to [1, `max_delay`] (default 255)
         raw_delays = np.where(sel, np.round(tissue.connectivity.delay * factor), tissue.connectivity.delay).astype(np.int32)
-        n_clipped = int(np.sum(raw_delays > 31))
+        from neurogenesis.tissue import effective_max_delay
+        mx = effective_max_delay(resolve(params["max_delay"], genome, fields) if params.get("max_delay") is not None else None)
+        n_clipped = int(np.sum(raw_delays > mx))
         if n_clipped > 0:
             warnings.warn(
-                f"myelinate: {n_clipped} synapses clipped to maximum delay 31 ticks (kernel limit)",
+                f"myelinate: {n_clipped} synapses clipped to maximum delay {mx} ticks",
                 UserWarning,
                 stacklevel=2
             )
-        new_delays = np.clip(raw_delays, 1, 31).astype(np.int32)
+        new_delays = np.clip(raw_delays, 1, mx).astype(np.int32)
         tissue.connectivity.delay = new_delays
 
         return tissue
@@ -231,7 +241,9 @@ class RefineByActivityStage:
         rule_type = resolve(rule_param, genome, fields)
         
         # Configure drivers:
-        # A) Explicit sources / driver cells with Poisson mode
+        # A) Explicit sources / driver cells with Poisson mode (kept in the tissue unless restore_modes)
+        restore_modes = bool(resolve(params.get("restore_modes", False), genome, fields))
+        saved_modes = (tissue.mode.copy(), tissue.poisson_hz.copy()) if restore_modes else None
         sources = resolve(params.get("sources", params.get("driver_cells", None)), genome, fields)
         if sources is not None and "waves" not in params:
             id_to_idx = {int(cid): idx for idx, cid in enumerate(tissue.cell_id)}
@@ -253,13 +265,17 @@ class RefineByActivityStage:
         wave_currents = None
         if "waves" in params:
             wave_cfg = params["waves"]
+            if isinstance(wave_cfg, Const):          # run_schedule wraps dict params in Const
+                wave_cfg = wave_cfg.value
             if isinstance(wave_cfg, dict):
                 w_sources = resolve(wave_cfg.get("sources", [0]), genome, fields)
                 w_speed = float(resolve(wave_cfg.get("speed", 1.0), genome, fields))
                 w_interval = int(resolve(wave_cfg.get("interval", 50), genome, fields))
                 w_duration = int(resolve(wave_cfg.get("duration", 4), genome, fields))
                 w_amp = int(resolve(wave_cfg.get("amplitude", 3000), genome, fields))
+                w_cells = wave_cfg.get("cells")
             else:
+                w_cells = None
                 w_sources = [0]
                 w_speed = 1.0
                 w_interval = 50
@@ -283,14 +299,22 @@ class RefineByActivityStage:
             if not src_points and N_cells > 0:
                 src_points.append(tissue.positions[0])
 
+            # Cells the waves reach: all, or those selected by `cells` ({"region": ..., "cell_type": ...})
+            reached = np.ones(N_cells, dtype=bool)
+            if isinstance(w_cells, dict):
+                for key in ("region", "cell_type"):
+                    if key in w_cells:
+                        sel = np.asarray(resolve(w_cells[key], genome, fields)).ravel()
+                        reached &= np.isin(getattr(tissue, key), sel)
+            cols = np.flatnonzero(reached)
+
             # For each initiation event at each source point
             w_speed = max(1e-6, w_speed)
             init_times = list(range(0, ticks, max(1, w_interval)))
             for t_init in init_times:
                 for pt in src_points:
-                    dists = np.linalg.norm(tissue.positions - pt, axis=1)
+                    dists = np.linalg.norm(tissue.positions[cols] - pt, axis=1)
                     t_arr = np.round(t_init + dists / w_speed).astype(np.int64)
-                    cols = np.arange(N_cells)
                     for k in range(max(0, w_duration)):              # vectorised over cells
                         rows = t_arr + k
                         ok = (rows >= 0) & (rows < ticks)
@@ -298,6 +322,8 @@ class RefineByActivityStage:
 
         # C) Motor twitches with sensory feedback
         twitch_cfg = params.get("twitches")
+        if isinstance(twitch_cfg, Const):            # run_schedule wraps dict params in Const
+            twitch_cfg = twitch_cfg.value
         has_twitches = twitch_cfg is not None
         if has_twitches:
             if isinstance(twitch_cfg, dict):
@@ -438,7 +464,10 @@ class RefineByActivityStage:
         post = packed["post"]
         weight = packed["weight"]
         delay = packed["delay"]
-        
+        if resolve(params.get("record", False), genome, fields):
+            # Off by default: keep the (ticks, N) raster for later stages (e.g. `competitive_elimination`, C22)
+            tissue._activity_spikes = np.asarray(spikes_out, dtype=np.uint8)[:, :len(tissue.alive)]
+
         # Select rule
         if rule_type == "stdp":
             A_plus = float(resolve(params.get("A_plus", 1.0), genome, fields))
@@ -494,5 +523,7 @@ class RefineByActivityStage:
             new_w = np.where(tissue.connectivity.plastic, new_w, tissue.connectivity.weight).astype(np.int32)  # K6
         tissue.connectivity.weight = new_w
 
+        if saved_modes is not None:
+            tissue.mode, tissue.poisson_hz = saved_modes
         return tissue
 

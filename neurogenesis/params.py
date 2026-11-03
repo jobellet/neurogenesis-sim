@@ -1,3 +1,10 @@
+"""Param sources (A3): how a stage parameter gets its value.
+
+`Const`, `Gene` (a genome entry between `lo` and `hi`), `Field` (a field sampled at cell positions), `Fit` (fitted by
+`neurogenesis.fitting`, `init` until then) and `Expr` (a formula). `resolve` gives a Param's value for a genome and
+fields, `worst_case` its value for cost estimates, `param_from_dict` / `param_to_dict` the JSON form, and
+`collect_genes`, `collect_project_genes` and `collect_fits` list the genes and fits of a schedule or Project.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -249,6 +256,23 @@ def resolve(
 
     else:
         return param
+
+
+def resolve_nested(value: Any, genome: Dict[str, Any], fields: Dict[str, Any]) -> Any:
+    """`resolve` applied at every depth of nested dicts and lists (no positions): a Param anywhere inside, e.g. a
+    `Gene` in one entry of a matrix, is replaced by its value; plain values and plain dicts are kept."""
+    if isinstance(value, dict):
+        param = param_from_dict(value)
+        if isinstance(param, Const) and param.value is value:
+            return {k: resolve_nested(v, genome, fields) for k, v in value.items()}
+        value = param
+    if isinstance(value, Const):
+        return resolve_nested(value.value, genome, fields)
+    if isinstance(value, (Gene, Field, Fit, Expr)):
+        return resolve(value, genome, fields)
+    if isinstance(value, (list, tuple)):
+        return [resolve_nested(v, genome, fields) for v in value]
+    return value
 
 
 def _gene_path(path: Union[Tuple, List, str]) -> Tuple:

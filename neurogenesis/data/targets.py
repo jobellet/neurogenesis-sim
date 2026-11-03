@@ -1,3 +1,9 @@
+"""Cell-type statistics of a connectome as fitting targets (I5).
+
+Registers the `mean_weight` and `column_fraction` metrics in `neurogenesis.fitting`. `extract_fitting_targets` turns an
+imported tissue into target dicts (cell counts per type, synapse counts and mean in-degrees per type pair, column
+fractions); `compare_type_statistics` compares a grown tissue with a reference type by type.
+"""
 import numpy as np
 from typing import Any, Dict, List, Optional
 from neurogenesis.tissue import Tissue

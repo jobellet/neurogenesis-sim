@@ -1,0 +1,16 @@
+{
+ "id": "allen-devmouse-p4",
+ "title": "Allen Developing Mouse Brain Reference Atlas, P4: 3D annotation volume and structure ontology",
+ "license": "Allen Institute Terms of Use (https://alleninstitute.org/terms-of-use/): research or other noncommercial use, citation required",
+ "citation": "Allen Developing Mouse Brain Atlas, developingmouse.brain-map.org (Allen Institute for Brain Science, 2008); Thompson CL et al. (2014) A high-resolution spatiotemporal atlas of gene expression of the developing mouse brain. Neuron 83:309-323.",
+ "url": "https://download.alleninstitute.org/informatics-archive/current-release/mouse_annotation/",
+ "files": [
+  {"name": "P4_DevMouse2012_annotation.zip",
+   "url": "https://download.alleninstitute.org/informatics-archive/current-release/mouse_annotation/P4_DevMouse2012_annotation.zip",
+   "sha256": "e620b6da8b22b6c36b78130183cff849f49bde8049b914d79649f730f05d157d", "size": 1480227},
+  {"name": "structure_graph_17.json",
+   "url": "https://api.brain-map.org/api/v2/structure_graph_download/17.json",
+   "sha256": "a5726ba0007621960625998466ffe412033c75e79c227dc6f89ea4cef96ff483", "size": 1444525}
+ ],
+ "notes": "The zip holds annotation.mhd + annotation.raw (uint32 labels, 724 x 403 x 398 voxels of 16.752 x 16.752 x 20 um, RAI); unpack it with examples/allen_unpack_annotation.py. structure_graph_17.json is the API's 'Developing Mouse 3' structure graph (ontology 12). At P4 the volume labels prosomeric plates only (77 labels, e.g. p2A, alar thalamus), not thalamic nuclei."
+}

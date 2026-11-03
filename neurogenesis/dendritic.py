@@ -1,3 +1,12 @@
+"""Passive dendritic attenuation (N5): synaptic efficacy and delay from the distance along the dendrite.
+
+`apply_dendritic_attenuation` scales each synapse's weight by exp(-d / `length_constant`), d being its
+`dendritic_distance` (computed from `post_node` and the arbor path lengths when missing), following the passive cable
+attenuation of distal inputs (Rall, 1967, Journal of Neurophysiology); `dendrite_velocity` adds round(d / velocity)
+ticks of delay (clipped to 31 with a warning), and synapses beyond `distal_compartment_threshold` mark their
+postsynaptic cells as distal-compartment (1) cells for the `two_compartment` model. The `dendritic_attenuate` stage
+runs it with `Param` values; empty params are a no-op.
+"""
 import numpy as np
 from typing import Any, Dict, Tuple, Optional
 import warnings
@@ -76,14 +85,15 @@ def apply_dendritic_attenuation(
         delay_add = np.round(d / velocity).astype(np.int32)
         total_delay = c.delay + delay_add
 
-        exceeds = total_delay > 31
+        from neurogenesis.tissue import MAX_DELAY_TICKS as MAXD
+        exceeds = total_delay > MAXD
         if np.any(exceeds):
             count = np.sum(exceeds)
             warnings.warn(
-                f"Dendritic delay exceeds 31ms for {count} synapses. Clipping to 31."
+                f"Dendritic delay exceeds {MAXD} ticks for {count} synapses. Clipping to {MAXD}."
             )
 
-        c.delay = np.clip(total_delay, 1, 31)
+        c.delay = np.clip(total_delay, 1, MAXD)
 
     if distal_compartment_threshold is not None:
         thresh = float(resolve(distal_compartment_threshold, genome=genome, fields=fields))

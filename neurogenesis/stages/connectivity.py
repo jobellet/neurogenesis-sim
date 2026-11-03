@@ -1,11 +1,16 @@
+"""Connectivity stages (C8-C9): `grow_axons` (axon guidance and synaptogenesis between region populations through the
+guidance rules and sparse candidate search; chemoaffinity: Sperry, 1963, PNAS), and the supervised entry points
+`place_by_hand` (explicit cells) and `connect_by_hand` (explicit synapse lists).
+"""
 from __future__ import annotations
 
 import warnings
+from neurogenesis.tissue import MAX_DELAY_TICKS as MAXD, effective_max_delay as effective_max_delay_
 import numpy as np
 from typing import Dict, Any, List, Optional, Tuple, Union
 
 from neurogenesis.tissue import Tissue, SparseConnectivity
-from neurogenesis.params import Param, resolve, worst_case
+from neurogenesis.params import Param, resolve, resolve_nested, worst_case
 from neurogenesis.stages.base import register_stage
 from neurogenesis.development.rules import RULES, GuidanceContext, WeightContext
 from neurogenesis.development.sparse_guidance import sparse_guidance
@@ -138,7 +143,7 @@ class GrowAxons:
     ``target = sigmoid(4 (x_src - 0.5) @ B.T + c)`` (after the shift and target rules), and connects to each
     destination cell with probability ``p0 exp(-|x_dst - target|^2 / (2 sigma^2))`` (then the probability rules).
     Weights are ``w`` times uniform noise in [0.9, 1.1], negated and scaled by ``inh`` for inhibitory sources, then the
-    weight rules, rounding and clipping to [-wc, wc]. Delays are distance / conduction_velocity, clipped to [1, 31].
+    weight rules, rounding and clipping to [-wc, wc]. Delays are distance / conduction_velocity, clipped to [1, `max_delay`] (default: the storage bound of 255 ticks).
 
     Params (each a Param; nested guidance values may themselves be Params, e.g. a Gene):
         projections: list of "src->dst" strings (also "src,dst", "src:dst") or [src, dst] pairs. If absent, the
@@ -157,7 +162,7 @@ class GrowAxons:
                 plus the genes read by the rules (type_c, type_s, topographic, lamina, source, receptor, ...).
         rules_shift, rules_target, rules_probability, rules_weight: rule names from ``RULES`` (default none).
         conduction_velocity: space units per tick (1 tick = 1 ms), default 1.
-        max_delay: ticks, default 31 (kernel maximum; larger values are capped and clipped delays warned).
+        max_delay: ticks, default unlimited up to the storage bound of 255 (multi-word spike history in all kernels); warns when it clips.
         w_clip: integer weight clip, default 512. inh_weight_factor: default 1.
         exact: unset (default): dense Ns x Nd probabilities when max(Ns, Nd) <= DENSE_MAX_CELLS (2048), else the
             sparse cell-list candidate search (radius 5 sigma; only the identity_expression, no_autapse and source_sign
@@ -234,7 +239,7 @@ class GrowAxons:
         weight_rules = resolve(params.get("rules_weight", []), genome, fields)
         
         cv = resolve(params.get("conduction_velocity", 1.0), genome, fields)
-        max_delay = resolve(params.get("max_delay", 31), genome, fields)
+        max_delay = resolve(params.get("max_delay"), genome, fields)
         global_w_clip = int(resolve(params.get("w_clip", 512), genome, fields))
         global_inh = float(resolve(params.get("inh_weight_factor", 1.0), genome, fields))
         exact = resolve(params.get("exact"), genome, fields)
@@ -248,7 +253,7 @@ class GrowAxons:
         new_weight_list = []
         new_delay_list = []
         total_clipped_delays = 0
-        effective_max_delay = min(int(max_delay), 31)
+        effective_max_delay = effective_max_delay_(max_delay)
         
         alive_idx = np.nonzero(tissue.alive)[0]
         region_ids = tissue.region[alive_idx]
@@ -276,7 +281,7 @@ class GrowAxons:
             if len(src_indices) == 0 or len(dst_indices) == 0:
                 continue
 
-            gd = {k: resolve(v, genome, fields) for k, v in gd.items()}
+            gd = {k: resolve_nested(v, genome, fields) for k, v in gd.items()}   # Genes at any depth, e.g. in B
             
             # Local positions
             if src_str in bounds_min and src_str in bounds_size:
@@ -386,7 +391,7 @@ class GrowAxons:
             abs_dst = tissue.positions[dst_indices[edges_post]]
             dists = np.linalg.norm(abs_src - abs_dst, axis=1)
             raw_delays = np.round(dists / cv).astype(np.int32)
-            n_clipped = int(np.sum(raw_delays > 31))
+            n_clipped = int(np.sum(raw_delays > effective_max_delay))
             total_clipped_delays += n_clipped
             delays = np.clip(raw_delays, 1, effective_max_delay).astype(np.int32)
             
@@ -397,7 +402,7 @@ class GrowAxons:
             
         if total_clipped_delays > 0:
             warnings.warn(
-                f"grow_axons: {total_clipped_delays} synapses clipped to maximum delay 31 ticks (kernel limit)",
+                f"grow_axons: {total_clipped_delays} synapses clipped to maximum delay {effective_max_delay} ticks",
                 UserWarning,
                 stacklevel=2
             )
@@ -506,10 +511,10 @@ def _rule_synapses(tissue: Tissue, rule: Dict[str, Any], genome: Dict[str, Any],
     if rule.get("velocity") is not None:
         dist = np.linalg.norm(tissue.positions[post] - tissue.positions[pre], axis=1)
         delay = np.round(dist / float(val("velocity", 1.0))).astype(np.int64)
-        n_clip = int(np.sum(delay > 31))
+        n_clip = int(np.sum(delay > MAXD))
         if n_clip:
-            warnings.warn(f"connect_by_hand: {n_clip} synapses clipped to maximum delay 31 ticks (kernel limit)", UserWarning, stacklevel=3)
-        delay = np.clip(delay, 1, 31).astype(np.int32)
+            warnings.warn(f"connect_by_hand: {n_clip} synapses clipped to maximum delay {MAXD} ticks", UserWarning, stacklevel=3)
+        delay = np.clip(delay, 1, MAXD).astype(np.int32)
     else:
         delay = np.full(E, int(val("delay", 1)), dtype=np.int32)
     return pre.astype(np.int32), post.astype(np.int32), w, delay
@@ -557,8 +562,8 @@ class ConnectByHand:
         else:
             delay = np.asarray(delay, dtype=np.int32)
             
-        if np.any(delay < 1) or np.any(delay > 31):
-            raise ValueError(f"connect_by_hand: delay out of kernel limit [1, 31]: range [{np.min(delay)}, {np.max(delay)}]")
+        if np.any(delay < 1) or np.any(delay > MAXD):
+            raise ValueError(f"connect_by_hand: delay out of kernel limit [1, {MAXD}]: range [{np.min(delay)}, {np.max(delay)}]")
 
         self._append(tissue, pre, post, weight, delay)
         return tissue
@@ -579,6 +584,6 @@ class ConnectByHand:
         D = resolve(params.get("delay_matrix", params.get("delay", 1)), genome, fields)
         D = np.asarray(D, dtype=np.int64)
         delay = D[pre, post] if D.ndim == 2 else np.full(len(pre), int(D), dtype=np.int64)
-        if len(delay) and (delay.min() < 1 or delay.max() > 31):
-            raise ValueError("connect_by_hand: delay out of kernel limit [1, 31]")
+        if len(delay) and (delay.min() < 1 or delay.max() > MAXD):
+            raise ValueError(f"connect_by_hand: delay out of kernel limit [1, {MAXD}]")
         self._append(tissue, pre, post, np.trunc(W[pre, post]).astype(np.int32), delay)
