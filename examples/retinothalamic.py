@@ -18,7 +18,11 @@ Conditions: WT; b2KO (no waves, uncorrelated Poisson RGC firing; after McLaughli
 spikes during refinement); EphAKO (x chemoaffinity gain 0; Feldheim et al. 2000, Neuron). Results hold in this
 simulation only.
 
-    python examples/retinothalamic.py [--seeds 10] [--cpu] [--out example_out] [--small]
+`--map-source expression` (hypotheses in docs/hypotheses/2026-11-03-retinothalamic-expression.md): the retina -> relay
+target map is read from the EphA / EphB expression by the `expression_gradient` target rule instead of the matrix B
+(B = 0 on x and y), and EphAKO sets the EphA gene to 0 in every cell (`express` knockout) instead of the gain.
+
+    python examples/retinothalamic.py [--seeds 10] [--cpu] [--out example_out] [--small] [--map-source B|expression]
 """
 import argparse
 import json
@@ -83,10 +87,17 @@ def volume_matched_box(relay_mask):
     return (lo + hi) / 2, size * fraction ** (1.0 / 3.0)
 
 
+MAP_SOURCES = ("B", "expression")
+
+
 def build_project(cond="WT", seed=0, n_prog=60, n_relay=200, n_waves=4, wave_ticks=300, relay_mask=None,
-                  relay_box=None):
+                  relay_box=None, map_source="B"):
     """Project dict of one condition. Wave origins are drawn from `seed` here (example-level, deterministic).
-    `relay_mask`: an .npz voxel geometry (examples/atlas_relay_mask.py) used as the relay's shape instead of the box."""
+    `relay_mask`: an .npz voxel geometry (examples/atlas_relay_mask.py) used as the relay's shape instead of the box.
+    `map_source`: "B" (the gains in B carry the map) or "expression" (the `expression_gradient` rule reads the EphA /
+    EphB genes; EphAKO knocks the EphA gene out)."""
+    if map_source not in MAP_SOURCES:
+        raise ValueError(map_source)
     if relay_mask is not None and relay_box is not None:
         raise ValueError("relay_mask and relay_box are mutually exclusive")
     rel_lo, rel_size = relay_frame(relay_mask) if relay_box is None else (
@@ -94,6 +105,15 @@ def build_project(cond="WT", seed=0, n_prog=60, n_relay=200, n_waves=4, wave_tic
         np.asarray(relay_box["size"], float))
     from neurogenesis.project.io import Project
     g = condition_genome(cond, wave_ticks)
+    from_expr = map_source == "expression"
+    if from_expr:
+        g["epha_gain"] = 1.0                                   # the gene is expressed as in WT, then knocked out
+    expr_names = dict(names=["fate", "EphA", "EphB"], knockout=["EphA"] if cond == "EphAKO" else []) if from_expr else {}
+    if from_expr:
+        retinal = dict(B=np.zeros((3, 3)).tolist(), rules_target=["expression_gradient"],
+                       expression_gradient=[dict(gene="EphA", axis=0, gain=2.0), dict(gene="EphB", axis=1, gain=2.0)])
+    else:
+        retinal = dict(B=np.diag([2.0 * g["epha_gain"], 2.0 * g["ephb_gain"], 0.0]).tolist())
     gene = lambda name, hi: {"type": "Gene", "path": name, "lo": 0.0, "hi": hi}
     one = {"type": "Field", "name": "one"}
     sched = [
@@ -110,7 +130,8 @@ def build_project(cond="WT", seed=0, n_prog=60, n_relay=200, n_waves=4, wave_tic
             neighbor_weights=[[-1.5, 0, 0], [0, 0, 0], [0, 0, 0]],
             morphogens=[{"field": one, "weights": [0.0, -3.0, -3.0]},
                         {"field": {"type": "Field", "name": "grad_x"}, "weights": [0.0, gene("epha_gain", 2.0), 0.0]},
-                        {"field": {"type": "Field", "name": "grad_y"}, "weights": [0.0, 0.0, gene("ephb_gain", 2.0)]}])),
+                        {"field": {"type": "Field", "name": "grad_y"}, "weights": [0.0, 0.0, gene("ephb_gain", 2.0)]}],
+            **expr_names)),
         dict(name="differentiate", operator="differentiate", params=dict(types=[
             dict(type_id=OTHER, condition="(region == 0) & (expr[0] <= 0.5)", region=2, sign=1, base_weight=300),
             dict(type_id=RGC, condition="(region == 0) & (expr[0] > 0.5)", sign=1, base_weight=300),
@@ -125,8 +146,7 @@ def build_project(cond="WT", seed=0, n_prog=60, n_relay=200, n_waves=4, wave_tic
             bounds_size={"0": RET_S.tolist(), "1": rel_size.tolist()},
             rules_probability=["no_autapse"],
             guidance={
-                "0->1": dict(B=np.diag([2.0 * g["epha_gain"], 2.0 * g["ephb_gain"], 0.0]).tolist(),
-                             sigma=0.3, p0=0.6, w=250.0),
+                "0->1": dict(retinal, sigma=0.3, p0=0.6, w=250.0),
                 "1->1": dict(B=np.diag([2.0, 2.0, 0.0]).tolist(), sigma=0.1, p0=0.3, w=60.0, source="inh",
                              rules_probability=["no_autapse", "source_sign"])})),
         dict(name="apoptosis", operator="apoptosis", params=dict(min_inputs={"type": "Field", "name": "trophic_need"})),
@@ -232,14 +252,14 @@ def measure(tissue, n_stim_ticks=50, relay_mask=None, relay_box=None):
                 n_relay=int(len(relay)), n_retinal_synapses=int(m.sum()), relay_spikes=counts.sum(1).tolist())
 
 
-def run(seeds, small=False, conditions=CONDITIONS, relay_mask=None, relay_box=None):
+def run(seeds, small=False, conditions=CONDITIONS, relay_mask=None, relay_box=None, map_source="B"):
     from neurogenesis.stages.base import run_schedule
     kw = dict(n_prog=45, n_relay=100, n_waves=2, wave_ticks=250) if small else {}
     out = {}
     for cond in conditions:
         rows = []
         for s in seeds:
-            p = build_project(cond, s, relay_mask=relay_mask, relay_box=relay_box, **kw)
+            p = build_project(cond, s, relay_mask=relay_mask, relay_box=relay_box, map_source=map_source, **kw)
             rows.append(measure(run_schedule(p.to_dict(), p.genome, s), relay_mask=relay_mask, relay_box=relay_box))
         out[cond] = rows
     return out
@@ -260,25 +280,27 @@ def main():
     ap.add_argument("--relay-mask", help="relay shape from an atlas (.npz from examples/atlas_relay_mask.py)")
     ap.add_argument("--compare-matched-box", action="store_true",
                     help="also run a box with the atlas mask's volume and bounding-box aspect ratio")
+    ap.add_argument("--map-source", choices=MAP_SOURCES, default="B",
+                    help="B: target map from the gains in B (runs 1-3); expression: from the EphA / EphB expression")
     args = ap.parse_args()
     if args.cpu:
         os.environ["JAX_PLATFORMS"] = "cpu"
-    res = run(range(args.seeds), small=args.small, relay_mask=args.relay_mask)
+    res = run(range(args.seeds), small=args.small, relay_mask=args.relay_mask, map_source=args.map_source)
     summ = summary(res)
     print(f"{'condition':9s} " + " ".join(f"{k:>18s}" for k in next(iter(summ.values()))))
     for c, row in summ.items():
         print(f"{c:9s} " + " ".join(f"{m:8.3f} +- {s:6.3f}" for m, s in row.values()))
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    p = build_project("WT", 0, relay_mask=args.relay_mask)
+    p = build_project("WT", 0, relay_mask=args.relay_mask, map_source=args.map_source)
     p.save(out / "project.json")
-    stats = dict(seeds=args.seeds, small=args.small, summary=summ, per_seed=res)
+    stats = dict(seeds=args.seeds, small=args.small, map_source=args.map_source, summary=summ, per_seed=res)
     if args.compare_matched_box:
         if not args.relay_mask:
             ap.error("--compare-matched-box requires --relay-mask")
         center, size = volume_matched_box(args.relay_mask)
         box = dict(center=center.tolist(), size=size.tolist())
-        box_results = run(range(args.seeds), small=args.small, relay_box=box)
+        box_results = run(range(args.seeds), small=args.small, relay_box=box, map_source=args.map_source)
         stats["matched_box"] = dict(center=box["center"], size=box["size"],
                                     summary=summary(box_results), per_seed=box_results)
     (out / "stats.json").write_text(json.dumps(stats, indent=1))
