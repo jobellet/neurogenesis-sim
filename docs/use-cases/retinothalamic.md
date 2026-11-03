@@ -1,15 +1,33 @@
-# Retina → thalamic relay: guidance, waves and their ablation
+# Retina → relay: a small topographic-map experiment
 
-A toy two-region model loosely after the mouse retina → dLGN projection (E14–P14), grown by the stage pipeline and
-compared across four conditions. Everything below holds **in this simulation** only; it is a demonstration of how to
-set up and test a developmental hypothesis with the toolbox, not a biological finding.
+This worked example grows a toy retinal projection into a relay, then asks whether the map depends on EphA guidance
+and activity-driven refinement. It demonstrates how to turn a developmental idea into a model and compare conditions.
+The results describe **this simulation**, not measured biology.
 
     python examples/retinothalamic.py --cpu --seeds 10 --out out_dir      # about 1.5 min on 2 CPU threads
     python examples/retinothalamic.py --cpu --seeds 2 --small             # test configuration, about 10 s
 
 The hypotheses, metrics and pass criteria were written before the runs: {doc}`../hypotheses/2026-11-02-retinothalamic`.
 
-![Development of the retina → relay projection, one frame per stage, then the final network and the EphA knockout](../_static/media/retinothalamic_development.gif)
+## Main result
+
+| Question | Result in this simulation |
+|---|---|
+| Does the EphA knockout disrupt the x map? | Yes. In the p2A-shaped relay, r_x falls from 0.832 in WT to 0.013. The y map remains (r_y 0.769). |
+| Does activity deprivation blur the map? | Only weakly in this setup: the change is smaller than the across-seed variation. |
+| Does relay shape matter? | The equal-volume box has stronger map scores than p2A. Its smaller dimensions also change spatial extent, so this does not isolate shape alone. |
+
+## Read the animation
+
+The animation shows seven development milestones, then the final wild type and an EphA knockout with the same seed.
+The **left panel** is the network in space: retina at the bottom, relay above it; circles are retinal cells, squares
+are relay cells, and triangles are relay interneurons. Lines show a sample of retinal synapses. **Colour follows
+retinal x** from purple to yellow. Relay cells inherit the weighted mean colour of their retinal inputs. In the **right
+panel**, each dot is one retinal ganglion cell (RGC): x position in the retina is
+plotted against the mean x or y position of its relay targets (blue = x/EphA axis, orange = y/EphB axis). A rising
+diagonal means that axis is mapped in order. The knockout keeps the orange trend and loses the blue one.
+
+![Nine-frame animation of retina and relay development, the emerging x and y maps, and a same-seed EphA knockout](../_static/media/retinothalamic_development.webp)
 
 *Proof of principle (WT, seed 0, run 2 below): one frame per development checkpoint, then a turn around the final
 network and the same seed with EphA knocked out. Left: retina (bottom: grey progenitors and other cells, circles RGCs)
@@ -144,11 +162,45 @@ changes by −0.04), and H3 held in orientation with a **weak** blurring (every 
 map is less precise than in the box (r_x 0.83 against 0.91, separation 0.48 against 0.67). The topographic error is
 not comparable with runs 1 and 2: it is measured in the relay's bounding box, which the irregular shape does not fill.
 
-![Development of the retina → relay projection with the relay in the shape of the P4 alar thalamus (p2A)](../_static/media/retinothalamic_development_p4_atlas.gif)
+## Shape control, run 4 (paired, 10 seeds; not pre-registered)
+To check whether the run-3 change is only a consequence of the relay's lower volume and density, the same seeds and
+conditions were run in a rectangular box with the same volume as p2A and the same bounding-box aspect ratio. It uses
+the same number of relay cells, so its mean cell density matches p2A. Its dimensions are 36.28 × 37.51 × 24.23 space
+units, centred at (50, 50, 60), against p2A's 58 × 60 × 39 bounding box. This is a volume and density control; its
+smaller extents mean the comparison does not isolate irregularity from spatial extent. Apoptosis leaves slightly
+different final counts: WT has 147.5 ± 5.2 relay cells in p2A and 145.9 ± 5.6 in the box; EphAKO has 154.4 ± 1.8 and
+147.6 ± 3.8, respectively.
 
-*Run 3, WT seed 0: as the animation above, with the relay grown in the shape of p2A from the P4 annotation of the Allen
-Developing Mouse Brain Reference Atlas (scaled into the model's relay box). Made by
-`RETINO_RELAY_MASK=relay_mask.npz python docs/_scripts/make_media.py retino`.*
+The legacy *topo_error* remains the error from the bounding-box ideal target. *topo_error_feasible* instead projects
+each ideal target onto the closest x-y coordinate occupied by the relay mask (any depth), then measures the distance
+from the observed weighted target centroid to that attainable point. For a box, all ideal coordinates are attainable,
+so the two metrics are equal. This metric describes fit to the mask's available locations; it does not establish a
+biological map quality threshold.
+
+| Geometry | Condition | r_x | r_y | Bounding-box error | Feasible-target error | Corner separation |
+|---|---|---:|---:|---:|---:|---:|
+| p2A | WT | 0.832 ± 0.020 | 0.808 ± 0.040 | 0.377 ± 0.015 | 0.286 ± 0.011 | 0.484 ± 0.146 |
+| p2A | b2KO | 0.829 ± 0.024 | 0.812 ± 0.036 | 0.380 ± 0.013 | 0.289 ± 0.010 | 0.473 ± 0.136 |
+| p2A | TTX | 0.835 ± 0.019 | 0.813 ± 0.037 | 0.380 ± 0.014 | 0.289 ± 0.010 | 0.466 ± 0.136 |
+| p2A | EphAKO | 0.013 ± 0.061 | 0.769 ± 0.069 | 0.462 ± 0.011 | 0.377 ± 0.010 | 0.487 ± 0.124 |
+| Matched box | WT | 0.912 ± 0.020 | 0.908 ± 0.029 | 0.231 ± 0.016 | 0.231 ± 0.016 | 0.636 ± 0.095 |
+| Matched box | b2KO | 0.913 ± 0.020 | 0.912 ± 0.025 | 0.234 ± 0.014 | 0.234 ± 0.014 | 0.636 ± 0.094 |
+| Matched box | TTX | 0.914 ± 0.020 | 0.912 ± 0.026 | 0.234 ± 0.014 | 0.234 ± 0.014 | 0.629 ± 0.095 |
+| Matched box | EphAKO | 0.034 ± 0.140 | 0.910 ± 0.025 | 0.394 ± 0.018 | 0.394 ± 0.018 | 0.596 ± 0.111 |
+
+Paired matched-box minus p2A differences in the feasible-target error were −0.055 ± 0.022 for WT (box lower in 10/10
+seeds), −0.055 ± 0.021 for b2KO (10/10), and −0.055 ± 0.020 for TTX (10/10). Thus, p2A retains the qualitative
+EphA knockout result, while the map metrics are consistently weaker than in the equal-volume box under these model
+settings. Because the control is smaller in each dimension, this difference may reflect spatial extent as well as
+shape. Per-seed results and paired differences are in the run-4 results JSON.
+
+Reproduce with: python examples/retinothalamic.py --relay-mask relay_mask.npz --compare-matched-box --cpu --seeds 10.
+This writes both geometries' per-seed data to stats.json.
+
+![Nine-frame animation of the same experiment with the relay grown in the P4 p2A atlas mask](../_static/media/retinothalamic_development_p4_atlas.webp)
+
+*Run 3, WT seed 0, with the relay grown in the p2A shape from the Allen P4 annotation (scaled into model space). Generated
+by setting RETINO_RELAY_MASK=relay_mask.npz and running docs/_scripts/make_media.py retino.*
 
 Atlas: Allen Developing Mouse Brain Atlas, developingmouse.brain-map.org (© 2008 Allen Institute for Brain Science);
 Thompson CL et al. (2014) A high-resolution spatiotemporal atlas of gene expression of the developing mouse brain.
