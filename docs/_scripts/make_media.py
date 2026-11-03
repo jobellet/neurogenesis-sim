@@ -15,9 +15,9 @@ Figures (written to docs/_static/media/):
     cost     cost_estimate.png                 neurogenesis.cost.estimate vs number of neurons
     evo      evolution_progress.png            neurogenesis.evolution.evolve on a toy topography fitness
     stages   development_stages.gif            neurogenesis.stages.run_schedule(checkpoints=True)
-    retino   retinothalamic_development.gif    examples/retinothalamic.py, WT seed 0, one frame per checkpoint
+    retino   retinothalamic_development.webp   selected development milestones + WT / EphA knockout
              with RETINO_RELAY_MASK=<mask.npz> (examples/atlas_relay_mask.py): the relay grown in that shape, written
-             to retinothalamic_development_p4_atlas.gif (or $RETINO_GIF)
+             to retinothalamic_development_p4_atlas.webp (or $RETINO_WEBP)
 
 The browser viewer captures are made by docs/_scripts/viewer_capture.py.
 """
@@ -87,6 +87,14 @@ def save_gif(frames, name, durations, colours=96):
     q = [f.quantize(palette=pal, dither=Image.Dither.NONE) for f in frames]
     path = OUT / name
     q[0].save(path, save_all=True, append_images=q[1:], duration=durations, loop=0, optimize=True, disposal=1)
+    print(f"  wrote {path.relative_to(ROOT)} ({path.stat().st_size / 1024:.0f} KB, {len(frames)} frames)")
+
+
+def save_webp(frames, name, durations, quality=78):
+    """Write a compact animated WebP with a per-frame duration list."""
+    path = OUT / name
+    frames[0].save(path, format="WEBP", save_all=True, append_images=frames[1:], duration=durations,
+                   loop=0, quality=quality, method=6)
     print(f"  wrote {path.relative_to(ROOT)} ({path.stat().st_size / 1024:.0f} KB, {len(frames)} frames)")
 
 
@@ -510,8 +518,8 @@ def make_retino():
     from examples.retinothalamic import RET_C, RET_S, RGC, OTHER, RELAY, INTER, build_project, relay_frame
     from neurogenesis.stages import run_schedule
     mask = os.environ.get("RETINO_RELAY_MASK") or None
-    gif = os.environ.get("RETINO_GIF") or ("retinothalamic_development_p4_atlas.gif" if mask
-                                           else "retinothalamic_development.gif")
+    animation = os.environ.get("RETINO_WEBP") or ("retinothalamic_development_p4_atlas.webp" if mask
+                                                  else "retinothalamic_development.webp")
     rel_lo, rel_size = relay_frame(mask)
     z_top = max(55.0, float(rel_lo[2] + rel_size[2]) + 5.0)
     shape = " (atlas-shaped)" if mask else ""
@@ -567,29 +575,47 @@ def make_retino():
         ax.set_title(title, fontsize=9, x=0.62)
         return fig_to_image(fig, dpi=72)
 
+    milestones = (
+        ("seed_relay", "1 · Seed retina and relay progenitors"),
+        ("proliferate", "2 · Expand the retinal population"),
+        ("differentiate", "3 · Differentiate retinal and relay cells"),
+        ("grow_axons", "4 · Grow retinal projections"),
+        ("apoptosis", "5 · Keep relay cells with retinal input"),
+        ("refine_3", "6 · Refine the map with activity"),
+        ("freeze", "7 · Final wild-type network"),
+    )
+    selected = []
+    for name, title in milestones:
+        candidates = [i for i, (stage, _, _) in enumerate(labels) if stage == name]
+        if candidates:
+            i = candidates[-1]
+            selected.append((i, title))
     frames, dur = [], []
-    for k, (t, (name, rep, nrep)) in enumerate(zip(cps, labels)):
+    for number, (i, title) in enumerate(selected, 1):
+        t = cps[i]
         n_ret = int(np.sum(np.isin(t.cell_type, (RELAY, INTER)) == False))  # noqa: E712
-        title = (f"checkpoint {k + 1}/{len(cps)}: {name}{f' {rep + 1}/{nrep}' if nrep > 1 else ''}\n"
-                 f"{n_ret} retinal cells, {int(np.sum(t.cell_type == RELAY))} relay cells, "
+        caption = (f"{title}\n{n_ret} retinal cells, {int(np.sum(t.cell_type == RELAY))} relay cells, "
                  f"{len(t.connectivity.pre)} synapses; colour = retinal x")
-        frames.append(draw(t, title, -60 + 2 * k))
-        dur.append(700)
+        frames.append(draw(t, caption, -38))
+        dur.append(1100)
     final = cps[-1]
-    for j in range(16):
-        frames.append(draw(final, f"final network (WT): retina below, relay{shape} above\n"
-                           "retinal x is kept along the relay's x axis (topographic map)", -60 + 2 * len(cps) + 22.5 * j))
-        dur.append(350)
+    frames.append(draw(final, f"Final wild type: retina below, relay{shape} above\ncolour follows retinal x",
+                       -38))
+    dur.append(1800)
     pk = build_project("EphAKO", 0, relay_mask=mask)
     ko = run_schedule(pk.to_dict(), pk.genome, 0)
-    for j in range(4):
-        frames.append(draw(ko, "same seed, EphA knocked out (x chemoaffinity gain 0)\n"
-                           "the x map is lost, the y map is kept", -60 + 2 * len(cps) + 22.5 * 16 + 22.5 * j))
-        dur.append(900)
-    dur[len(cps) - 1] = 1800
-    dur[len(cps) + 15] = 1500
-    dur[-1] = 2500
-    save_gif(frames, gif, dur, colours=128)
+    frames.append(draw(ko, "EphA knockout, same seed\nx map lost; y map remains",
+                       -38))
+    dur.append(2400)
+    save_webp(frames, animation, dur)
+
+    # Export individual stage checkpoint frames for the interactive tutorial carousel
+    step_indices = [4, 10, 11, 12, 13, 14, 15, 19, 23, 25, 26, 28]
+    prefix = "retino_stage_p4_" if mask else "retino_stage_"
+    for step_num, idx in enumerate(step_indices, 1):
+        if idx < len(frames):
+            frames[idx].save(OUT / f"{prefix}{step_num:02d}.png")
+
 
 
 TASKS = dict(cli=make_cli, topo=make_topo, models=make_models, fi=make_fi, cost=make_cost, evo=make_evo,
