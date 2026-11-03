@@ -132,6 +132,22 @@ def test_evolved_development_example(tmp_path):
     assert stats["cells_type1"] > 0 and stats["synapses"] > 0
 
 
+def test_retinothalamic_step_by_step_cli(tmp_path):
+    """Retina -> relay CLI stage-slicing: steps 0->1 and 1->2 advance correctly through --from-stage and --until-stage."""
+    import subprocess
+    r1 = subprocess.run([sys.executable, str(ROOT / "examples" / "retinothalamic.py"), "--cpu", "--seed", "0",
+                         "--small", "--from-stage", "start", "--until-stage", "proliferate",
+                         "--out", str(tmp_path / "step_01.ngb")], capture_output=True, text=True, cwd=tmp_path)
+    assert r1.returncode == 0, r1.stderr
+    assert (tmp_path / "step_01.ngb").exists()
+    r2 = subprocess.run([sys.executable, str(ROOT / "examples" / "retinothalamic.py"), "--cpu", "--seed", "0",
+                         "--small", "--in", str(tmp_path / "step_01.ngb"),
+                         "--from-stage", "proliferate", "--until-stage", "express",
+                         "--out", str(tmp_path / "step_02.ngb")], capture_output=True, text=True, cwd=tmp_path)
+    assert r2.returncode == 0, r2.stderr
+    assert (tmp_path / "step_02.ngb").exists()
+
+
 def test_retinothalamic_example(tmp_path):
     """Retina -> relay example: the four conditions develop (small tissue, 2 seeds) and every metric is finite."""
     import json

@@ -1,13 +1,16 @@
 # Retina → relay: a small topographic-map experiment
 
+```{raw} html
+<div class="ng-question-box">
+  <p><strong>Guiding Question:</strong> <em>How does the retinotopy of the retina align with that of the lateral geniculate nucleus (dLGN) before the onset of vision—and what are the respective roles of graded molecular cues (Eph/ephrin) and patterned spontaneous retinal waves in wiring and refining this map?</em></p>
+</div>
+```
+
 This worked example grows a toy retinal projection into a relay, then asks whether the map depends on EphA guidance
 and activity-driven refinement. It demonstrates how to turn a developmental idea into a model and compare conditions.
-The results describe **this simulation**, not measured biology.
-
-    python examples/retinothalamic.py --cpu --seeds 10 --out out_dir      # about 1.5 min on 2 CPU threads
-    python examples/retinothalamic.py --cpu --seeds 2 --small             # test configuration, about 10 s
-
-The hypotheses, metrics and pass criteria were written before the runs: {doc}`../hypotheses/2026-11-02-retinothalamic`.
+The results describe **this simulation**, not measured biology. Step through the interactive carousel below to
+inspect each stage of the `examples/retinothalamic.py` pipeline (E14–P14), the CLI command that advances the
+simulation from one stage checkpoint to the next, and the primary developmental literature.
 
 ## Main result
 
@@ -42,31 +45,88 @@ position of its targets, per axis; a diagonal is a topographic map. Made by `doc
 ../hypotheses/2026-11-03-retinothalamic-expression
 ```
 
+The hypotheses, metrics and pass criteria were written before the runs: {doc}`../hypotheses/2026-11-02-retinothalamic`.
+
+    python examples/retinothalamic.py --cpu --seeds 10 --out out_dir      # about 1.5 min on 2 CPU threads
+    python examples/retinothalamic.py --cpu --seeds 2 --small             # test configuration, about 10 s
+
 ## Model
+
+```{raw} html
+<div class="ng-retino-carousel">
+  <div class="ng-carousel-header">
+    <div class="ng-nav-row">
+      <div class="ng-counter-group">
+        <button id="ng-prev-btn" class="ng-nav-btn" title="Previous stage (Left arrow)">&larr;</button>
+        <span id="ng-stage-counter">Stage 1 / 12</span>
+        <button id="ng-next-btn" class="ng-nav-btn" title="Next stage (Right arrow)">&rarr;</button>
+      </div>
+      <div class="ng-toggle-group">
+        <button id="ng-toggle-box" class="ng-toggle-btn active" title="Box Relay geometry (Run 2)">Box Relay (Run 2)</button>
+        <button id="ng-toggle-p4" class="ng-toggle-btn" title="P4 Atlas Relay p2A geometry (Run 3)">P4 Atlas Relay p2A (Run 3)</button>
+      </div>
+    </div>
+    <div id="ng-pills-container" class="ng-pills-bar">
+      <!-- pills populated by JS -->
+    </div>
+  </div>
+
+  <div class="ng-carousel-body">
+    <div class="ng-visual-pane">
+      <img id="ng-carousel-img" src="../_static/media/retino_stage_01.png" alt="Development Stage Visual" />
+    </div>
+    <div class="ng-info-pane">
+      <div class="ng-stage-title-row">
+        <h3 id="ng-stage-title">1. Progenitor Seeding & Proliferation</h3>
+        <span id="ng-stage-age">E14–E15</span>
+      </div>
+      <div class="ng-operator-tag">
+        Operator: <code id="ng-stage-operator">seed_cells &rarr; proliferate</code>
+      </div>
+      <div class="ng-info-section">
+        <h4>Model Details</h4>
+        <p id="ng-stage-details"></p>
+      </div>
+      <div class="ng-info-section">
+        <h4>Tissue State Changes</h4>
+        <p id="ng-stage-changes"></p>
+      </div>
+      <div class="ng-info-section">
+        <h4>Parameters</h4>
+        <pre><code id="ng-stage-params"></code></pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="ng-cli-banner">
+    <pre><code id="ng-cli-code"></code></pre>
+    <button id="ng-cli-copy-btn" title="Copy CLI command to clipboard">Copy</button>
+  </div>
+
+  <div class="ng-citation-footer">
+    <strong>Key Reference(s):</strong>
+    <div id="ng-citation-text"></div>
+  </div>
+</div>
+```
+
 Two `Box` regions (a 100 × 100 retinal sheet, a 60 × 60 × 20 relay nucleus; in run 1 placed far away so that the retinal waves,
-which spread through space, never reach it) and analytic x / y gradient fields. Stages (docs/STAGES.md):
-`seed_cells`, `proliferate`, `express` (one fate gene with lateral inhibition through `neighbor_weights`, and two
-graded genes read from the x / y gradient fields), `differentiate` (RGCs, other retinal cells, relay cells, relay
-interneurons), `migrate`, `mosaic` (RGCs only), `grow_axons` (exuberant retina → relay projection, `sigma` 0.3, target
-gain per axis `B = diag(2·EphA gain, 2·EphB gain, 0)`; interneuron → relay), `apoptosis` (relay cells with fewer than 3
-inputs, through a per-cell `Field` for `min_inputs`), `set_transmitters` / `express_receptors` / `assign_receptors` /
-`pharmacology` (context `immature`, depolarising GABA-A), four `refine_by_activity` calls with one propagating wave each
-(random origin, speed 0.4 space units per tick, one 600-unit tick of drive per RGC) and STDP (`A_plus` 20,
-`A_minus` 21), `pharmacology` (`mature`), `scale` (incoming sum 1500), `prune` (|w| < 150), `myelinate`
-(retinal axons, factor 0.5), `freeze` (Dale check).
+which spread through space, never reach it) and analytic x / y gradient fields. In run 3, the relay is shaped from the
+p2A alar thalamus mask of the Allen P4 Reference Atlas.
 
 Conditions (genome values, `condition_genome`): **WT**; **b2KO**: no waves, RGCs fire as independent Poisson sources
 at the same mean rate as one wave gives (one spike per RGC per 300-tick window); **TTX**: no refinement stages (no
-spikes); **EphAKO**: x chemoaffinity gain 0.
+spikes); **EphAKO**: x chemoaffinity gain 0. Click any condition name in the results tables below to jump the interactive
+carousel directly to the perturbed developmental stage.
 
 ## Results, run 1 (as pre-registered; 10 development seeds per condition, seeds 0–9, mean ± SD)
 
 | Condition | Mosaic NND/SD | r_x | r_y | Topographic error | Corner separation |
 |---|---|---|---|---|---|
-| WT     | 2.77 ± 0.53 | 0.910 ± 0.021 | 0.907 ± 0.031 | 0.232 ± 0.016 | 0.700 ± 0.078 |
-| b2KO   | 2.77 ± 0.53 | 0.913 ± 0.018 | 0.912 ± 0.025 | 0.233 ± 0.014 | 0.687 ± 0.087 |
-| TTX    | 2.77 ± 0.53 | 0.914 ± 0.021 | 0.911 ± 0.027 | 0.234 ± 0.015 | 0.684 ± 0.091 |
-| EphAKO | 2.77 ± 0.53 | 0.021 ± 0.159 | 0.911 ± 0.025 | 0.396 ± 0.020 | 0.655 ± 0.097 |
+| <span class="ng-cond-jump" onclick="jumpToRetinoStage(1)">WT</span>     | 2.77 ± 0.53 | 0.910 ± 0.021 | 0.907 ± 0.031 | 0.232 ± 0.016 | 0.700 ± 0.078 |
+| <span class="ng-cond-jump" onclick="jumpToRetinoStage(9)">b2KO</span>   | 2.77 ± 0.53 | 0.913 ± 0.018 | 0.912 ± 0.025 | 0.233 ± 0.014 | 0.687 ± 0.087 |
+| <span class="ng-cond-jump" onclick="jumpToRetinoStage(9)">TTX</span>    | 2.77 ± 0.53 | 0.914 ± 0.021 | 0.911 ± 0.027 | 0.234 ± 0.015 | 0.684 ± 0.091 |
+| <span class="ng-cond-jump" onclick="jumpToRetinoStage(6)">EphAKO</span> | 2.77 ± 0.53 | 0.021 ± 0.159 | 0.911 ± 0.025 | 0.396 ± 0.020 | 0.655 ± 0.097 |
 
 Paired differences from WT (same seed), mean ± SD: TTX topographic error +0.0029 ± 0.0026 (higher in 9 of 10 seeds),
 separation −0.017 ± 0.024 (lower in 6 of 10); b2KO error +0.0019 ± 0.0033 (7 of 10), separation −0.013 ± 0.020
@@ -93,10 +153,10 @@ were made after run 1 was seen, so run 2 is a check that the conclusions survive
 
 | Condition | Mosaic NND/SD | r_x | r_y | Topographic error | Corner separation |
 |---|---|---|---|---|---|
-| WT     | 2.77 ± 0.53 | 0.911 ± 0.021 | 0.911 ± 0.022 | 0.230 ± 0.016 | 0.671 ± 0.088 |
-| b2KO   | 2.77 ± 0.53 | 0.913 ± 0.019 | 0.911 ± 0.026 | 0.233 ± 0.014 | 0.665 ± 0.088 |
-| TTX    | 2.77 ± 0.53 | 0.914 ± 0.021 | 0.911 ± 0.027 | 0.234 ± 0.015 | 0.655 ± 0.100 |
-| EphAKO | 2.77 ± 0.53 | 0.033 ± 0.157 | 0.911 ± 0.026 | 0.394 ± 0.019 | 0.619 ± 0.105 |
+| <span class="ng-cond-jump" onclick="jumpToRetinoStage(1)">WT</span>     | 2.77 ± 0.53 | 0.911 ± 0.021 | 0.911 ± 0.022 | 0.230 ± 0.016 | 0.671 ± 0.088 |
+| <span class="ng-cond-jump" onclick="jumpToRetinoStage(9)">b2KO</span>   | 2.77 ± 0.53 | 0.913 ± 0.019 | 0.911 ± 0.026 | 0.233 ± 0.014 | 0.665 ± 0.088 |
+| <span class="ng-cond-jump" onclick="jumpToRetinoStage(9)">TTX</span>    | 2.77 ± 0.53 | 0.914 ± 0.021 | 0.911 ± 0.027 | 0.234 ± 0.015 | 0.655 ± 0.100 |
+| <span class="ng-cond-jump" onclick="jumpToRetinoStage(6)">EphAKO</span> | 2.77 ± 0.53 | 0.033 ± 0.157 | 0.911 ± 0.026 | 0.394 ± 0.019 | 0.619 ± 0.105 |
 
 Paired differences from WT (same seed): TTX topographic error +0.0040 ± 0.0028 (higher in 9 of 10 seeds), separation
 −0.015 ± 0.027 (lower in 7 of 10); b2KO error +0.0029 ± 0.0027 (8 of 10), separation −0.006 ± 0.019 (7 of 10);
@@ -181,10 +241,10 @@ updated. Everything else (seeds 0–9, genome, conditions) is as in run 2; about
 
 | Condition | Mosaic NND/SD | r_x | r_y | Topographic error | Corner separation |
 |---|---|---|---|---|---|
-| WT     | 2.77 ± 0.53 | 0.832 ± 0.020 | 0.808 ± 0.040 | 0.377 ± 0.015 | 0.484 ± 0.146 |
-| b2KO   | 2.77 ± 0.53 | 0.829 ± 0.024 | 0.812 ± 0.036 | 0.380 ± 0.013 | 0.473 ± 0.136 |
-| TTX    | 2.77 ± 0.53 | 0.835 ± 0.019 | 0.813 ± 0.037 | 0.380 ± 0.014 | 0.466 ± 0.136 |
-| EphAKO | 2.77 ± 0.53 | 0.013 ± 0.061 | 0.769 ± 0.069 | 0.462 ± 0.011 | 0.487 ± 0.124 |
+| <span class="ng-cond-jump" onclick="jumpToRetinoStage(1)">WT</span>     | 2.77 ± 0.53 | 0.832 ± 0.020 | 0.808 ± 0.040 | 0.377 ± 0.015 | 0.484 ± 0.146 |
+| <span class="ng-cond-jump" onclick="jumpToRetinoStage(9)">b2KO</span>   | 2.77 ± 0.53 | 0.829 ± 0.024 | 0.812 ± 0.036 | 0.380 ± 0.013 | 0.473 ± 0.136 |
+| <span class="ng-cond-jump" onclick="jumpToRetinoStage(9)">TTX</span>    | 2.77 ± 0.53 | 0.835 ± 0.019 | 0.813 ± 0.037 | 0.380 ± 0.014 | 0.466 ± 0.136 |
+| <span class="ng-cond-jump" onclick="jumpToRetinoStage(6)">EphAKO</span> | 2.77 ± 0.53 | 0.013 ± 0.061 | 0.769 ± 0.069 | 0.462 ± 0.011 | 0.487 ± 0.124 |
 
 Paired differences from WT (same seed): TTX topographic error +0.0029 ± 0.0016 (higher in 10 of 10 seeds), separation
 −0.019 ± 0.025 (lower in 7 of 10); b2KO error +0.0032 ± 0.0020 (9 of 10), separation −0.012 ± 0.023 (7 of 10);
