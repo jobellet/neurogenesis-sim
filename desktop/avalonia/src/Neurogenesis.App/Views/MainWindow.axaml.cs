@@ -31,6 +31,20 @@ public partial class MainWindow : Window
 
     private void OnFrame(object? sender, RoutedEventArgs e) => View.Frame();
 
+    private void OnToggleSim(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is MainViewModel vm)
+        {
+            if (vm.IsSimulating) vm.StopSimulation();
+            else vm.StartSimulation();
+        }
+    }
+
+    private void OnStepSim(object? sender, RoutedEventArgs e)
+    {
+        (DataContext as MainViewModel)?.StepSimulation();
+    }
+
     private async void OnDrop(object? sender, DragEventArgs e)
     {
 #pragma warning disable CS0618
