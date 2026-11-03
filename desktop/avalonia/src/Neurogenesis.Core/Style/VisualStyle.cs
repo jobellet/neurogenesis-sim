@@ -36,6 +36,17 @@ public sealed class VisualStyle
     public string UiStatusBackground { get; private init; } = "";
     public string UiNoteBackground { get; private init; } = "";
     public string UiNoteForeground { get; private init; } = "";
+    public string UiCardBackground { get; private init; } = "";
+    public string UiCardBorder { get; private init; } = "";
+    public string UiTaskBadgeBg { get; private init; } = "";
+    public string UiTaskBadgeFg { get; private init; } = "";
+    public string UiAvailableBadgeBg { get; private init; } = "";
+    public string UiAvailableBadgeFg { get; private init; } = "";
+    public string UiPlannedBadgeBg { get; private init; } = "";
+    public string UiPlannedBadgeFg { get; private init; } = "";
+    public string UiHelpAccent { get; private init; } = "";
+    public string UiWarningText { get; private init; } = "";
+    public string UiErrorText { get; private init; } = "";
 
     public static VisualStyle Default { get; } = LoadDefault();
 
@@ -85,6 +96,17 @@ public sealed class VisualStyle
             UiStatusBackground = UiStr(ui, "status_background"),
             UiNoteBackground = UiStr(ui, "note_background"),
             UiNoteForeground = UiStr(ui, "note_foreground"),
+            UiCardBackground = UiStr(ui, "card_background"),
+            UiCardBorder = UiStr(ui, "card_border"),
+            UiTaskBadgeBg = UiStr(ui, "task_badge_bg"),
+            UiTaskBadgeFg = UiStr(ui, "task_badge_fg"),
+            UiAvailableBadgeBg = UiStr(ui, "available_badge_bg"),
+            UiAvailableBadgeFg = UiStr(ui, "available_badge_fg"),
+            UiPlannedBadgeBg = UiStr(ui, "planned_badge_bg"),
+            UiPlannedBadgeFg = UiStr(ui, "planned_badge_fg"),
+            UiHelpAccent = UiStr(ui, "help_accent"),
+            UiWarningText = UiStr(ui, "warning_text"),
+            UiErrorText = UiStr(ui, "error_text"),
         };
     }
 
