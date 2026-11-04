@@ -409,7 +409,7 @@ field or fit can replace; values are about the cited species and ages, and resul
 - **Status:** done: `CellList` radius and k-nearest queries, vectorised in NumPy (#45) with chunked memory and a
   declared cost, plus an optional `backend="jax"` path (float64 on the default JAX device, same indices as NumPy,
   distances within floating-point tolerance, plain NumPy arrays returned; no speed-up: about 1000 times slower than
-  NumPy on a CPU, GPU not measured).
+  NumPy on a CPU, GPU not measured; `backend="auto"` keeps NumPy on a CPU and times both once on an accelerator).
 
 **D2. Sparse guidance.**
 - Candidate targets only within c·σ of the target point (cell lists), then the same probabilities as the dense version.
