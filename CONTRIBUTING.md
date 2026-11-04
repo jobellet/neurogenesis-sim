@@ -17,3 +17,11 @@ A shared module is one `neurogenesis-module/1` JSON file (`Module.save`). It mus
 - `provenance`: authors, source repository and commit, date, toolbox version.
 
 A module is accepted when its validation can be rerun from these records with the toolbox alone.
+
+## Profiles
+A parameter profile (`examples/profiles/*.json`, see `docs/reference/profiles.md`) gives defaults for a species, a region
+or an age; the toolbox never depends on one, and any value can be replaced by a `Gene`, a `Field` or a `Fit`. Every
+parameter of a profile declares a status (`measured`, `derived`, `assumed` or `free`), what the number is (`quantity`),
+and, when it comes from papers, the DOI and what was actually read (`full_text`, `abstract`, `title_only`,
+`not_checked`). `python -m neurogenesis profile check --all` must pass; a test runs it on the shipped profiles. A value
+applied to a species or region other than the one it was measured in is written as such in `note`.

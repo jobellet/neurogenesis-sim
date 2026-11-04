@@ -90,6 +90,7 @@ reference/cli
 reference/stages
 reference/api
 reference/project-format
+reference/profiles
 reference/neuron-models
 reference/bridge-protocol
 reference/ui-schema
