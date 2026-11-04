@@ -250,6 +250,18 @@ def test_jacobian_and_report_flag_an_unused_fit_param_and_an_unreachable_target(
     assert rep["rank"] >= 1 and len(rep["singular_values"]) == 2
 
 
+def test_an_unreachable_diagnostic_target_with_weight_zero_does_not_warn_but_a_weighted_one_does():
+    import warnings
+    diag = {"metric": "layer_thickness", "cell_type": 1, "axis": 2, "value": 0.2, "scale": 0.02, "weight": 0.0}
+    count = {"metric": "cell_count", "value": 300, "scale": 10}
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        r = fit(_project(), [count, diag], seeds=(0, 1), iterations=2)
+    assert r.identifiability["unreachable"] == ["layer_thickness (1)"]       # reported, not warned
+    with pytest.warns(UserWarning, match="responds to no Fit param"):
+        fit(_project(), [count, {**diag, "weight": 1.0}], seeds=(0, 1), iterations=2)
+
+
 def test_fit_warns_about_unidentifiable_params_and_can_be_silenced():
     import warnings
     targets = [{"metric": "cell_count", "value": 300, "scale": 10}]
