@@ -24,7 +24,7 @@ $Pyproject = Join-Path $Root "pyproject.toml"
 $AppVersion = "0.1.0"
 if (Test-Path $Pyproject) {
     $Content = Get-Content $Pyproject -Raw
-    if ($Content -match '(?m)^version\s*=\s*["\']([^"\']+)["\']') {
+    if ($Content -match '(?m)^version\s*=\s*["'']([^"'']+)["'']') {
         $AppVersion = $Matches[1]
     }
 }
