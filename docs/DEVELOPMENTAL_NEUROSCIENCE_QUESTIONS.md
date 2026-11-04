@@ -242,7 +242,7 @@ REFS:
 
 1.
 
-Calegari, F., & Huttner, W. B. (2003). An inhibition of cyclin-dependent kinases that shortens, but does not lengthen, G1 phase promotes neurogenesis in the developing mouse neocortex. *Journal of Cell Science*, 116(24), 4947–4955.
+Calegari, F., & Huttner, W. B. (2003). An inhibition of cyclin-dependent kinases that lengthens, but does not arrest, neuroepithelial cell cycle induces premature neurogenesis. *Journal of Cell Science*, 116(24), 4947–4955.
 Caviness, V. S., Jr., Takahashi, T., & Nowakowski, R. S. (1995). Numbers, time and neocortical neuronogenesis: A general model. *Trends in Neurosciences*, 18(9), 379–383.
 Chenn, A., & Walsh, C. A. (2002). Regulation of cerebral cortical size by control of cell cycle exit in neural precursors. *Science*, 297(5580), 365–369.
 Götz, M., & Huttner, W. B. (2005). The cell biology of neurogenesis. *Nature Reviews Molecular Cell Biology*, 6(10), 777–788.
@@ -273,14 +273,14 @@ Zheng, C., Heintz, N., & Hatten, M. E. (1996). CNS gene encoding astrotactin, wh
 
 Anderson, S. A., Eisenstat, D. D., Shi, L., & Rubenstein, J. L. (1997). Interneuron migration from basal forebrain to neocortex: Dependence on Dlx genes. *Science*, 278(5337), 474–476.
 Behar, T. N., Schaffner, A. E., Scott, C. A., O'Connell, C., & Barker, J. L. (1998). Differential response of cortical plate and ventricular zone cells to GABA as a migration stimulus. *Journal of Neuroscience*, 18(16), 6378–6387.
-Bortone, D., & Polleux, F. (2009). KCC2 expression promotes the termination of subpallial-derived interneuron migration via a potassium chloride cotransporter-independent mechanism. *Neuron*, 62(1), 53–71.
+Bortone, D., & Polleux, F. (2009). KCC2 expression promotes the termination of cortical interneuron migration in a voltage-sensitive calcium-dependent manner. *Neuron*, 62(1), 53–71.
 Marín, O., & Rubenstein, J. L. (2001). A long, remarkable journey: Tangential migration in the telencephalon. *Nature Reviews Neuroscience*, 2(11), 780–790.
 
 6.
 
-Eglen, S. J., & Willshaw, D. J. (2002). Influence of cell fate mechanisms on regularity in the retinal mosaic: Model and analysis. *Journal of Neuroscience*, 22(24), 10751–10762.
+Eglen, S. J., & Willshaw, D. J. (2002). Influence of cell fate mechanisms upon retinal mosaic formation: a modelling study. *Development*, 129(23), 5399–5408.
 Fuerst, P. G., Koizumi, A., Masland, R. H., & Burgess, R. W. (2008). Neurite branching and mosaic mosaicism require DSCAM. *Nature*, 451(7177), 470–474.
-Galli-Resta, L., Resta, G., Tan, S. S., & Reese, B. E. (1999). Mosaics of islet-1-expressing amacrine cells assembled by short-range cellular interactions. *Journal of Neuroscience*, 19(7), 2649–2656.
+Galli-Resta, L., Resta, G., Tan, S. S., & Reese, B. E. (1997). Mosaics of Islet-1-expressing amacrine cells assembled by short-range cellular interactions. *Journal of Neuroscience*, 17(20), 7831–7838.
 Wässle, H., & Riemann, H. J. (1978). The mosaic of nerve cells in the mammalian retina. *Proceedings of the Royal Society of London. Series B. Biological Sciences*, 200(1141), 441–461.
 
 7.
@@ -293,13 +293,13 @@ Kageyama, R., Ohtsuka, T., Shimojo, H., & Imayoshi, I. (2008). Dynamic Notch sig
 
 Ben-Ari, Y. (2002). Excitatory actions of GABA during development: The nature of the nurture. *Nature Reviews Neuroscience*, 3(9), 728–739.
 Jonas, P., Bischofberger, J., & Sandkühler, J. (1998). Corelease of two fast neurotransmitters at a central synapse. *Science*, 281(5375), 419–424.
-Rivera, C., Voipio, J., Payne, J. A., Ruusuvuori, E., Lahtinen, H., Lamsa, K., Pirvola, U., Saarma, M., & Kaila, K. (1999). The K+/Cl- co-transporter KCC2 renders GABA hyperpolarizing during neuronal development. *Nature*, 397(6716), 251–255.
+Rivera, C., Voipio, J., Payne, J. A., Ruusuvuori, E., Lahtinen, H., Lamsa, K., Pirvola, U., Saarma, M., & Kaila, K. (1999). The K+/Cl- co-transporter KCC2 renders GABA hyperpolarizing during neuronal maturation. *Nature*, 397(6716), 251–255.
 
 9.
 
 Bentley, D., & Caudy, M. (1983). Pioneer axons lose directed growth in the absence of guidepost cells. *Nature*, 304(5921), 62–65.
 Dickson, B. J. (2002). Molecular mechanisms of axon guidance. *Science*, 298(5600), 1959–1964.
-Herrera, E., Marcus, R., Li, S., Ward, M., Nguyen-Ba-Charvet, K., Erskine, L., Dyson, E., & Mason, C. (2003). Zic2 is a zinc-finger transcription factor that regulates the projection of retinal ganglion cells at the chiasm. *Cell*, 114(4), 545–557.
+Herrera, E., Brown, L., Aruga, J., Rachel, R. A., Dolen, G., Mikoshiba, K., Brown, S., & Mason, C. A. (2003). Zic2 patterns binocular vision by specifying the uncrossed retinal projection. *Cell*, 114(5), 545–557.
 Kennedy, T. E., Serafini, T., de la Torre, J. R., & Tessier-Lavigne, M. (1994). Netrins are diffusible chemotropic factors for commissural axons in the embryonic spinal cord. *Cell*, 78(3), 425–435.
 Long, H., Sabatier, C., Ma, L., Plump, A., Yuan, W., Ornitz, D. M., Tamada, A., Murakami, F., Rao, Y., Lindberg, F. P., & Tessier-Lavigne, M. (2004). Conserved roles for Slit and Robo proteins in midline commissural axon guidance. *Neuron*, 42(2), 213–223.
 

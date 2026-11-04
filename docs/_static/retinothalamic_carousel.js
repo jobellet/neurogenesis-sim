@@ -58,7 +58,7 @@
       stateChanges: "positions of RGCs (type 1) repelled locally within radius = 12.0. Nearest-neighbor regularity (mean / SD of distance to nearest RGC) increases from 1.90 to 2.77. Other retinal cells and relay cells remain stationary.",
       params: "mosaic: radius=12.0, steps=60, rate=0.5, types=[1]",
       cli: "python examples/retinothalamic.py --cpu --seed 0 --in out_dir/step_04.ngb --from-stage migrate --until-stage mosaic --out out_dir/step_05.ngb\nprintf '%s\\n' '{\"id\":1,\"method\":\"regularity\",\"params\":{\"ngb\":\"out_dir/step_05.ngb\"}}' | python -m neurogenesis.bridge",
-      citation: "Eglen, S. J., & Willshaw, D. J. (2002). Influence of cell fate mechanisms on regularity in the retinal mosaic: Model and analysis. <em>The Journal of Neuroscience</em>, 22(24), 10751–10762.<br>Galli-Resta, L., Resta, G., Tan, S. S., & Reese, B. E. (1997). Mosaics of islet-1-expressing amacrine cells assembled by short-range cellular interactions. <em>The Journal of Neuroscience</em>, 17(20), 7831–7838."
+      citation: "Eglen, S. J., & Willshaw, D. J. (2002). Influence of cell fate mechanisms upon retinal mosaic formation: a modelling study. <em>Development</em>, 129(23), 5399–5408.<br>Galli-Resta, L., Resta, G., Tan, S. S., & Reese, B. E. (1997). Mosaics of islet-1-expressing amacrine cells assembled by short-range cellular interactions. <em>The Journal of Neuroscience</em>, 17(20), 7831–7838."
     },
     {
       num: 6,

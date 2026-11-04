@@ -178,6 +178,11 @@ Reference neocortical birth-order windows: `examples/profiles/temporal_competenc
 
 ## Connectivity (C8–C9, `neurogenesis/stages/connectivity.py`)
 
+**`cluster_boutons` (C19).** Cell-type specific connection multiplicity.
+| Param | Default | Meaning |
+|---|---|---|
+| `contacts` | none | a dict of `(pre_type, post_type)` keys to distributions (fixed int, truncated poisson dict, or prob list) |
+
 **`grow_axons` (C8).** The guidance rules of `neurogenesis.development.rules` as a stage, per projection
 (source region → target region). Target point `sigmoid(4·(x_src − 0.5)·Bᵀ + c)` in local [0, 1]³ coordinates, then
 `p = p0·exp(−d²/2σ²)` over target cells, one Bernoulli draw per pair.
@@ -283,6 +288,13 @@ offsets. Neutral: no `adhesion_matrix` = no-op. Cost O(N + E).
 rules switch. When cells or growth cones enter a choice point `geometry` or `choice_field`, guidance receptor channels
 are updated (e.g. switching attraction to repulsion to prevent re-crossing). For projections, routes via an intermediate
 `waypoint_region`. Neutral: no `geometry`, `choice_field` or `waypoint_region` = no-op. Cost O(N + E).
+
+**`tissue_expand` (C24, `neurogenesis/stages/expansion.py`).** Dilates the positions of living cells about a centre
+(default: their centroid) by `1 + kappa * N_new / N_total` along the chosen `axes`, where `N_new` counts the cells
+added since the previous call. Proliferation then pushes existing cells outward, so density stays bounded while the
+count grows (in this simulation, with kappa 0.668 and growth x1.5 per cycle: about x5 per tangential axis over 8 cycles).
+The first call only records the count (or give `n_prev`); call it once before the first `proliferate`. Synapses keep
+their delays unless `recompute_delays` (with `conduction_velocity`, `max_delay`). Neutral `kappa` 0 = no-op. Cost O(N).
 
 **`critical_period_gate` (C23, `neurogenesis/stages/critical_period.py`).** Opens and closes a critical period of
 plasticity by setting the K6 `plastic` mask of the gated synapses (those onto `target_type` cells, all by default):

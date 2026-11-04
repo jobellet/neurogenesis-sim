@@ -49,3 +49,10 @@ prediction is reported as held / not held / weak, whatever the outcome.
 - Not predicted: the corner separation is higher than with `B` (0.763 ± 0.078 against 0.671 ± 0.088, higher in 10 of
   10 seeds).
 - Deviations from the plan: none.
+
+## Larger-seed rerun (appended 2026-11-04, after the runs; exploratory)
+50 seeds (0–49) per condition, same driver as in the run-2 rerun (see the hypotheses note of 2026-11-02). Verdicts are
+unchanged: E1 held (r_x 0.895, r_y 0.903 in TTX), E2 held (EphA-KO r_x 0.002, |Δr_y| 0.008), E3 held (WT error higher than
+with `B` in 50 of 50 seeds, paired +0.0263 ± 0.0109, pooled SD 0.0174; r_x −0.024, r_y −0.021), E4 weak (TTX error
++0.0025, separation −0.0128; β2-KO +0.0025, −0.0073), E5 held. As with `B`, the topographic-error shift of TTX and β2-KO
+is consistent within a seed (dz +1.05 and +0.97) and small against the across-seed SD (ratio 0.15).

@@ -15,7 +15,8 @@ from neurogenesis.spiking.network import SNNNetwork, NeuronData, SynapseData
 _SYNAPSE_OPTIONAL = {"pre_node": (np.int32, -1), "post_node": (np.int32, -1),
                      "path_length": (np.float32, np.nan), "dendritic_distance": (np.float32, np.nan),
                      "e_rev": (np.float32, np.nan), "tau_decay": (np.float32, np.nan),
-                     "plastic": (np.bool_, True)}
+                     "plastic": (np.bool_, True),
+                     "contacts": (np.int32, 1)}
 
 
 @dataclass
@@ -37,6 +38,7 @@ class SparseConnectivity:
     e_rev: Optional[np.ndarray] = None
     tau_decay: Optional[np.ndarray] = None
     plastic: Optional[np.ndarray] = None
+    contacts: Optional[np.ndarray] = None
 
     def __post_init__(self) -> None:
         if self.receptor_class is None or len(self.receptor_class) != len(self.pre):
@@ -630,6 +632,8 @@ class Tissue:
             synapse_arrays=syn_arrays,
         )
         out._cycling = self.cycling[self.alive].copy()
+        if self.connectivity.contacts is not None:
+            out._contacts = self.connectivity.contacts[valid_synapses].copy()
         if self.connectivity.plastic is not None:
             out._plastic = self.connectivity.plastic[valid_synapses].copy()
         return out
@@ -705,6 +709,9 @@ class Tissue:
             plastic = getattr(net, "_plastic", None)
             if plastic is not None and len(plastic) == M:
                 extra["plastic"] = np.asarray(plastic, dtype=bool).copy()
+            contacts = getattr(net, "_contacts", None)
+            if contacts is not None and len(contacts) == M:
+                extra["contacts"] = np.asarray(contacts, dtype=np.int32).copy()
             t.connectivity = SparseConnectivity(pre, post, weight, delay, **extra)
             
         return t
