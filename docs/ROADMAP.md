@@ -463,7 +463,7 @@ field or fit can replace; values are about the cited species and ages, and resul
 - Multiple development seeds per evaluation (robustness).
 - **Dependencies:** A3, A4.
 - **Status:** done: `neurogenesis.fitting` (fitted values in `genome["__fit__"]`, metric registry, CMA-ES, multi-seed
-  loss, `python -m neurogenesis fit`). Not done: JAX gradients, receptive-field metrics (add them as registered metrics).
+  loss, `python -m neurogenesis fit`). Not done: JAX gradients (E5), receptive-field metrics (add them as registered metrics).
 
 **E3. Semi-supervised workflows.**
 - Evolution of `Gene` params with `Fit` params refitted in an inner loop, or fixed.
@@ -477,6 +477,43 @@ field or fit can replace; values are about the cited species and ages, and resul
 - Knockout assays included.
 - **Status:** done: `neurogenesis.validation` and `python -m neurogenesis validate module.json` (stimuli per region,
   rate or fraction-active readout, metrics, gates, pass fraction, knockouts).
+
+**E5. Differentiable fitting of neuron and synaptic parameters (gradient-based extension of E2).**
+- **Goal:** fit a few continuous neuron and synapse parameters (synaptic gains, thresholds, tonic current) to firing-rate or
+  f-I targets with JAX gradients, checked against the integer `lif_int` kernel. An optional complement to the CMA-ES of E2,
+  not a replacement: CMA-ES (or a multi-start) finds a basin, a gradient step polishes it, and the integer kernel has the
+  last word.
+- **Deliverables:**
+  - `neurogenesis/spiking/models/lif_float.py`: a differentiable float twin of `lif_int` (same shifts, reset, refractory
+    period, delays and drivers via `models.base.drivers`), hard forward spikes with a surrogate backward pass; registered
+    with `register_model` with `state_bytes`, `flops` and `substeps`; not the default.
+  - `neurogenesis/fitting_diff.py`: `fit_diff(net, targets, free=..., method="adam"|"lbfgsb"|"cma_then_grad", seeds=...)`
+    returning `DiffFitResult(values, loss, n_fwd, n_grad, jacobian, singular_values, loss_int, history)`; floats enter as
+    a pytree (`g_exc`, `g_inh`, `thr`, `i0`, ...), rounding to integers only in a documented `to_integer(values)` helper.
+  - A report of which parameters the data can constrain: the singular values of the scaled Jacobian (the first
+    step exists in `fitting.jacobian` / `identifiability_report`, #100, for `Fit` params of developmental stages).
+  - A registered metric option so `firing_rate` targets can go through the float twin; sections in
+    `docs/NEURON_MODELS.md` and `docs/tutorials/fitting-validation.md`; the E2 status line updated.
+- **Out of scope:** `Fit` params of developmental stages (not differentiable); changes to the Project schema, `Tissue`,
+  `Param` or `Stage` contracts.
+- **Acceptance tests:** (1) determinism: same inputs and seed give identical fitted values; (2) forward equivalence: with
+  integer-valued parameters the twin's population rates match `lif_int` within a documented tolerance (the prototype: 5.8%
+  mean relative and 1.7 Hz at most on its test network) and driver spikes are identical; (3) gradient check: surrogate
+  gradient against finite differences with cosine at least 0.9 on a toy network; (4) recovery of synthetic targets from known
+  parameters on a well-conditioned protocol, over at least 10 restarts, with the success rate reported against CMA-ES at the
+  same budget (the test asserts the loss, and parameter recovery only along identifiable directions); (5) loss at the rounded
+  fitted values within a documented factor of the float loss; (6) cost declared within a factor 3 of measurement, no dense
+  N x N arrays, nothing skipped, development fingerprints unchanged.
+- **Evidence so far (prototype, Track 6; synthetic targets only, 3 restarts per method on one 300-neuron network, so nothing
+  is established):** when a gradient run converges it needs about 10 gradient calls against about 130 CMA-ES evaluations,
+  but a gradient call costs about 2.1 forward evaluations and 7 of 12 gradient runs ended above loss 2 (stalled in poor basins
+  or at a bound); no method recovered the parameters (best mean relative error 0.09, medians 0.27 to 0.32) because rates
+  alone are a sloppy objective (the smallest singular value of the scaled Jacobian is about 250 times below the largest); a
+  held-out driver seed gave much worse losses than the fitting seed; the surrogate gain (0.03) was calibrated by finite
+  differences, not derived. Hence richer targets (CV / ISI, time-resolved PSTH, per-neuron rates, knockouts) are required
+  before any claim of parameter recovery, and they have not been tested.
+- **Dependencies:** E2, A3, and the `lif_int` kernel equivalence tests (Python, JAX, browser, `nglif`), unchanged.
+- **Status:** not started. The prototype lives outside the repository.
 
 ### Phase F: Browser Viewer & Web Demo (viz/, TypeScript + three.js)
 
