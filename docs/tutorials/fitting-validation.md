@@ -38,6 +38,19 @@ developmental noise. The optimiser is a CMA-ES on the [0, 1]-coded values (gradi
 
 Add your own with `@register_metric("name")` on a function `(tissue, options) -> float`.
 
+**What the data can constrain.** Before searching, `fit` measures the Jacobian of the metrics with respect to the Fit
+values (central differences over ±5 % of each range, on the fitting seeds; `neurogenesis.fitting.jacobian`) and warns:
+- about a Fit param that moves no target metric. It cannot be fitted from these targets: the model does not use it, a clip
+  masks it, or no target sees it. Drop it or add a target it affects;
+- about a target that no Fit param moves. It cannot be matched whatever the fitted values: drop it, give it weight 0 (a
+  diagnostic) or add a Fit param that acts on it.
+
+`FitResult.jacobian` and `FitResult.identifiability` (`identifiability_report`: the params and targets above, the singular
+values of the Jacobian scaled by each target's tolerance and weight, and its rank) keep the result. The check costs
+2 × params × seeds developments; `fit(..., check_identifiability=False)` skips it. It is a local check at the starting
+point: a param can matter elsewhere in its range, and correlated params are not detected (a rank below the number of
+params says that some combination is unconstrained).
+
 From the command line:
 ```
 python -m neurogenesis fit --project project.json --targets targets.json --seeds 0,1,2 --out fitted_genome.json
