@@ -292,28 +292,30 @@ field or fit can replace; values are about the cited species and ages, and resul
   1995, J Neurosci 15:6046–6057; 1996, J Neurosci 16:6183–6196; Caviness, Takahashi and Nowakowski 2000, in Nelson and
   Luciana, eds., Handbook of Developmental Cognitive Neuroscience, MIT Press, pp. 7–22).
   - 11 integer cycles (CC1–CC11).
-  - Cycle length T_C from about 8.1 h (CC1, E11) to about 20 h (CC11, E17); T_S and T_G2+M constant; the lengthening
-    is almost entirely G1 (about 3 h → 14 h).
+  - Cycle length T_C from 8.1 h (CC1, E11) to 18.4 h (CC11); T_G2+M constant at 2 h and T_S about 4 h without a trend;
+    the lengthening is almost entirely G1 (3.2 h → 12.4 h, fourfold; Takahashi et al. 1995, Table 1).
   - Leaving fraction `Q(CC) = min(1, k · CC^a)`, defaults `k = 0.009`, `a = 1.97`; P = 1 − Q.
   - Reference table (one founder; `PVE_n = 2 · PVE_(n−1) · P_(n−1)` progenitors, `OUT_n = 2 · PVE_n · Q_n` neurons):
 
     | CC | age | T_C (h) | T_G1 (h) | Q | PVE | OUT | cumulative |
     |---|---|---|---|---|---|---|---|
-    | 1 | E11 | 8.1 | 3.0 | 0.009 | 1.00 | 0.02 | 0.02 |
-    | 2 | E11.5 | 8.5 | 3.5 | 0.035 | 1.98 | 0.14 | 0.16 |
-    | 3 | E12 | 9.2 | 4.2 | 0.078 | 3.82 | 0.60 | 0.76 |
-    | 4 | E12.8 | 10.2 | 5.2 | 0.138 | 7.05 | 1.95 | 2.70 |
-    | 5 | E13.5 | 11.5 | 6.5 | 0.214 | 12.15 | 5.21 | 7.91 |
-    | 6 | E14.2 | 13.0 | 8.0 | 0.307 | 19.09 | 11.72 | 19.64 |
-    | 7 | E15.0 | 14.8 | 9.8 | 0.416 | 26.46 | 22.01 | 41.65 |
-    | 8 | E15.7 | 16.8 | 11.8 | 0.541 | 30.90 | 33.45 | 75.10 |
-    | 9 | E16.3 | 18.2 | 13.2 | 0.683 | 28.36 | 38.71 | 113.81 |
-    | 10 | E16.8 | 19.3 | 14.3 | 0.840 | 18.01 | 30.25 | 144.06 |
-    | 11 | E17.0 | 20.0 | 15.0 | 1.000 | 5.77 | 11.53 | 155.59 |
+    | 1 | E11.0 | 8.1 | 3.2 | 0.009 | 1.00 | 0.02 | 0.02 |
+    | 2 | E11.3 | 8.8 | 3.2 | 0.035 | 1.98 | 0.14 | 0.16 |
+    | 3 | E11.7 | 9.6 | 3.3 | 0.078 | 3.82 | 0.60 | 0.76 |
+    | 4 | E12.1 | 10.3 | 3.5 | 0.138 | 7.05 | 1.95 | 2.70 |
+    | 5 | E12.5 | 10.8 | 4.5 | 0.214 | 12.15 | 5.21 | 7.91 |
+    | 6 | E13.0 | 11.4 | 5.5 | 0.307 | 19.09 | 11.72 | 19.64 |
+    | 7 | E13.5 | 13.1 | 7.3 | 0.416 | 26.46 | 22.01 | 41.65 |
+    | 8 | E14.0 | 15.1 | 9.3 | 0.541 | 30.90 | 33.45 | 75.10 |
+    | 9 | E14.6 | 16.6 | 10.9 | 0.683 | 28.36 | 38.71 | 113.81 |
+    | 10 | E15.3 | 17.8 | 12.0 | 0.840 | 18.01 | 30.25 | 144.06 |
+    | 11 | E16.1 | 18.4 | 12.4 | 1.000 | 5.77 | 11.53 | 155.59 |
 
-    Q and the counts follow from the formula (checked here); T_C and T_G1 between the measured end points (8.1 h,
-    20 h; G1 3 h → about 14–15 h) are interpolated by the review and are defaults, not data.
-  - Q passes 0.5 during CC8 (E15), when the progenitor pool peaks (about 31 founders' worth); about 27 % of the
+    Q and the counts follow from the formula (checked here). T_C and T_G1 were measured per embryonic day, E11–E16
+    (Takahashi et al. 1995, Table 1: T_C 8.1, 10.2, 11.4, 15.1, 17.5, 18.4 h); the per-cycle values here are read from
+    that table by linear interpolation at the start of each cycle, so they are defaults derived from data, not
+    measurements. The age column is the age at the start of the cycle; the 11 cycles take 140 h (about 5.8 days).
+  - Q passes 0.5 during CC8 (E14), when the progenitor pool peaks (about 31 founders' worth); about 27 % of the
     neurons are made in CC1–CC7. Without cell death a founder yields about 156 neurons; the reported mean of about 140
     corresponds to a basal progenitor death of about 1 % per cycle (the review's figure; 0.99^11 × 156 ≈ 140).
   - Acceptance tests: Q per cycle follows the formula; the first cycle with Q > 0.5 is CC8; the progenitor pool peaks
