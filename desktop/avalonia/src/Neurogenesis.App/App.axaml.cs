@@ -22,7 +22,18 @@ public partial class App : Application
             {
                 if (vm.Bridge != null) await vm.Bridge.DisposeAsync();
             };
-            if (desktop.Args is { Length: > 0 } args) _ = vm.OpenAsync(args[0]);
+            if (desktop.Args is { Length: > 0 } args)
+            {
+                _ = vm.OpenAsync(args[0]);
+                if (args.Contains("--open-generate"))
+                {
+                    Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
+                    {
+                        await System.Threading.Tasks.Task.Delay(1200);
+                        win.GeneratePresetButton.Flyout?.ShowAt(win.GeneratePresetButton);
+                    });
+                }
+            }
         }
         base.OnFrameworkInitializationCompleted();
     }

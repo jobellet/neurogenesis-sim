@@ -18,7 +18,12 @@ public sealed class SchedulePanelControl : UserControl
     private MainViewModel? _vm;
     private bool _isRebuilding;
     private readonly StackPanel _stageListPanel = new() { Spacing = 6 };
-    private readonly ComboBox _stageCataloguePicker = new() { HorizontalAlignment = HorizontalAlignment.Stretch, FontSize = 11 };
+    private readonly ComboBox _stageCataloguePicker = new()
+    {
+        HorizontalAlignment = HorizontalAlignment.Stretch,
+        FontSize = 11,
+        ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<StageSpec>((spec, _) => new TextBlock { Text = spec?.Title ?? "" })
+    };
     private readonly Button _addStageBtn = new() { Content = "+ Add Stage", FontSize = 11 };
     private readonly TextBlock _costSummaryText = new() { FontSize = 11, Opacity = 0.7, Margin = new Thickness(0, 4) };
 

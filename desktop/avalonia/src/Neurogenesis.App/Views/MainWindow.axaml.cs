@@ -32,6 +32,22 @@ public partial class MainWindow : Window
     private void OnUndo(object? sender, RoutedEventArgs e) => (DataContext as MainViewModel)?.Undo();
     private void OnRedo(object? sender, RoutedEventArgs e) => (DataContext as MainViewModel)?.Redo();
 
+    private async void OnGeneratePresetSubmit(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is MainViewModel vm)
+        {
+            await vm.GeneratePresetAsync();
+        }
+    }
+
+    private async void OnRemoteSimSubmit(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is MainViewModel vm)
+        {
+            await vm.SimulateRemoteAsync();
+        }
+    }
+
     private void OnFrame(object? sender, RoutedEventArgs e) => View.Frame();
 
     private void OnToggleSim(object? sender, RoutedEventArgs e)
