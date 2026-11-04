@@ -286,3 +286,41 @@ def test_jax_backend_determinism_and_validation():
     k1 = a.query_knn(pos, 4)
     k2 = b.query_knn(pos, 4)
     assert np.array_equal(k1[0], k2[0]) and np.array_equal(k1[1], k2[1])
+
+
+# backend="auto" ---------------------------------------------------------------------------------------------------
+def test_auto_backend_is_numpy_on_a_cpu_or_without_jax(monkeypatch):
+    from neurogenesis import spatial
+    monkeypatch.delenv("NEUROGENESIS_SPATIAL_BACKEND", raising=False)
+    monkeypatch.setattr(spatial, "_jax_platform", lambda: None)
+    assert spatial.resolve_backend("auto") == "numpy"
+    monkeypatch.setattr(spatial, "_jax_platform", lambda: "cpu")
+    assert spatial.resolve_backend("auto") == "numpy"
+    pos = np.random.default_rng(0).random((50, 3))
+    assert CellList(pos, 0.2, backend="auto").backend == "numpy"
+    assert spatial.resolve_backend("numpy") == "numpy" and spatial.resolve_backend("jax") == "jax"
+    with pytest.raises(ValueError):
+        spatial.resolve_backend("cuda")
+
+
+def test_auto_backend_times_an_accelerator_once_and_honours_the_environment(monkeypatch):
+    from neurogenesis import spatial
+    monkeypatch.delenv("NEUROGENESIS_SPATIAL_BACKEND", raising=False)
+    monkeypatch.setattr(spatial, "_AUTO_CHOICE", {})
+    monkeypatch.setattr(spatial, "_jax_platform", lambda: "gpu")
+    calls = []
+    monkeypatch.setattr(spatial, "_jax_is_faster", lambda: calls.append(1) or True)
+    assert spatial.resolve_backend("auto") == "jax" and spatial.resolve_backend("auto") == "jax"
+    assert len(calls) == 1                                   # measured once per platform
+    monkeypatch.setattr(spatial, "_AUTO_CHOICE", {})
+    monkeypatch.setattr(spatial, "_jax_is_faster", lambda: False)
+    assert spatial.resolve_backend("auto") == "numpy"
+    monkeypatch.setenv("NEUROGENESIS_SPATIAL_BACKEND", "numpy")
+    monkeypatch.setattr(spatial, "_jax_is_faster", lambda: True)
+    assert spatial.resolve_backend("auto") == "numpy"        # the environment overrides auto ...
+    assert spatial.resolve_backend("jax") == "jax"           # ... but never an explicit choice
+
+
+def test_jax_timing_helper_runs_and_returns_a_bool():
+    from neurogenesis import spatial
+    assert spatial._jax_is_faster(n_points=300, n_queries=50) in (True, False)

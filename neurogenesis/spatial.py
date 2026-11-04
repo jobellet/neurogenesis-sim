@@ -7,10 +7,69 @@ identical indices and distances within floating-point tolerance. It is not a spe
 times slower than NumPy (the chunked host loop runs eagerly with changing shapes; 22 s against 0.02 s for 20000 points),
 and no GPU was measured. It exists for device placement and consistency. Constructing a JAX-backed `CellList` also sets
 `jax_enable_x64` for the whole process, which changes the default dtypes of other JAX code.
+
+`backend="auto"` picks the implementation for the machine (`resolve_backend`): NumPy on a CPU, which is the measured
+best, and also whenever JAX has not been imported by the program (the check never imports it). Only when JAX is already
+loaded and its default device is an accelerator does it time both backends once per process on a small synthetic problem
+and keep JAX only if it is clearly faster (no GPU or TPU has been measured here, so nothing assumes it is). The
+environment variable `NEUROGENESIS_SPATIAL_BACKEND` (`numpy`, `jax` or `auto`) overrides `"auto"`; an explicit
+`backend="numpy"` or `"jax"` is never overridden. The default stays `"numpy"`.
 """
-import numpy as np
 import math
-from typing import Tuple, Optional
+import os
+import sys
+import time
+from typing import Dict, Optional, Tuple
+
+import numpy as np
+
+_AUTO_CHOICE: Dict[str, str] = {}      # accelerator platform -> backend chosen by the timing, once per process
+_JAX_MARGIN = 0.8                      # JAX must take under this fraction of the NumPy time to be chosen
+
+
+def _jax_platform() -> Optional[str]:
+    """The default JAX device platform ('cpu', 'gpu', 'tpu'), or None when JAX is not already imported."""
+    if "jax" not in sys.modules:
+        return None
+    try:
+        return str(sys.modules["jax"].default_backend())
+    except Exception:
+        return None
+
+
+def _jax_is_faster(n_points: int = 4000, n_queries: int = 1000, seed: int = 0) -> bool:
+    """Times one radius query on a small random problem with each backend (JAX after a warm-up call)."""
+    rng = np.random.default_rng(seed)
+    pts, qs = rng.random((n_points, 3)), rng.random((n_queries, 3))
+    radius = 2.0 * (n_points ** (-1.0 / 3.0))
+
+    def timed(backend: str) -> float:
+        cl = CellList(pts, radius, backend=backend)
+        cl.query_radius(qs[:10], radius)                      # warm-up (compilation, allocation)
+        t0 = time.perf_counter()
+        cl.query_radius(qs, radius)
+        return time.perf_counter() - t0
+
+    try:
+        return timed("jax") < _JAX_MARGIN * timed("numpy")
+    except Exception:
+        return False
+
+
+def resolve_backend(backend: str = "auto") -> str:
+    """'numpy' or 'jax' for a backend name; 'auto' decides from the machine (see the module docstring)."""
+    if backend == "auto":
+        backend = os.environ.get("NEUROGENESIS_SPATIAL_BACKEND", "auto")
+    if backend in ("numpy", "jax"):
+        return backend
+    if backend != "auto":
+        raise ValueError("backend must be 'numpy', 'jax' or 'auto'")
+    platform = _jax_platform()
+    if platform in (None, "cpu"):
+        return "numpy"
+    if platform not in _AUTO_CHOICE:
+        _AUTO_CHOICE[platform] = "jax" if _jax_is_faster() else "numpy"
+    return _AUTO_CHOICE[platform]
 
 # Memory budget of one distance chunk: at most CHUNK_PAIRS (query, candidate) pairs are held at once,
 # each costing about _BYTES_PER_PAIR bytes of temporaries (indices, coordinates, squared distances).
@@ -100,8 +159,9 @@ class CellList:
             self.sorted_positions = self.sorted_coords.T
             self.cell_ptr = np.zeros(n_cells + 1, dtype=np.int32)
 
+        backend = resolve_backend(backend) if backend == "auto" else backend
         if backend not in ("numpy", "jax"):
-            raise ValueError("backend must be 'numpy' or 'jax'")
+            raise ValueError("backend must be 'numpy', 'jax' or 'auto'")
         self.backend = backend
         if backend == "jax":
             import jax
