@@ -315,6 +315,7 @@ class GrowAxons:
             if hasattr(tissue, "expression") and tissue.expression.shape[1] > 0:
                 ctx.expression_src = tissue.expression[src_indices]
                 ctx.expression_dst = tissue.expression[dst_indices]
+                ctx.expression_names = list(tissue.expression_names)
 
             ctx.shift = np.asarray(gd.get("c", np.zeros(3)), dtype=float)
             

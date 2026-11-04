@@ -18,7 +18,11 @@ Conditions: WT; b2KO (no waves, uncorrelated Poisson RGC firing; after McLaughli
 spikes during refinement); EphAKO (x chemoaffinity gain 0; Feldheim et al. 2000, Neuron). Results hold in this
 simulation only.
 
-    python examples/retinothalamic.py [--seeds 10] [--cpu] [--out example_out] [--small]
+`--map-source expression` (hypotheses in docs/hypotheses/2026-11-03-retinothalamic-expression.md): the retina -> relay
+target map is read from the EphA / EphB expression by the `expression_gradient` target rule instead of the matrix B
+(B = 0 on x and y), and EphAKO sets the EphA gene to 0 in every cell (`express` knockout) instead of the gain.
+
+    python examples/retinothalamic.py [--seeds 10] [--cpu] [--out example_out] [--small] [--map-source B|expression]
 """
 import argparse
 import json
@@ -69,12 +73,47 @@ def relay_frame(relay_mask=None):
     return np.asarray(lo, float), np.asarray(hi, float) - np.asarray(lo, float)
 
 
-def build_project(cond="WT", seed=0, n_prog=60, n_relay=200, n_waves=4, wave_ticks=300, relay_mask=None):
+def volume_matched_box(relay_mask):
+    """Return a box frame with the atlas mask's volume and the mask's bounding-box aspect ratio."""
+    from neurogenesis.geometry.voxel import VoxelMaskGeometry
+    geom = VoxelMaskGeometry.from_npz(str(relay_mask))
+    lo, hi = geom.bounding_box()
+    lo, hi = np.asarray(lo, float), np.asarray(hi, float)
+    size = hi - lo
+    occupied = int(np.count_nonzero(geom.mask))
+    if occupied == 0:
+        raise ValueError("relay mask is empty")
+    fraction = float(occupied) / geom.mask.size
+    return (lo + hi) / 2, size * fraction ** (1.0 / 3.0)
+
+
+MAP_SOURCES = ("B", "expression")
+
+
+def build_project(cond="WT", seed=0, n_prog=60, n_relay=200, n_waves=4, wave_ticks=300, relay_mask=None,
+                  relay_box=None, map_source="B"):
     """Project dict of one condition. Wave origins are drawn from `seed` here (example-level, deterministic).
-    `relay_mask`: an .npz voxel geometry (examples/atlas_relay_mask.py) used as the relay's shape instead of the box."""
-    rel_lo, rel_size = relay_frame(relay_mask)
+    `relay_mask`: an .npz voxel geometry (examples/atlas_relay_mask.py) used as the relay's shape instead of the box.
+    `map_source`: "B" (the gains in B carry the map) or "expression" (the `expression_gradient` rule reads the EphA /
+    EphB genes; EphAKO knocks the EphA gene out)."""
+    if map_source not in MAP_SOURCES:
+        raise ValueError(map_source)
+    if relay_mask is not None and relay_box is not None:
+        raise ValueError("relay_mask and relay_box are mutually exclusive")
+    rel_lo, rel_size = relay_frame(relay_mask) if relay_box is None else (
+        np.asarray(relay_box["center"], float) - np.asarray(relay_box["size"], float) / 2,
+        np.asarray(relay_box["size"], float))
     from neurogenesis.project.io import Project
     g = condition_genome(cond, wave_ticks)
+    from_expr = map_source == "expression"
+    if from_expr:
+        g["epha_gain"] = 1.0                                   # the gene is expressed as in WT, then knocked out
+    expr_names = dict(names=["fate", "EphA", "EphB"], knockout=["EphA"] if cond == "EphAKO" else []) if from_expr else {}
+    if from_expr:
+        retinal = dict(B=np.zeros((3, 3)).tolist(), rules_target=["expression_gradient"],
+                       expression_gradient=[dict(gene="EphA", axis=0, gain=2.0), dict(gene="EphB", axis=1, gain=2.0)])
+    else:
+        retinal = dict(B=np.diag([2.0 * g["epha_gain"], 2.0 * g["ephb_gain"], 0.0]).tolist())
     gene = lambda name, hi: {"type": "Gene", "path": name, "lo": 0.0, "hi": hi}
     one = {"type": "Field", "name": "one"}
     sched = [
@@ -91,7 +130,8 @@ def build_project(cond="WT", seed=0, n_prog=60, n_relay=200, n_waves=4, wave_tic
             neighbor_weights=[[-1.5, 0, 0], [0, 0, 0], [0, 0, 0]],
             morphogens=[{"field": one, "weights": [0.0, -3.0, -3.0]},
                         {"field": {"type": "Field", "name": "grad_x"}, "weights": [0.0, gene("epha_gain", 2.0), 0.0]},
-                        {"field": {"type": "Field", "name": "grad_y"}, "weights": [0.0, 0.0, gene("ephb_gain", 2.0)]}])),
+                        {"field": {"type": "Field", "name": "grad_y"}, "weights": [0.0, 0.0, gene("ephb_gain", 2.0)]}],
+            **expr_names)),
         dict(name="differentiate", operator="differentiate", params=dict(types=[
             dict(type_id=OTHER, condition="(region == 0) & (expr[0] <= 0.5)", region=2, sign=1, base_weight=300),
             dict(type_id=RGC, condition="(region == 0) & (expr[0] > 0.5)", sign=1, base_weight=300),
@@ -106,8 +146,7 @@ def build_project(cond="WT", seed=0, n_prog=60, n_relay=200, n_waves=4, wave_tic
             bounds_size={"0": RET_S.tolist(), "1": rel_size.tolist()},
             rules_probability=["no_autapse"],
             guidance={
-                "0->1": dict(B=np.diag([2.0 * g["epha_gain"], 2.0 * g["ephb_gain"], 0.0]).tolist(),
-                             sigma=0.3, p0=0.6, w=250.0),
+                "0->1": dict(retinal, sigma=0.3, p0=0.6, w=250.0),
                 "1->1": dict(B=np.diag([2.0, 2.0, 0.0]).tolist(), sigma=0.1, p0=0.3, w=60.0, source="inh",
                              rules_probability=["no_autapse", "source_sign"])})),
         dict(name="apoptosis", operator="apoptosis", params=dict(min_inputs={"type": "Field", "name": "trophic_need"})),
@@ -148,6 +187,8 @@ def build_project(cond="WT", seed=0, n_prog=60, n_relay=200, n_waves=4, wave_tic
     geometry = {"retina": {"type": "Box", "center": RET_C.tolist(), "size": RET_S.tolist()},
                 "relay": ({"type": "Box", "center": REL_C.tolist(), "size": REL_S.tolist()} if relay_mask is None
                           else {"type": "voxel_mask", "npz": str(relay_mask)})}
+    if relay_box is not None:
+        geometry["relay"] = {"type": "Box", "center": list(relay_box["center"]), "size": list(relay_box["size"])}
     return Project(geometry=geometry, fields=fields, genome=g, schedule=sched, pharmacology=PROFILE,
                    metadata=dict(name=f"retinothalamic {cond}", description="toy retina -> relay development"))
 
@@ -158,7 +199,7 @@ def _pearson(a, b):
     return float((a * b).sum() / d) if d > 0 else 0.0
 
 
-def measure(tissue, n_stim_ticks=50, relay_mask=None):
+def measure(tissue, n_stim_ticks=50, relay_mask=None, relay_box=None):
     """Metrics of one grown tissue (vectorised over synapses): mosaic regularity, map correlations and error, and the
     evoked separation of two opposite retinal corners in the relay (1 - cosine similarity of relay spike counts)."""
     from neurogenesis.analysis import nearest_neighbour_regularity
@@ -166,7 +207,11 @@ def measure(tissue, n_stim_ticks=50, relay_mask=None):
     ct, pos = tissue.cell_type, tissue.positions
     rgc, relay = np.flatnonzero(ct == RGC), np.flatnonzero(ct == RELAY)
     u_ret = (pos[:, :2] - (RET_C - RET_S / 2)[:2]) / RET_S[:2]
-    rel_lo, rel_size = relay_frame(relay_mask)
+    if relay_box is None:
+        rel_lo, rel_size = relay_frame(relay_mask)
+    else:
+        rel_lo = np.asarray(relay_box["center"], float) - np.asarray(relay_box["size"], float) / 2
+        rel_size = np.asarray(relay_box["size"], float)
     u_rel = (pos[:, :2] - rel_lo[:2]) / rel_size[:2]
     c = tissue.connectivity
     m = (ct[c.pre] == RGC) & (ct[c.post] == RELAY) & (c.weight != 0)
@@ -177,6 +222,21 @@ def measure(tissue, n_stim_ticks=50, relay_mask=None):
     has = rgc[wsum[rgc] > 0]
     ideal = 1.0 / (1.0 + np.exp(-4.0 * (u_ret[has] - 0.5) * 2.0))                # WT chemoaffinity target point
     err = float(np.linalg.norm(cen[has] - ideal, axis=1).mean()) if len(has) else float("nan")
+    if relay_mask is None:
+        feasible = ideal
+    else:
+        from neurogenesis.geometry.voxel import VoxelMaskGeometry
+        geom = VoxelMaskGeometry.from_npz(str(relay_mask))
+        occupied_xy = np.argwhere(np.any(geom.mask, axis=2))
+        # Use the projection of occupied voxel centres: a target is compared with the closest
+        # 2D location available anywhere through the relay's depth.
+        attainable = (occupied_xy + 0.5) / np.asarray(geom.mask.shape[:2], float)
+        feasible = np.empty_like(ideal)
+        for start in range(0, len(ideal), 64):
+            target = ideal[start:start + 64]
+            d2 = ((target[:, None, :] - attainable[None, :, :]) ** 2).sum(axis=2)
+            feasible[start:start + len(target)] = attainable[np.argmin(d2, axis=1)]
+    feasible_err = float(np.linalg.norm(cen[has] - feasible, axis=1).mean()) if len(has) else float("nan")
     net = tissue.to_network()
     for n in net.neurons:
         n.mode = 0                                                             # b2KO Poisson drivers off for the test
@@ -187,25 +247,134 @@ def measure(tissue, n_stim_ticks=50, relay_mask=None):
     nrm = np.linalg.norm(counts, axis=1)
     sep = float(1.0 - counts[0] @ counts[1] / (nrm[0] * nrm[1])) if nrm.min() > 0 else float("nan")
     return dict(mosaic_nnri=nearest_neighbour_regularity(pos[rgc, :2]), r_x=_pearson(u_ret[has, 0], cen[has, 0]),
-                r_y=_pearson(u_ret[has, 1], cen[has, 1]), topo_error=err, separation=sep, n_rgc=int(len(rgc)),
+                r_y=_pearson(u_ret[has, 1], cen[has, 1]), topo_error=err, topo_error_feasible=feasible_err,
+                separation=sep, n_rgc=int(len(rgc)),
                 n_relay=int(len(relay)), n_retinal_synapses=int(m.sum()), relay_spikes=counts.sum(1).tolist())
 
 
-def run(seeds, small=False, conditions=CONDITIONS, relay_mask=None):
+
+STEP_MAP = {
+    "proliferate": ["seed_retina", "seed_relay", "express_init", "proliferate"],
+    "express": ["express_fate"],
+    "differentiate": ["differentiate"],
+    "migrate": ["migrate"],
+    "mosaic": ["mosaic"],
+    "grow_axons": ["grow_axons"],
+    "apoptosis": ["apoptosis"],
+    "pharmacology_immature": ["set_transmitters", "express_receptors", "assign_receptors", "gaba_immature"],
+    "refine_by_activity": ["refine_0", "refine_1", "refine_2", "refine_3"],
+    "scale": ["gaba_mature", "scale"],
+    "prune": ["prune"],
+    "freeze": ["myelinate", "freeze"],
+}
+STEP_ORDER = [
+    "start",
+    "proliferate",
+    "express",
+    "differentiate",
+    "migrate",
+    "mosaic",
+    "grow_axons",
+    "apoptosis",
+    "pharmacology_immature",
+    "refine_by_activity",
+    "scale",
+    "prune",
+    "freeze",
+]
+
+
+def save_checkpoint(tissue, path):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if str(path).endswith(".json"):
+        net = tissue.to_network()
+        net.save_json(path)
+        return
+    from neurogenesis.bridge.ngb import write_network
+    net = tissue.to_network()
+    exts = {}
+    N = len(tissue.alive)
+    if getattr(tissue, "cell_type", None) is not None and len(tissue.cell_type) == N:
+        exts["cell_type"] = ("neuron", np.asarray(tissue.cell_type, dtype="<i4"))
+    if getattr(tissue, "region", None) is not None and len(tissue.region) == N:
+        exts["region"] = ("neuron", np.asarray(tissue.region, dtype="<i4"))
+    if getattr(tissue, "sign", None) is not None and len(tissue.sign) == N:
+        exts["sign"] = ("neuron", np.asarray(tissue.sign, dtype="<i1"))
+    if getattr(tissue, "expression", None) is not None and len(tissue.expression) == N:
+        exts["expression"] = ("neuron", np.asarray(tissue.expression, dtype="<f4"))
+    write_network(net, path, extensions=exts)
+
+
+def load_checkpoint(path):
+    path = Path(path)
+    if str(path).endswith(".json"):
+        from neurogenesis.spiking.network import SNNNetwork
+        from neurogenesis.tissue import Tissue
+        net = SNNNetwork.load_json(path)
+        return Tissue.from_network(net)
+    from neurogenesis.bridge.ngb import read_network, read_extensions
+    from neurogenesis.tissue import Tissue
+    net = read_network(path)
+    exts = read_extensions(path)
+    t = Tissue.from_network(net)
+    for name, (axis, arr) in exts.items():
+        setattr(t, name, np.array(arr, copy=True))
+    return t
+
+
+def run_stages_slice(p, seed, tissue=None, from_stage=None, until_stage=None):
+    import zlib
+    from neurogenesis.stages.base import Stage, _instantiate_fields
+    from neurogenesis.params import param_from_dict
+    from neurogenesis.fields import Field
+    from neurogenesis.tissue import Tissue
+
+    sched = p.to_dict()["schedule"]
+    raw_geoms = p.to_dict().get("geometry", {})
+    raw_fields = p.to_dict().get("fields", {})
+    fields = _instantiate_fields({**raw_geoms, **raw_fields})
+    fields = {k: (v.bind(p.genome) if isinstance(v, Field) else v) for k, v in fields.items()}
+
+    from_idx = STEP_ORDER.index(from_stage) if from_stage in STEP_ORDER else 0
+    until_idx = STEP_ORDER.index(until_stage) if until_stage in STEP_ORDER else len(STEP_ORDER) - 1
+
+    active_stage_names = []
+    for s_idx in range(from_idx + 1, until_idx + 1):
+        step_name = STEP_ORDER[s_idx]
+        active_stage_names.extend(STEP_MAP.get(step_name, [step_name]))
+
+    if tissue is None:
+        tissue = Tissue.empty()
+
+    for config in sched:
+        st_name = config["name"]
+        if st_name not in active_stage_names:
+            continue
+        name_salt = zlib.crc32(st_name.encode("utf-8")) & 0xFFFFFFFF
+        params = {k: (param_from_dict(v) if isinstance(v, dict) else v) for k, v in config.get("params", {}).items()}
+        st = Stage(name=st_name, operator=config["operator"], params=params, repeat=config.get("repeat", 1))
+        for rep in range(st.repeat):
+            rng = np.random.default_rng([seed, name_salt, rep])
+            tissue = st.run(tissue, p.genome, fields, rng, rep=rep)
+    return tissue
+
+
+def run(seeds, small=False, conditions=CONDITIONS, relay_mask=None, relay_box=None, map_source="B"):
     from neurogenesis.stages.base import run_schedule
     kw = dict(n_prog=45, n_relay=100, n_waves=2, wave_ticks=250) if small else {}
     out = {}
     for cond in conditions:
         rows = []
         for s in seeds:
-            p = build_project(cond, s, relay_mask=relay_mask, **kw)
-            rows.append(measure(run_schedule(p.to_dict(), p.genome, s), relay_mask=relay_mask))
+            p = build_project(cond, s, relay_mask=relay_mask, relay_box=relay_box, map_source=map_source, **kw)
+            rows.append(measure(run_schedule(p.to_dict(), p.genome, s), relay_mask=relay_mask, relay_box=relay_box))
         out[cond] = rows
     return out
 
 
 def summary(results):
-    keys = ("mosaic_nnri", "r_x", "r_y", "topo_error", "separation")
+    keys = ("mosaic_nnri", "r_x", "r_y", "topo_error", "topo_error_feasible", "separation")
     return {c: {k: [float(np.mean([r[k] for r in rows])), float(np.std([r[k] for r in rows], ddof=1)) if len(rows) > 1
                     else 0.0] for k in keys} for c, rows in results.items()}
 
@@ -213,24 +382,51 @@ def summary(results):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--seeds", type=int, default=10)
+    ap.add_argument("--seed", type=int, default=0, help="single seed for stage slice execution")
+    ap.add_argument("--condition", default="WT", choices=CONDITIONS)
     ap.add_argument("--out", default="example_out")
     ap.add_argument("--cpu", action="store_true")
     ap.add_argument("--small", action="store_true", help="small tissue for tests")
     ap.add_argument("--relay-mask", help="relay shape from an atlas (.npz from examples/atlas_relay_mask.py)")
+    ap.add_argument("--compare-matched-box", action="store_true",
+                    help="also run a box with the atlas mask's volume and bounding-box aspect ratio")
+    ap.add_argument("--map-source", choices=MAP_SOURCES, default="B",
+                    help="B: target map from the gains in B (runs 1-4); expression: from the EphA / EphB expression")
+    ap.add_argument("--from-stage", help="start stage for stage slicing")
+    ap.add_argument("--until-stage", help="end stage for stage slicing")
+    ap.add_argument("--in", dest="in_file", help="input checkpoint file (.ngb or .json)")
     args = ap.parse_args()
     if args.cpu:
         os.environ["JAX_PLATFORMS"] = "cpu"
-    res = run(range(args.seeds), small=args.small, relay_mask=args.relay_mask)
+
+    if args.until_stage is not None or args.from_stage is not None:
+        p = build_project(args.condition, args.seed, relay_mask=args.relay_mask, map_source=args.map_source,
+                          **({"n_prog": 45, "n_relay": 100, "n_waves": 2, "wave_ticks": 250} if args.small else {}))
+        tissue = load_checkpoint(args.in_file) if args.in_file else None
+        tissue = run_stages_slice(p, args.seed, tissue=tissue, from_stage=args.from_stage, until_stage=args.until_stage)
+        save_checkpoint(tissue, args.out)
+        print(f"saved checkpoint {args.out} (from {args.from_stage} to {args.until_stage}): {len(tissue.alive)} cells, {len(tissue.connectivity.pre)} synapses")
+        return
+
+    res = run(range(args.seeds), small=args.small, relay_mask=args.relay_mask, map_source=args.map_source)
     summ = summary(res)
     print(f"{'condition':9s} " + " ".join(f"{k:>18s}" for k in next(iter(summ.values()))))
     for c, row in summ.items():
         print(f"{c:9s} " + " ".join(f"{m:8.3f} +- {s:6.3f}" for m, s in row.values()))
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    p = build_project("WT", 0, relay_mask=args.relay_mask)
+    p = build_project("WT", 0, relay_mask=args.relay_mask, map_source=args.map_source)
     p.save(out / "project.json")
-    (out / "stats.json").write_text(json.dumps(dict(seeds=args.seeds, small=args.small, summary=summ, per_seed=res),
-                                               indent=1))
+    stats = dict(seeds=args.seeds, small=args.small, map_source=args.map_source, summary=summ, per_seed=res)
+    if args.compare_matched_box:
+        if not args.relay_mask:
+            ap.error("--compare-matched-box requires --relay-mask")
+        center, size = volume_matched_box(args.relay_mask)
+        box = dict(center=center.tolist(), size=size.tolist())
+        box_results = run(range(args.seeds), small=args.small, relay_box=box, map_source=args.map_source)
+        stats["matched_box"] = dict(center=box["center"], size=box["size"],
+                                    summary=summary(box_results), per_seed=box_results)
+    (out / "stats.json").write_text(json.dumps(stats, indent=1))
     print("wrote", out / "stats.json")
 
 

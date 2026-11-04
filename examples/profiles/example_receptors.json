@@ -20,5 +20,17 @@
      "citation": "histamine-gated chloride channel; Hardie 1989, Nature"},
     {"name": "nicotinic", "transmitter": "acetylcholine", "sign": 1, "reversal_mV": 0.0, "tau_ms": 5.0,
      "citation": "nicotinic acetylcholine receptor (cation channel); Albuquerque et al. 2009, Physiol Rev"}
-  ]
+  ],
+  "provenance": {
+    "transmitters": {
+      "status": "assumed",
+      "quantity": "list of transmitters of the example",
+      "note": "An illustrative list for the example, not a statement about a species."
+    },
+    "receptors": {
+      "status": "assumed",
+      "quantity": "receptor classes, signs and developmental contexts of the example",
+      "note": "Illustrative example: each receptor carries its own citation (Traynelis 2010, Cully, Hardie 1989, Albuquerque, Ben-Ari 2002 and others), none of which has been checked against the paper."
+    }
+  }
 }
