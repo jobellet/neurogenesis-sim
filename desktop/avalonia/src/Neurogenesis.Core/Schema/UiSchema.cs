@@ -54,7 +54,10 @@ public sealed record StageSpec(
     [property: JsonPropertyName("conditional")] bool Conditional,
     [property: JsonPropertyName("cost")] StageCost? Cost,
     [property: JsonPropertyName("params")] IReadOnlyList<ParamSpec>? Params
-);
+)
+{
+    public override string ToString() => Title;
+}
 
 public sealed record ModelSpec(
     [property: JsonPropertyName("name")] string Name,

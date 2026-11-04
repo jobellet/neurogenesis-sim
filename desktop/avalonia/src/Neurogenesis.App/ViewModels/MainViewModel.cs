@@ -32,7 +32,7 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _sceneNote = "";
     [ObservableProperty] private string _title = "Neurogenesis";
     [ObservableProperty] private ColorMode _colorMode;
-    [ObservableProperty] private SceneData? _scene;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(CanSimulateNative)), NotifyPropertyChangedFor(nameof(CanSimulateRemote))] private SceneData? _scene;
     [ObservableProperty] private float[] _instances = Array.Empty<float>();
     [ObservableProperty, NotifyPropertyChangedFor(nameof(HasSelection))] private int _selected = -1;
 
@@ -388,7 +388,7 @@ public sealed partial class MainViewModel : ObservableObject
 
 
     /// <summary>Formats bridge progress events into human-readable status labels.</summary>
-    public static string FormatProgress(int job, JsonElement data)
+    public static string FormatProgress(int job, JsonElement data, int? fallbackTotal = null)
     {
         if (data.ValueKind != JsonValueKind.Object)
         {
@@ -424,7 +424,17 @@ public sealed partial class MainViewModel : ObservableObject
             {
                 bestStr = $" (best: {bestVal:F2})";
             }
-            if (data.TryGetProperty("gens", out var gensProp) && gensProp.TryGetInt32(out var totalGens) && totalGens > 0)
+            int totalGens = 0;
+            if (data.TryGetProperty("gens", out var gensProp) && gensProp.TryGetInt32(out var tg) && tg > 0)
+            {
+                totalGens = tg;
+            }
+            else if (fallbackTotal is { } fb && fb > 0)
+            {
+                totalGens = fb;
+            }
+
+            if (totalGens > 0)
             {
                 int p = (int)Math.Round((double)(gen + 1) / totalGens * 100);
                 return $"Job #{job} — Gen {gen + 1}/{totalGens} ({p}%){bestStr}";
