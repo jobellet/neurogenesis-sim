@@ -87,10 +87,9 @@ public class SimulationEngineTests
         Assert.Contains("requires a native model", vm.Status);
     }
     [Fact]
-    public async Task HeadlessAction_GeneratePreset_CallsBridgeAndLoadsNetwork()
+    public async Task HeadlessAction_GeneratePreset_TransmitsValuesAndLoadsNetwork()
     {
         var vm = new MainViewModel();
-        // Wait briefly if bridge is starting
         if (vm.Bridge != null)
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
@@ -101,16 +100,70 @@ public class SimulationEngineTests
         }
 
         Assert.True(vm.Bridge?.IsReady == true, "Bridge must be ready for generation test");
-        await vm.GeneratePresetAsync("column", 60, 42);
+        vm.GenerateMorphology = "column";
+        vm.GenerateNeurons = 60m;
+        vm.GenerateSeed = 84m;
+
+        await vm.GeneratePresetAsync();
 
         Assert.NotNull(vm.Scene);
         Assert.Equal(60, vm.Scene.Network.NeuronCount);
         Assert.True(vm.Scene.Network.SynapseCount > 0);
         Assert.True(File.Exists(vm.CurrentNetworkPath));
+        Assert.Null(vm.LastError);
     }
 
     [Fact]
-    public async Task HeadlessAction_SimulateRemote_CallsBridgeSimulate()
+    public async Task HeadlessAction_GeneratePreset_ValidatesNeuronBounds()
+    {
+        var vm = new MainViewModel();
+
+        // Bound min test: 0
+        vm.GenerateNeurons = 0m;
+        await vm.GeneratePresetAsync();
+        Assert.Contains("at least 1", vm.Status);
+        Assert.Equal(vm.Status, vm.LastError);
+
+        // Bound max test: > 1,000,000
+        vm.GenerateNeurons = 1500000m;
+        await vm.GeneratePresetAsync();
+        Assert.Contains("cannot exceed 1,000,000", vm.Status);
+        Assert.Equal(vm.Status, vm.LastError);
+    }
+
+    [Fact]
+    public async Task HeadlessAction_GeneratePreset_SurfacesBridgeRefusalOrError()
+    {
+        var vm = new MainViewModel();
+        if (vm.Bridge != null)
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            while (!vm.Bridge.IsReady && !cts.IsCancellationRequested)
+            {
+                await Task.Delay(50);
+            }
+        }
+        Assert.True(vm.Bridge?.IsReady == true, "Bridge must be ready");
+
+        // Request 500,000 neurons to trigger bridge memory ResourceError
+        await vm.GeneratePresetAsync("column", 500000, 42);
+        Assert.NotNull(vm.LastError);
+        Assert.True(vm.LastError.Contains("ResourceError") || vm.LastError.Contains("memory"), $"Expected memory refusal message, got: {vm.LastError}");
+        Assert.Contains(vm.LastError, vm.Status);
+    }
+
+    [Fact]
+    public async Task HeadlessAction_SimulateRemote_ValidatesTicksBound()
+    {
+        var vm = new MainViewModel();
+        vm.RemoteTicks = 0m;
+        await vm.SimulateRemoteAsync();
+        Assert.Contains("at least 1", vm.Status);
+        Assert.Equal(vm.Status, vm.LastError);
+    }
+
+    [Fact]
+    public async Task HeadlessAction_SimulateRemote_TransmitsValuesAndVisualizesSpikesInScene()
     {
         string path = Path.Combine(PythonFixtures.RepoRoot(), "desktop", "common", "fixtures", "microcircuit.ngb");
         var vm = new MainViewModel();
@@ -125,13 +178,86 @@ public class SimulationEngineTests
             }
         }
 
-        Assert.True(vm.Bridge?.IsReady == true, $"Bridge readiness failed. Status: {vm.Status}, Note: {vm.SceneNote}");
-        Assert.True(vm.CanSimulateRemote, $"CanSimulateRemote false. Scene: {vm.Scene != null}, IsBridgeReady: {vm.IsBridgeReady}, Status: {vm.Status}");
+        Assert.True(vm.Bridge?.IsReady == true, $"Bridge readiness failed. Status: {vm.Status}");
+        Assert.True(vm.CanSimulateRemote, $"CanSimulateRemote failed. Status: {vm.Status}");
 
-        await vm.SimulateRemoteAsync(ticks: 100, seed: 12345);
+        vm.RemoteModel = "lif_int";
+        vm.RemoteTicks = 120m;
+        vm.RemoteSeed = 9999m;
 
-        Assert.Equal(100f, vm.CurrentTick);
-        Assert.Contains("Remote sim complete: 100 ticks", vm.Status);
+        await vm.SimulateRemoteAsync();
+
+        Assert.Equal(120f, vm.CurrentTick);
+        Assert.Contains("Remote sim complete: 120 ticks", vm.Status);
+        Assert.True(vm.RemoteTotalSpikes > 0, "Spikes should be produced by simulation");
+        Assert.Equal(vm.RemoteTotalSpikes, vm.RemoteSpikes.Count);
+
+        // Verify scene instances buffer has 9 floats per neuron and contains spike timestamps
+        Assert.NotNull(vm.Instances);
+        Assert.Equal(vm.Scene!.Network.NeuronCount * 9, vm.Instances.Length);
+
+        // Stride 9, offset 8 is lastSpike. At least one spiking neuron must have lastSpike >= 0
+        bool foundSpikeInInstances = false;
+        for (int i = 0; i < vm.Scene.Network.NeuronCount; i++)
+        {
+            float ls = vm.Instances[i * 9 + 8];
+            if (ls >= 0f)
+            {
+                foundSpikeInInstances = true;
+                break;
+            }
+        }
+        Assert.True(foundSpikeInInstances, "Instances buffer must contain spike timestamps for 3D flash visualization");
+    }
+
+    [Fact]
+    public async Task HeadlessAction_SimulateRemote_SurfacesBridgeErrorMessageOnInvalidModel()
+    {
+        string path = Path.Combine(PythonFixtures.RepoRoot(), "desktop", "common", "fixtures", "microcircuit.ngb");
+        var vm = new MainViewModel();
+        await vm.OpenAsync(path);
+
+        if (vm.Bridge != null)
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            while ((!vm.Bridge.IsReady || !vm.CanSimulateRemote) && !cts.IsCancellationRequested)
+            {
+                await Task.Delay(50);
+            }
+        }
+        Assert.True(vm.Bridge?.IsReady == true, "Bridge must be ready");
+
+        await vm.SimulateRemoteAsync("non_existent_model_abc", 50, 1);
+        Assert.NotNull(vm.LastError);
+        Assert.Contains("non_existent_model_abc", vm.LastError);
+        Assert.Equal(vm.LastError, vm.Status);
+    }
+
+    [Fact]
+    public void FormatProgress_FormatsReadableLabelsAndHandlesAbsentFields()
+    {
+        // 1. Percentage
+        using var docPct = System.Text.Json.JsonDocument.Parse("{\"percent\": 45.2}");
+        Assert.Equal("Job #1 — 45%", MainViewModel.FormatProgress(1, docPct.RootElement));
+
+        // 2. Step and Total
+        using var docStep = System.Text.Json.JsonDocument.Parse("{\"step\": 3, \"total\": 10}");
+        Assert.Equal("Job #1 — Step 3/10 (30%)", MainViewModel.FormatProgress(1, docStep.RootElement));
+
+        // 3. Generation with best
+        using var docGen = System.Text.Json.JsonDocument.Parse("{\"generation\": 4, \"best\": -0.85, \"gens\": 10}");
+        Assert.Equal("Job #2 — Gen 5/10 (50%) (best: -0.85)", MainViewModel.FormatProgress(2, docGen.RootElement));
+
+        // 4. Message / status
+        using var docMsg = System.Text.Json.JsonDocument.Parse("{\"status\": \"Growing axons\"}");
+        Assert.Equal("Job #3 — Growing axons", MainViewModel.FormatProgress(3, docMsg.RootElement));
+
+        // 5. Empty object (fields absent)
+        using var docEmpty = System.Text.Json.JsonDocument.Parse("{}");
+        Assert.Equal("Job #4 — In progress", MainViewModel.FormatProgress(4, docEmpty.RootElement));
+
+        // 6. Primitive / null (fields absent)
+        using var docNull = System.Text.Json.JsonDocument.Parse("null");
+        Assert.Equal("Job #5 — In progress", MainViewModel.FormatProgress(5, docNull.RootElement));
     }
 }
-

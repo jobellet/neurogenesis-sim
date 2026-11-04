@@ -45,6 +45,23 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty, NotifyPropertyChangedFor(nameof(CanSimulateRemote))] private bool _isBridgeReady = false;
     [ObservableProperty] private string _currentNetworkPath = "";
 
+    // Preset Generation Fields
+    [ObservableProperty] private string _generateMorphology = "column";
+    [ObservableProperty] private decimal _generateNeurons = 500m;
+    [ObservableProperty] private decimal _generateSeed = 42m;
+    [ObservableProperty] private string? _lastError;
+    public IReadOnlyList<string> Morphologies { get; } = new[] { "column", "layered", "microcircuit" };
+
+    // Remote Simulation Fields
+    [ObservableProperty] private string _remoteModel = "lif_int";
+    [ObservableProperty] private decimal _remoteTicks = 500m;
+    [ObservableProperty] private decimal _remoteSeed = 12345m;
+    [ObservableProperty] private int _remoteTotalSpikes = 0;
+    public List<(int Tick, int Neuron)> RemoteSpikes { get; } = new();
+    private int[]? _remoteLastSpikes;
+    public IReadOnlyList<string> AvailableModels =>
+        UiSchema?.Models.Select(m => m.Name).ToList() ?? new List<string> { "lif_int", "lif_curr", "izhikevich" };
+
     public bool HasSelection => Selected >= 0;
     public string SimButtonText => IsSimulating ? "Pause" : "Simulate";
     public bool CanSimulateNative => Scene != null && IsModelNative;
@@ -108,10 +125,10 @@ public sealed partial class MainViewModel : ObservableObject
                 };
                 Bridge.ProgressReceived += (job, data) =>
                 {
+                    string label = FormatProgress(job, data);
                     Dispatcher.UIThread.Post(() =>
                     {
-                        string info = data.ToString();
-                        Status = $"Job #{job} progress: {info}";
+                        Status = label;
                     });
                 };
 
@@ -270,6 +287,9 @@ public sealed partial class MainViewModel : ObservableObject
             Selected = -1;
             _simEngine?.Dispose();
             _simEngine = null;
+            _remoteLastSpikes = null;
+            RemoteSpikes.Clear();
+            RemoteTotalSpikes = 0;
             IsSimulating = false;
             CurrentTick = 0f;
             CurrentNetworkPath = path;
@@ -367,12 +387,90 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
 
-    /// <summary>Calls Python bridge `generate` method from presets and opens the resulting network.</summary>
-    public async Task GeneratePresetAsync(string morphology = "column", int neurons = 500, int seed = 42)
+    /// <summary>Formats bridge progress events into human-readable status labels.</summary>
+    public static string FormatProgress(int job, JsonElement data)
     {
+        if (data.ValueKind != JsonValueKind.Object)
+        {
+            return $"Job #{job} — In progress";
+        }
+
+        // Percentage
+        if (data.TryGetProperty("percent", out var pctProp) && pctProp.TryGetDouble(out var pct))
+        {
+            return $"Job #{job} — {pct:F0}%";
+        }
+        if (data.TryGetProperty("percentage", out var pctProp2) && pctProp2.TryGetDouble(out var pct2))
+        {
+            return $"Job #{job} — {pct2:F0}%";
+        }
+
+        // Step / Total
+        if (data.TryGetProperty("step", out var stepProp) && stepProp.TryGetInt32(out var step))
+        {
+            if (data.TryGetProperty("total", out var totProp) && totProp.TryGetInt32(out var total) && total > 0)
+            {
+                int p = (int)Math.Round((double)step / total * 100);
+                return $"Job #{job} — Step {step}/{total} ({p}%)";
+            }
+            return $"Job #{job} — Step {step}";
+        }
+
+        // Evolution generation
+        if (data.TryGetProperty("generation", out var genProp) && genProp.TryGetInt32(out var gen))
+        {
+            string bestStr = "";
+            if (data.TryGetProperty("best", out var bestProp) && bestProp.TryGetDouble(out var bestVal))
+            {
+                bestStr = $" (best: {bestVal:F2})";
+            }
+            if (data.TryGetProperty("gens", out var gensProp) && gensProp.TryGetInt32(out var totalGens) && totalGens > 0)
+            {
+                int p = (int)Math.Round((double)(gen + 1) / totalGens * 100);
+                return $"Job #{job} — Gen {gen + 1}/{totalGens} ({p}%){bestStr}";
+            }
+            return $"Job #{job} — Generation {gen + 1}{bestStr}";
+        }
+
+        // Descriptive message
+        if (data.TryGetProperty("message", out var msgProp) && msgProp.GetString() is { } msg && !string.IsNullOrWhiteSpace(msg))
+        {
+            return $"Job #{job} — {msg}";
+        }
+        if (data.TryGetProperty("status", out var statProp) && statProp.GetString() is { } stat && !string.IsNullOrWhiteSpace(stat))
+        {
+            return $"Job #{job} — {stat}";
+        }
+
+        return $"Job #{job} — In progress";
+    }
+
+    /// <summary>Calls Python bridge `generate` using current ViewModel properties.</summary>
+    public async Task GeneratePresetAsync()
+    {
+        await GeneratePresetAsync(GenerateMorphology, (int)GenerateNeurons, (int)GenerateSeed);
+    }
+
+    /// <summary>Calls Python bridge `generate` method from presets and opens the resulting network.</summary>
+    public async Task GeneratePresetAsync(string morphology, int neurons, int seed)
+    {
+        if (neurons < 1)
+        {
+            Status = "Neuron count must be at least 1.";
+            LastError = Status;
+            return;
+        }
+        if (neurons > 1000000)
+        {
+            Status = "Neuron count cannot exceed 1,000,000.";
+            LastError = Status;
+            return;
+        }
+
         if (Bridge == null || !Bridge.IsReady)
         {
             Status = "Bridge not ready for network generation.";
+            LastError = Status;
             return;
         }
 
@@ -390,35 +488,57 @@ public sealed partial class MainViewModel : ObservableObject
             {
                 await OpenAsync(ngbPath);
                 Status = $"Generated {neurons} neuron {morphology} (seed {seed}) via bridge.";
+                LastError = null;
             }
             else
             {
                 Status = "Bridge generate returned invalid response.";
+                LastError = Status;
             }
+        }
+        catch (BridgeException ex)
+        {
+            // Surfaces memory refusal or backend errors cleanly
+            Status = ex.Message;
+            LastError = ex.Message;
         }
         catch (Exception ex)
         {
             Status = $"Bridge generate error: {ex.Message}";
+            LastError = ex.Message;
         }
     }
 
-    /// <summary>Runs remote simulation via Python bridge `simulate` method (JAX / non-native models).</summary>
-    public async Task SimulateRemoteAsync(int ticks = 500, uint seed = 12345)
+    /// <summary>Runs remote simulation using current ViewModel properties.</summary>
+    public async Task SimulateRemoteAsync()
     {
+        await SimulateRemoteAsync(RemoteModel, (int)RemoteTicks, (uint)RemoteSeed);
+    }
+
+    /// <summary>Runs remote simulation via Python bridge `simulate` method (JAX / non-native models).</summary>
+    public async Task SimulateRemoteAsync(string model, int ticks, uint seed)
+    {
+        if (ticks < 1)
+        {
+            Status = "Ticks must be at least 1.";
+            LastError = Status;
+            return;
+        }
+
         if (Scene == null || string.IsNullOrEmpty(CurrentNetworkPath))
         {
             Status = "No network file open for remote simulation.";
+            LastError = Status;
             return;
         }
         if (Bridge == null || !Bridge.IsReady)
         {
             Status = "Bridge not ready for remote simulation.";
+            LastError = Status;
             return;
         }
 
-        string modelName = !string.IsNullOrEmpty(Project.NeuronModel)
-            ? Project.NeuronModel
-            : (UiSchema?.Models.FirstOrDefault()?.Name ?? "lif_int");
+        string modelName = !string.IsNullOrEmpty(model) ? model : (RemoteModel ?? "lif_int");
 
         Status = $"Simulating {ticks} ticks remotely via bridge with {modelName}…";
         try
@@ -432,18 +552,54 @@ public sealed partial class MainViewModel : ObservableObject
             };
             var res = await Bridge.CallAsync("simulate", p);
             int returnedTicks = res.TryGetProperty("ticks", out var tp) ? tp.GetInt32() : ticks;
-            int spikeCount = res.TryGetProperty("t", out var tProp) && tProp.ValueKind == JsonValueKind.Array
-                ? tProp.GetArrayLength()
-                : 0;
 
+            int spikeCount = 0;
+            _remoteLastSpikes = new int[Scene.Network.NeuronCount];
+            Array.Fill(_remoteLastSpikes, int.MinValue);
+            RemoteSpikes.Clear();
+
+            if (res.TryGetProperty("t", out var tProp) && res.TryGetProperty("i", out var iProp) &&
+                tProp.ValueKind == JsonValueKind.Array && iProp.ValueKind == JsonValueKind.Array)
+            {
+                spikeCount = tProp.GetArrayLength();
+                int nLen = Math.Min(tProp.GetArrayLength(), iProp.GetArrayLength());
+                for (int k = 0; k < nLen; k++)
+                {
+                    int spikeTick = tProp[k].GetInt32();
+                    int neuronIdx = iProp[k].GetInt32();
+                    RemoteSpikes.Add((spikeTick, neuronIdx));
+                    if (neuronIdx >= 0 && neuronIdx < _remoteLastSpikes.Length)
+                    {
+                        if (spikeTick > _remoteLastSpikes[neuronIdx])
+                        {
+                            _remoteLastSpikes[neuronIdx] = spikeTick;
+                        }
+                    }
+                }
+            }
+
+            RemoteTotalSpikes = spikeCount;
             CurrentTick = (float)returnedTicks;
+            Refresh();
+
             Status = $"Remote sim complete: {returnedTicks} ticks, {spikeCount} spikes using {modelName}.";
+            LastError = null;
+        }
+        catch (BridgeException ex)
+        {
+            Status = ex.Message;
+            LastError = ex.Message;
         }
         catch (Exception ex)
         {
             Status = $"Remote sim error: {ex.Message}";
+            LastError = ex.Message;
         }
     }
 
-    private void Refresh() => Instances = Scene?.Instances(ColorMode, Selected, _simEngine?.LastSpikeSnapshot) ?? Array.Empty<float>();
+    private void Refresh()
+    {
+        int[]? lastSpikes = _simEngine?.LastSpikeSnapshot ?? _remoteLastSpikes;
+        Instances = Scene?.Instances(ColorMode, Selected, lastSpikes) ?? Array.Empty<float>();
+    }
 }

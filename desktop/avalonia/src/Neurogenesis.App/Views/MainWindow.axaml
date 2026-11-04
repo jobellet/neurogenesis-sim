@@ -12,14 +12,44 @@
     <!-- Top Toolbar -->
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="8">
       <Button x:Name="OpenButton" Content="Open…" Click="OnOpen" HotKey="Ctrl+O" />
-      <Button x:Name="GeneratePresetButton" Content="Generate…" Click="OnGeneratePreset" IsEnabled="{Binding IsBridgeReady}" />
+      <Button x:Name="GeneratePresetButton" Content="Generate…" IsEnabled="{Binding IsBridgeReady}">
+        <Button.Flyout>
+          <Flyout Placement="Bottom">
+            <StackPanel Width="220" Spacing="6" Margin="4">
+              <TextBlock Text="Generate Preset" FontWeight="SemiBold" />
+              <TextBlock Text="Morphology" FontSize="11" Opacity="0.8" />
+              <ComboBox x:Name="GenerateMorphologyCombo" ItemsSource="{Binding Morphologies}" SelectedItem="{Binding GenerateMorphology}" HorizontalAlignment="Stretch" />
+              <TextBlock Text="Neuron Count" FontSize="11" Opacity="0.8" />
+              <NumericUpDown x:Name="GenerateNeuronsNumeric" Value="{Binding GenerateNeurons}" Minimum="1" Maximum="100000" Increment="50" FormatString="N0" />
+              <TextBlock Text="Seed" FontSize="11" Opacity="0.8" />
+              <NumericUpDown x:Name="GenerateSeedNumeric" Value="{Binding GenerateSeed}" Minimum="0" Maximum="2147483647" FormatString="N0" />
+              <Button x:Name="GenerateConfirmButton" Content="Generate &amp; Open" Click="OnGeneratePresetSubmit" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,4,0,0" />
+            </StackPanel>
+          </Flyout>
+        </Button.Flyout>
+      </Button>
       <Button Content="Undo" Click="OnUndo" HotKey="Ctrl+Z" IsEnabled="{Binding CanUndo}" />
       <Button Content="Redo" Click="OnRedo" HotKey="Ctrl+Y" IsEnabled="{Binding CanRedo}" />
       <Separator Width="1" Height="20" Margin="4,0" />
       <Button Content="Frame (F)" Click="OnFrame" />
       <Button x:Name="PlayButton" Content="{Binding SimButtonText}" Click="OnToggleSim" IsEnabled="{Binding CanSimulateNative}" />
       <Button Content="Step" Click="OnStepSim" IsEnabled="{Binding CanSimulateNative}" />
-      <Button x:Name="RemoteSimButton" Content="Remote Sim" Click="OnRemoteSim" IsEnabled="{Binding CanSimulateRemote}" />
+      <Button x:Name="RemoteSimButton" Content="Remote Sim…" IsEnabled="{Binding CanSimulateRemote}">
+        <Button.Flyout>
+          <Flyout Placement="Bottom">
+            <StackPanel Width="220" Spacing="6" Margin="4">
+              <TextBlock Text="Remote Simulation" FontWeight="SemiBold" />
+              <TextBlock Text="Model" FontSize="11" Opacity="0.8" />
+              <ComboBox x:Name="RemoteModelCombo" ItemsSource="{Binding AvailableModels}" SelectedItem="{Binding RemoteModel}" HorizontalAlignment="Stretch" />
+              <TextBlock Text="Ticks" FontSize="11" Opacity="0.8" />
+              <NumericUpDown x:Name="RemoteTicksNumeric" Value="{Binding RemoteTicks}" Minimum="1" Maximum="100000" Increment="100" FormatString="N0" />
+              <TextBlock Text="Seed" FontSize="11" Opacity="0.8" />
+              <NumericUpDown x:Name="RemoteSeedNumeric" Value="{Binding RemoteSeed}" Minimum="0" Maximum="2147483647" FormatString="N0" />
+              <Button x:Name="RemoteSimConfirmButton" Content="Run Remote Sim" Click="OnRemoteSimSubmit" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,4,0,0" />
+            </StackPanel>
+          </Flyout>
+        </Button.Flyout>
+      </Button>
       <Separator Width="1" Height="20" Margin="4,0" />
       <TextBlock Text="Colour by" VerticalAlignment="Center" Margin="4,0,0,0" />
       <ComboBox x:Name="ColorModeBox" ItemsSource="{Binding ColorModes}" SelectedItem="{Binding ColorMode}" MinWidth="130" />
