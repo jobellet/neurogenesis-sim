@@ -1,3 +1,4 @@
+using Neurogenesis.Core.Bridge;
 using Neurogenesis.App.ViewModels;
 using Neurogenesis.Core.Ngb;
 using Neurogenesis.Core.Simulation;
@@ -259,5 +260,32 @@ public class SimulationEngineTests
         // 6. Primitive / null (fields absent)
         using var docNull = System.Text.Json.JsonDocument.Parse("null");
         Assert.Equal("Job #5 — In progress", MainViewModel.FormatProgress(5, docNull.RootElement));
+    }
+    [Fact]
+    public void FormatProgress_UsesFallbackTotalWhenGensAbsentFromProgressPayload()
+    {
+        // Bridge evolve progress event: {"generation": 2, "best": -0.42} without "gens"
+        using var doc = System.Text.Json.JsonDocument.Parse("{\"generation\": 2, \"best\": -0.42}");
+
+        // When fallbackTotal is passed (from active request parameters "gens")
+        string formattedWithFallback = MainViewModel.FormatProgress(1, doc.RootElement, fallbackTotal: 10);
+        Assert.Equal("Job #1 — Gen 3/10 (30%) (best: -0.42)", formattedWithFallback);
+
+        // When fallbackTotal is not available
+        string formattedWithoutFallback = MainViewModel.FormatProgress(1, doc.RootElement);
+        Assert.Equal("Job #1 — Generation 3 (best: -0.42)", formattedWithoutFallback);
+    }
+
+    [Fact]
+    public async Task BridgeClient_TracksRequestParametersAndSurfacesGetRequestParameters()
+    {
+        string python = PythonFixtures.Python;
+        string repo = PythonFixtures.RepoRoot();
+
+        await using var client = new BridgeClient(python, repo);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await client.StartAsync(cts.Token);
+
+        Assert.Null(client.GetRequestParameters(99999));
     }
 }

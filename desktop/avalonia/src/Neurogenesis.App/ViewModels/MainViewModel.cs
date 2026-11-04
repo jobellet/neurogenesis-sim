@@ -125,7 +125,13 @@ public sealed partial class MainViewModel : ObservableObject
                 };
                 Bridge.ProgressReceived += (job, data) =>
                 {
-                    string label = FormatProgress(job, data);
+                    int? fallbackGens = null;
+                    if (Bridge.GetRequestParameters(job) is { } req &&
+                        req.TryGetPropertyValue("gens", out var gNode) && gNode != null)
+                    {
+                        try { fallbackGens = gNode.GetValue<int>(); } catch { }
+                    }
+                    string label = FormatProgress(job, data, fallbackGens);
                     Dispatcher.UIThread.Post(() =>
                     {
                         Status = label;
