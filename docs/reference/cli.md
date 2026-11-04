@@ -14,6 +14,7 @@
 | `install` | install a module into the local catalogue | `module.json --catalogue --force` |
 | `modules` | list installed modules | `--catalogue` |
 | `data info` / `data fetch` | dataset size, license, citation; resumable, checksum-verified download | `dataset --manifest --target --yes` |
+| `profile check` / `profile show` / `profile report` | check that every parameter of a profile has a status and a source (exit 1 on failure); list parameters with their status; what a project's parameters rest on (`metadata.profiles`, genes, `Fit`) | `profiles --all --online`, `project` |
 | `ui-schema` | export the versioned UI schema JSON for the desktop apps | `--project --calibrated` |
 | `export` | write a network (JSON or NGB1) in another format; prints the export report | `network --format {sonata} --out` |
 | `import` | read a network from another format into network JSON | `path --format {sonata} --out` |

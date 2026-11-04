@@ -75,3 +75,25 @@ Not part of the pre-registered plan: the model layout was changed after run 1 wa
 retina, relay moved next to it, β2-KO drivers turned off after refinement). Same seeds and metrics. H2 held
 (EphA-KO r_x 0.033 ± 0.157, r_y 0.911 ± 0.026); H3 orientation held, blurring still weak (TTX error +0.004,
 separation −0.015; β2-KO +0.003, −0.006, paired means). Details in {doc}`../use-cases/retinothalamic`.
+
+## Larger-seed rerun (appended 2026-11-04, after the runs; not part of the pre-registered plan)
+The criteria above were not changed. The statistics below (paired tests, bootstrap intervals, power) were chosen after
+the 10-seed results were known, so they are exploratory.
+- **Seeds.** Run-2 settings: 100 seeds (0–99) per condition. Separation is undefined for seed 87 (all four conditions:
+  every response vector of one corner stimulus was zero), so separation uses n = 99; every other metric uses n = 100.
+  Seeds 0–9 reproduce the committed per-seed values (largest difference 2.8e-17). The run used a driver outside the
+  repository that calls the same `build_project`, `run_schedule` and `measure`; its per-seed CSVs are not committed
+  here.
+- **Verdicts unchanged.** H1 held, H2 held (EphA-KO r_x 0.000 ± 0.131, r_y within 0.009 of WT), H3 orientation held
+  (r_x, r_y 0.924 in TTX and β2-KO), H3 blurring **weak** by the one-pooled-SD rule: topographic error +0.0029 (TTX) and
+  +0.0031 (β2-KO), ratio to the pooled SD 0.16 and 0.18; separation −0.0096 and −0.0049, ratio −0.09 and −0.05.
+- **What 100 seeds add.** The topographic-error shift is small against the across-seed SD (0.018) but consistent within a
+  seed: paired dz +1.06 (TTX, 95% CI 0.85 to 1.35) and +1.19 (β2-KO, 0.96 to 1.48), Wilcoxon p below 1e-13, error higher
+  than WT in 86–87 of 100 seeds. "Weak" is therefore not a small-sample artefact, and it is not zero. The corner-separation
+  drop is detectable for TTX (dz −0.37, p 0.002) and not for β2-KO (dz −0.17, interval includes 0). p-values are
+  uncorrected.
+- **Seeds needed.** For 80% power with a paired comparison: about 8–10 seeds for the topographic-error shift, about 60
+  (TTX) to 280 (β2-KO, very uncertain) for separation. An unpaired comparison of the topographic-error shift would need
+  about 510–590 seeds per group. Future runs should compare conditions seed by seed.
+- **Means moved a little.** 100-seed WT separation is 0.621 against 0.671 at 10 seeds (seeds 0–9 happen to be high, about
+  0.5 SD); r_x 0.921 against 0.911.

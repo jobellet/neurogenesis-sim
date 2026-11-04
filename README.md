@@ -45,7 +45,7 @@ cells) as modules that others reuse as-is.
 evolution, modules with a registry and validation assays, geometries and fields, a configurable schedule of developmental
 stages (`docs/STAGES.md`), supervised fitting (CMA-ES), connectome data import, pharmacology profiles, branching arbors
 with SWC I/O, SONATA export / import, the bridge, the browser viewer and the macOS app. In progress: the Windows / Linux
-app (H5). Planned: the remaining stages of the second wave (C16–C20), further export formats (J3–J5: NIR, PyNN,
+app (H5). Planned: the remaining stages of the second wave (C16–C18, C20), further export formats (J3–J5: NIR, PyNN,
 NeuroML 2), and lifting the remaining 31-tick delay clip in arbor synapses and the connectome importer (K4b; other
 stages accept delays up to 255 ticks). Configurable stages are
 young and their API may still change. Everything open is in `docs/ROADMAP.md` (tasks for parallel development, rules in
@@ -63,6 +63,7 @@ young and their API may still change. Everything open is in `docs/ROADMAP.md` (t
 | Genomes | `neurogenesis.genome` | Nested dicts; genes addressed by paths (into arrays too), coded in [0, 1] for evolution, grouped by mechanism, saved as JSON. |
 | Evolution | `neurogenesis.evolution` | Island model with fresh development seeds each generation; choice on validation seeds; audits on held-out seeds (fitness = worst + 0.25 × mean − cost). |
 | Modules | `neurogenesis.modules` | `Module` = plan + genome + inputs / outputs + validation + provenance + neuron model + version, saved as JSON; `compose` assembles modules (prefixed names, each keeps its genes, plugins and rules merged); a local registry (`python -m neurogenesis install`, `registry.get`). |
+| Parameter profiles | `neurogenesis.profiles` | Default parameters for a species, region or age with the status of every number (`measured`, `derived`, `assumed`, `free`), its source and what was read; `extends` for species and region layers; `python -m neurogenesis profile check --all`. The toolbox never depends on a profile: any value can be a `Gene`, `Field` or `Fit`. |
 | Validation | `neurogenesis.validation` | Declarative assays stored in modules (stimuli per region, readout, metric, gate, knockouts), rerun by `python -m neurogenesis validate module.json`. |
 | Fitting | `neurogenesis.fitting`, `neurogenesis.evolution.semi_supervised` | `Fit` params fitted to data targets (cell counts, densities, layer thickness, connection statistics, firing rates) with CMA-ES over several development seeds (`python -m neurogenesis fit`); genes evolved with an inner fitting loop; Pareto evolution. |
 | Development schedule | `neurogenesis.stages`, `neurogenesis.devcost` | A Project's ordered stages (seed, cell_cycle_clock, proliferate, apoptosis, tissue_expand, migrate, sort, mosaic, express, temporal_competence, differentiate, critical_period_gate, grow_axons, partner_select, place / connect by hand, prune, scale, refine_by_activity, competitive_elimination, myelinate, freeze), each parameter a `Param`; cost per stage before running (`python -m neurogenesis estimate --project p.json`). Chunked growth streamed to disk for very large tissues (`neurogenesis.streaming`). See `docs/STAGES.md`. |
