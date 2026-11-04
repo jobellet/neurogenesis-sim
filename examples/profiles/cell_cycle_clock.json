@@ -6,13 +6,6 @@
     "Takahashi, Nowakowski & Caviness 1996, J Neurosci 16:6183-6196",
     "Caviness, Takahashi & Nowakowski 2000, in Nelson & Luciana, eds., Handbook of Developmental Cognitive Neuroscience, MIT Press, pp. 7-22"
   ],
-  "provenance_notes": {
-    "T_C_hours": "Measured by Takahashi et al. 1995, J Neurosci 15:6046, Table 1, for the cycle started at 9:00 on each of E11-E16: T_C 8.1, 10.2, 11.4, 15.1, 17.5, 18.4 h. The 11 per-cycle values here are derived, not measured: starting at E11 9:00, each cycle's length is read by linear interpolation of that daily table at the time the cycle starts (18.4 h held after E16). The eleven cycles then end 140 h (5.8 days) after the start, consistent with 11 cycles over E11-E17 (Takahashi et al. 1996). Replaces an earlier table that ended at 20.0 h, which the paper does not give.",
-    "T_G1_hours": "Same derivation from Table 1 of Takahashi et al. 1995: T_G1 = T_C - (T_S + T_G2+M) = 3.2, 3.3, 5.5, 9.3, 11.8, 12.4 h for E11-E16 (T_G2+M is 2.0 h throughout and T_S about 4 h without a systematic trend), a fourfold increase. Interpolated per cycle in the same way as T_C. The earlier table (3.0 to 15.0 h, fivefold) was not from the paper.",
-    "Q": "Takahashi et al. 1996, J Neurosci 16:6183: the leaving fraction Q of the whole proliferative population is 0.11 (E12), 0.19 (E13), 0.34 (E14), 0.59 (E15), 0.54 (E16) (Table 3); the PVE alone is 0.34-0.38 at E14. Q is extrapolated to 0 at E11 and to 1.0 early on E17, i.e. 10.8 cycles. The power law k * CC^a (k = 0.009, a = 1.97) is this repository's fit to that curve, not a formula of the paper; the per-cycle values are not measured.",
-    "basal_death_prob_per_cycle": "Takahashi et al. 1996: pyknosis and electron microscopy counts range from 0% to a few percent in the proliferative zone (Stensaas 1968; Hinds and Ruffett 1971; Nowakowski and Rakic 1981; Gressens 1991; Takahashi 1992; Reznikov and van der Kooy 1995). ISEL+ staining gives 50-70% (Blaschke et al. 1996), which the authors consider unclear because it would preclude growth of the proliferative epithelium; they call the rate 'unknown but probably small'. 0.01 per cycle is a modelling choice within the 0-few percent range, not a measurement.",
-    "reading": "Takahashi 1995 and 1996 read from the PDFs on 2026-11-04. Caviness et al. 1995 and 2000 not read; they are no longer needed for T_C."
-  },
   "cycles": 11,
   "k": 0.009,
   "a": 1.97,
@@ -24,6 +17,89 @@
   "reference_OUT": [0.02, 0.14, 0.60, 1.95, 5.21, 11.72, 22.01, 33.45, 38.71, 30.25, 11.53],
   "reference_cumulative_neurons_per_founder": 155.59,
   "reference_neurons_per_founder_with_1pct_death": 140.0,
-  "reference_cc1_to_cc7_fraction": 0.2677
+  "reference_cc1_to_cc7_fraction": 0.2677,
+  "provenance": {
+    "cycles": {
+      "status": "measured",
+      "quantity": "number of integer cell cycles of the neuronogenetic interval",
+      "species": "mouse",
+      "region": "dorsomedial neocortical proliferative epithelium",
+      "age": "E11-E17",
+      "source": [
+        "doi:10.1523/jneurosci.16-19-06183.1996",
+        "doi:10.1523/jneurosci.15-09-06046.1995"
+      ],
+      "evidence": "full_text",
+      "note": "10.8 cycles precisely (Takahashi et al. 1996)"
+    },
+    "k": {
+      "status": "derived",
+      "quantity": "scale k of the leaving fraction Q(CC) = min(1, k * CC^a)",
+      "species": "mouse",
+      "region": "dorsomedial neocortical proliferative epithelium",
+      "age": "E11-E17",
+      "source": [
+        "doi:10.1523/jneurosci.16-19-06183.1996"
+      ],
+      "evidence": "full_text",
+      "method": "This repository's fit of a power law to the measured Q (0.11 at E12, 0.19 at E13, 0.34 at E14, 0.59 at E15, 0.54 at E16 for the whole proliferative population; extrapolated to 0 at E11 and to 1.0 early on E17). Q of CC1-CC7 and CC11 is not measured."
+    },
+    "a": {
+      "status": "derived",
+      "quantity": "exponent a of the leaving fraction Q(CC) = min(1, k * CC^a)",
+      "species": "mouse",
+      "region": "dorsomedial neocortical proliferative epithelium",
+      "age": "E11-E17",
+      "source": [
+        "doi:10.1523/jneurosci.16-19-06183.1996"
+      ],
+      "evidence": "full_text",
+      "method": "Same fit as for k; the power-law form is not a formula of the paper."
+    },
+    "basal_death_prob_per_cycle": {
+      "status": "assumed",
+      "quantity": "probability that a progenitor dies in one cell cycle",
+      "species": "mouse",
+      "region": "dorsomedial neocortical proliferative epithelium",
+      "bounds": [
+        0.0,
+        0.05
+      ],
+      "source": [
+        "doi:10.1523/jneurosci.16-19-06183.1996",
+        "doi:10.1242/dev.122.4.1165"
+      ],
+      "evidence": "full_text",
+      "note": "Not measured. Pyknosis and electron-microscopy counts give 0% to a few percent in the proliferative zone and ISEL+ staining gives 50-70% (Blaschke et al. 1996), which Takahashi et al. 1996 find unclear because it would preclude growth of the epithelium ('unknown but probably small'). 0.01 is a modelling choice inside the low range."
+    },
+    "T_C_hours": {
+      "status": "derived",
+      "quantity": "cell-cycle length for each of the 11 integer cycles",
+      "species": "mouse",
+      "region": "dorsomedial neocortical proliferative epithelium",
+      "age": "E11-E17",
+      "source": [
+        "doi:10.1523/jneurosci.15-09-06046.1995"
+      ],
+      "evidence": "full_text",
+      "method": "Measured per embryonic day (Table 1 of Takahashi et al. 1995, cycle started at 9:00 on E11-E16: 8.1, 10.2, 11.4, 15.1, 17.5, 18.4 h). Per-cycle values read from that table by linear interpolation at the time each cycle starts, 18.4 h held after E16; the 11 cycles then take 140 h, consistent with 11 cycles over E11-E17. An earlier table ended at 20.0 h, which the paper does not give."
+    },
+    "T_G1_hours": {
+      "status": "derived",
+      "quantity": "length of the G1 phase for each of the 11 integer cycles",
+      "species": "mouse",
+      "region": "dorsomedial neocortical proliferative epithelium",
+      "age": "E11-E17",
+      "source": [
+        "doi:10.1523/jneurosci.15-09-06046.1995"
+      ],
+      "evidence": "full_text",
+      "method": "T_G1 = T_C - (T_S + T_G2+M) per embryonic day (Table 1 of Takahashi et al. 1995: 3.2, 3.3, 5.5, 9.3, 11.8, 12.4 h; T_G2+M is 2.0 h throughout and T_S about 4 h without trend), a fourfold increase; interpolated per cycle as for T_C."
+    },
+    "reference_*": {
+      "status": "derived",
+      "quantity": "reference outputs of the model (leaving fraction, progenitor pool and neuron output per cycle, neurons per founder)",
+      "method": "Computed from k, a and the number of cycles with PVE_n = 2 * PVE_(n-1) * P_(n-1) and OUT_n = 2 * PVE_n * Q_n; checked by tests/test_stages_cell_cycle.py. Not measurements: the with-death value uses basal_death_prob_per_cycle."
+    }
+  }
 }
-

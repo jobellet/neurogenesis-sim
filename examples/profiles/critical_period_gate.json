@@ -11,5 +11,48 @@
     {"species": "cat", "opens": "weeks 3-4", "peak": "about week 6", "closes": "about 3 months"}
   ],
   "gate_params_example": {"source_type": 1, "measure": "mean", "open_threshold": 20.0, "close_after": 2},
-  "reopening": "chondroitinase ABC degrades perineuronal nets and restores ocular-dominance plasticity in adults (Pizzorusso et al. 2002): critical_period_gate with reopen = true"
+  "reopening": "chondroitinase ABC degrades perineuronal nets and restores ocular-dominance plasticity in adults (Pizzorusso et al. 2002): critical_period_gate with reopen = true",
+  "provenance": {
+    "windows[0]": {
+      "status": "measured",
+      "quantity": "ages of eye opening, opening, peak and closing of the ocular-dominance critical period",
+      "species": "mouse",
+      "region": "primary visual cortex",
+      "source": [
+        "doi:10.1523/jneurosci.16-10-03274.1996",
+        "doi:10.1016/j.neuron.2012.06.009",
+        "doi:10.1016/j.neuron.2020.01.031"
+      ],
+      "evidence": "abstract",
+      "note": "Abstracts plus the full text of the Espinosa & Stryker review. P19 was the youngest age tested in 1996, so the onset may be earlier; plasticity declines progressively to about P110. Eye opening P13-P14 rests on a secondary source that gives P12-P14."
+    },
+    "windows[1]": {
+      "status": "measured",
+      "quantity": "ages of opening, peak and closing of the ocular-dominance critical period",
+      "species": "cat",
+      "region": "primary visual cortex",
+      "source": [
+        "doi:10.1113/jphysiol.1970.sp009022",
+        "doi:10.1152/jn.1992.67.1.197"
+      ],
+      "evidence": "abstract",
+      "note": "The peak is a plateau from the 4th to the 6th-8th week rather than a point at week 6. Closing at about 3 months is the classic definition; plasticity of the extragranular layers persists to about 1 year (Daw et al. 1992)."
+    },
+    "gate_params_example": {
+      "status": "assumed",
+      "quantity": "example parameters of the critical_period_gate stage",
+      "note": "Illustrative values (open threshold, closing delay) for the stage; not from a paper."
+    },
+    "reopening": {
+      "status": "measured",
+      "quantity": "reopening of adult ocular-dominance plasticity by chondroitinase ABC",
+      "species": "rat",
+      "region": "visual cortex",
+      "source": [
+        "doi:10.1126/science.1072699"
+      ],
+      "evidence": "abstract",
+      "note": "The mechanism cited for closing (perineuronal-net condensation) is correlational plus reactivation, not shown to be causal."
+    }
+  }
 }

@@ -11,6 +11,8 @@ Usage:
   python -m neurogenesis validate module.json
   python -m neurogenesis install module.json
   python -m neurogenesis data fetch <dataset_id> --target <dir>
+  python -m neurogenesis profile check --all
+  python -m neurogenesis profile show cell_cycle_clock
 """
 
 from __future__ import annotations
@@ -226,6 +228,37 @@ def cmd_import(args: argparse.Namespace) -> None:
     print(f"✓ {net.num_neurons:,} neurons, {net.num_synapses:,} synapses -> {Path(args.out).resolve()}")
 
 
+def cmd_profile(args: argparse.Namespace) -> None:
+    from . import profiles
+
+    if args.profile_command == "report":
+        project = json.loads(Path(args.project).read_text(encoding="utf-8"))
+        print(profiles.format_report(profiles.project_report(project)))
+        return
+    if args.profile_command == "show":
+        prof = profiles.load_parameter_profile(args.profile)
+        print(f"{prof.get('id')}: {prof.get('description', '')}")
+        for key, e in prof.get("provenance", {}).items():
+            where = ", ".join(str(e[k]) for k in ("species", "region", "age") if e.get(k))
+            print(f"  {e.get('status', '?'):9s} {key}: {e.get('quantity', '')}" + (f" [{where}]" if where else ""))
+        print("  " + ", ".join(f"{n} {k}" for k, n in profiles.provenance_counts([prof]).items()))
+        return
+    refs = [str(p) for d in profiles._search_dirs() for p in sorted(d.glob("*.json"))] if args.all else args.profiles
+    if not refs:
+        raise SystemExit("give profile ids or paths, or --all")
+    failed = 0
+    for ref in refs:
+        problems = profiles.check_profile(ref)
+        if args.online and not problems:
+            problems = profiles.check_online(ref)
+        print(f"{'ok  ' if not problems else 'FAIL'} {ref}")
+        for msg in problems:
+            print(f"     {msg}")
+        failed += bool(problems)
+    if failed:
+        raise SystemExit(1)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="python -m neurogenesis",
@@ -316,6 +349,21 @@ def main() -> None:
         q.add_argument("--target", help="data directory (default $NEUROGENESIS_DATA or ~/.cache/neurogenesis/data)")
         q.add_argument("--yes", action="store_true", help="do not ask before downloading")
         q.set_defaults(func=cmd_data)
+
+    # Subcommand: profile (parameter profiles with provenance)
+    p_prof = subparsers.add_parser("profile", help="Parameter profiles: check provenance, show where values come from")
+    prof_sub = p_prof.add_subparsers(dest="profile_command", required=True)
+    q = prof_sub.add_parser("check", help="Check that every parameter has a status and a source")
+    q.add_argument("profiles", nargs="*", help="profile ids or paths")
+    q.add_argument("--all", action="store_true", help="every profile found (examples/profiles, ./profiles, $NEUROGENESIS_PROFILES)")
+    q.add_argument("--online", action="store_true", help="also ask Crossref whether each DOI exists (needs the network)")
+    q.set_defaults(func=cmd_profile)
+    q = prof_sub.add_parser("report", help="What a project's parameters rest on (profiles in metadata.profiles, genes, Fit)")
+    q.add_argument("project", help="project JSON")
+    q.set_defaults(func=cmd_profile)
+    q = prof_sub.add_parser("show", help="List the parameters of a profile with their status")
+    q.add_argument("profile", help="profile id or path")
+    q.set_defaults(func=cmd_profile)
 
     # Subcommand: ui-schema
     p_ui = subparsers.add_parser("ui-schema", help="Export UI schema for desktop apps")

@@ -28,6 +28,73 @@
     "postmitotic cells keep their birth-stage fate when moved into an older or younger host environment",
     "young cycling progenitors moved into an older host environment advance their competence and adopt the older (superficial) fate",
     "old cycling progenitors moved into a younger host environment do not regain lost early (deep-layer) competence"
-  ]
+  ],
+  "provenance": {
+    "birth_order_windows[0]": {
+      "status": "measured",
+      "quantity": "birth window of layer VI neurons",
+      "species": "ferret",
+      "region": "visual cortex",
+      "age": "E30-E34",
+      "source": [
+        "doi:10.1523/jneurosci.08-03-00945.1988",
+        "doi:10.1523/jneurosci.09-04-01242.1989"
+      ],
+      "evidence": "abstract",
+      "note": "Only E32 giving layers 5 and 6 is confirmed; Jackson et al. 1989 put the onset of neurogenesis near E20. type_id, cycle_range, channel and until are model choices that map the window onto cycle indices."
+    },
+    "birth_order_windows[1]": {
+      "status": "assumed",
+      "quantity": "birth window of layer V neurons",
+      "species": "ferret",
+      "region": "visual cortex",
+      "age": "E35-E38",
+      "note": "Not found in the accessible text of McConnell 1988 or Jackson 1989 (per-layer birthdates need the full text of Jackson et al. 1989, doi:10.1523/jneurosci.09-04-01242.1989). type_id, cycle_range, channel and until are model choices."
+    },
+    "birth_order_windows[2]": {
+      "status": "assumed",
+      "quantity": "birth window of layer IV neurons",
+      "species": "ferret",
+      "region": "visual cortex",
+      "age": "E39-P0",
+      "note": "Same as layer V: not found in the accessible text; needs the full text of Jackson et al. 1989. type_id, cycle_range, channel and until are model choices."
+    },
+    "birth_order_windows[3]": {
+      "status": "measured",
+      "quantity": "birth window of layer II/III neurons",
+      "species": "ferret",
+      "region": "visual cortex",
+      "age": "P1-P3",
+      "source": [
+        "doi:10.1523/jneurosci.08-03-00945.1988",
+        "doi:10.1523/jneurosci.09-04-01242.1989"
+      ],
+      "evidence": "abstract",
+      "note": "Births on P1-P2 give layer 2/3; supragranular neurons are produced postnatally up to P14 (Jackson et al. 1989), so the window is narrower than the literature. type_id, cycle_range, channel and until are model choices."
+    },
+    "channels": {
+      "status": "assumed",
+      "quantity": "competence channel of each cycle range (end cycle of each channel)",
+      "note": "A model construct that maps layers onto cycle indices; no measured counterpart."
+    },
+    "differentiate_types": {
+      "status": "assumed",
+      "quantity": "expression thresholds, signs and base weights of the four cell types",
+      "note": "Example settings of the differentiate stage for this profile; not measured."
+    },
+    "transplantation_outcomes": {
+      "status": "measured",
+      "quantity": "outcome of isochronic and heterochronic transplantation of progenitors and postmitotic neurons",
+      "species": "ferret",
+      "region": "cerebral cortex",
+      "source": [
+        "doi:10.1126/science.254.5029.282",
+        "doi:10.1016/s0896-6273(00)80280-9",
+        "doi:10.1242/dev.127.13.2863",
+        "doi:10.1523/jneurosci.08-03-00945.1988"
+      ],
+      "evidence": "abstract",
+      "note": "The heterochronic outcome for postmitotic cells is not in the accessible text. Isshiki et al. 2001 (Drosophila) is cited in the profile for the invertebrate temporal cascade only."
+    }
+  }
 }
-
