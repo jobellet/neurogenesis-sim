@@ -6,6 +6,13 @@
     "Takahashi, Nowakowski & Caviness 1996, J Neurosci 16:6183-6196",
     "Caviness, Takahashi & Nowakowski 2000, in Nelson & Luciana, eds., Handbook of Developmental Cognitive Neuroscience, MIT Press, pp. 7-22"
   ],
+  "provenance_notes": {
+    "T_C_hours": "Start 8.1 h and 11 cycles over E11-E17 match Takahashi et al. 1995 (abstract: 8.1 to 18.4 h). The end value 20.0 h and the intermediate values are NOT confirmed: the 1995 abstract gives 18.4 h and the table of per-cycle lengths was not read. The origin of 20.0 h (possibly Caviness et al. 1995, Trends Neurosci 18:379, or Caviness, Takahashi & Nowakowski 2000, Handbook, pp. 7-22) was not found. Open question, values unchanged.",
+    "T_G1_hours": "Takahashi et al. 1995 (abstract): the lengthening is due essentially to a fourfold increase of G1, the other phases being stable. This table goes 3.0 to 15.0 h, which is fivefold. Per-cycle G1 values were not read. Open question, values unchanged.",
+    "Q": "Takahashi et al. 1996: Q is about 0.11 at E12, 0.5 in cycle 8 (E14) and about 0.8 at E16, rising monotonically (curvilinear), fitted over E12-E16 with Q = 0 at E11 and Q = 1 at E17. The power law k * CC^a with k = 0.009 and a = 1.97 is this repository's fit to those points, not a formula of the paper; CC1-CC7 and CC11 are interpolated.",
+    "basal_death_prob_per_cycle": "No source. Takahashi et al. 1996 say the death fraction is 'unknown but probably small'. Blaschke et al. 1996 report proportions of dying cells in the population (about 70% at E14, 50% at E18 in their ISEL+ counts), not a rate per cycle, so they do not fix this value. A free parameter, kept at 0.01 as a modelling assumption.",
+    "reading": "Checked on 2026-11-04 by reading the abstracts and open pages of Takahashi 1996 and Blaschke 1996 in a browser session; the Takahashi 1995 table and the Handbook chapter were not read."
+  },
   "cycles": 11,
   "k": 0.009,
   "a": 1.97,
