@@ -3,7 +3,10 @@
 `CellList` bins points in cubes of side `cutoff` (CSR layout) and answers radius and k-nearest queries by scanning the
 neighbouring cells, vectorised in chunks of bounded memory (Allen, 1987, Computer Simulation of Liquids). No scipy.
 The default backend is NumPy; `backend="jax"` runs the same queries on the default JAX device in float64, with
-identical indices and distances within floating-point tolerance.
+identical indices and distances within floating-point tolerance. It is not a speed-up: on a CPU it is about a thousand
+times slower than NumPy (the chunked host loop runs eagerly with changing shapes; 22 s against 0.02 s for 20000 points),
+and no GPU was measured. It exists for device placement and consistency. Constructing a JAX-backed `CellList` also sets
+`jax_enable_x64` for the whole process, which changes the default dtypes of other JAX code.
 """
 import numpy as np
 import math

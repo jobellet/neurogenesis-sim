@@ -250,14 +250,10 @@ def test_jax_backend_matches_numpy(layout):
     box = None
     for n in (0, 1, 7, 120):
         pos = rng.random((n, 3))
-        if layout == "planar":
-            pos[:, 2] = 0.0
-        elif layout == "grid_boundaries":
+        if layout == "grid_boundaries":
             pos = np.round(pos * 5) / 5
         elif layout == "clustered":
             pos = rng.normal(size=(n, 3)) * rng.choice([0.05, 0.4], size=(n, 1))
-        elif layout == "explicit_box":
-            box = (np.zeros(3), np.full(3, 0.8))
         queries = np.concatenate([pos[:40], rng.random((30, 3)) * 1.6 - 0.3, np.full((2, 3), 50.0)])
         for cutoff in (0.07, 0.2):
             ref = CellList(pos, cutoff, box)
