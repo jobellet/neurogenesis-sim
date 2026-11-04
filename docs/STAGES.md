@@ -178,6 +178,11 @@ Reference neocortical birth-order windows: `examples/profiles/temporal_competenc
 
 ## Connectivity (C8–C9, `neurogenesis/stages/connectivity.py`)
 
+**`cluster_boutons` (C19).** Cell-type specific connection multiplicity.
+| Param | Default | Meaning |
+|---|---|---|
+| `contacts` | none | a dict of `(pre_type, post_type)` keys to distributions (fixed int, truncated poisson dict, or prob list) |
+
 **`grow_axons` (C8).** The guidance rules of `neurogenesis.development.rules` as a stage, per projection
 (source region → target region). Target point `sigmoid(4·(x_src − 0.5)·Bᵀ + c)` in local [0, 1]³ coordinates, then
 `p = p0·exp(−d²/2σ²)` over target cells, one Bernoulli draw per pair.

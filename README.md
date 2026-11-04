@@ -45,7 +45,7 @@ cells) as modules that others reuse as-is.
 evolution, modules with a registry and validation assays, geometries and fields, a configurable schedule of developmental
 stages (`docs/STAGES.md`), supervised fitting (CMA-ES), connectome data import, pharmacology profiles, branching arbors
 with SWC I/O, SONATA export / import, the bridge, the browser viewer and the macOS app. In progress: the Windows / Linux
-app (H5). Planned: the remaining stages of the second wave (C16–C20, C24), further export formats (J3–J5: NIR, PyNN,
+app (H5). Planned: the remaining stages of the second wave (C16–C18, C20, C24), further export formats (J3–J5: NIR, PyNN,
 NeuroML 2), and lifting the remaining 31-tick delay clip in arbor synapses and the connectome importer (K4b; other
 stages accept delays up to 255 ticks). Configurable stages are
 young and their API may still change. Everything open is in `docs/ROADMAP.md` (tasks for parallel development, rules in
