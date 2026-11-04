@@ -4,12 +4,19 @@
   "citations": [
     "Rivera et al. 1999, Nature 397:251-255",
     "Ben-Ari 2002, Nat Rev Neurosci 3:728-739",
-    "Vu et al. 2000 (retina)",
-    "Zhang et al. 2003 (retina)"
+    "Vu, Payne & Copenhagen 2000, J Neurosci 20:1414-1423 (retina)",
+    "Zhang et al. 2006, J Neurophysiol 95:2404-2416 (mouse retina)",
+    "Tyzio et al. 2008, Eur J Neurosci 27:2515-2528 (rat hippocampus)"
   ],
+  "provenance_notes": {
+    "e_immature": "-45 mV: E_GABA before about P6 in mouse retinal ganglion and amacrine cells (Zhang et al. 2006).",
+    "e_mature": "-75 mV is an E_GABA, not a E_Cl: adult rat CA3 pyramidal somata, P18-P30 (Tyzio et al. 2008; their bicarbonate-corrected E_Cl is about -82 mV). Mouse retina after P6 is about -60 mV (Zhang et al. 2006). Ben-Ari 2002 gives -75 mV as a resting potential, and Rivera et al. 1999 gives no 4-5 mM or -75 mV (driving force of GABA-A about -10 mV). A model default: it asserts 10 mV of hyperpolarising drive over v_rest = -65 mV.",
+    "chloride": "[Cl-]i of 4-5 mM mature: Tyzio et al. 2008 estimate about 4 mM (CA3); retina after P6 is 14 mM (5-20 mM) (Zhang et al. 2006). 25-40 mM immature: about 30 mM in P0-P3 rat Cajal-Retzius cells (Achilles et al. 2007), 29 mM in mouse retina before P6 (Zhang et al. 2006).",
+    "reading": "Values checked against the papers on 2026-11-04 by reading the pages in a browser session, not against full-text PDFs of every paper."
+  },
   "observations": {
     "immature": "high NKCC1, [Cl-]i about 25-40 mM, E_Cl about -50 to -40 mV (above a rest of -65 to -70 mV): GABA depolarises",
-    "mature": "KCC2, [Cl-]i about 4-5 mM, E_Cl about -75 mV: GABA hyperpolarises",
+    "mature": "KCC2, [Cl-]i about 4-14 mM, E_GABA about -75 mV (rat hippocampus) to -60 mV (retina): GABA hyperpolarises (see provenance_notes)",
     "timing": "NKCC1-dominated from E12 to about P4; functional switch between P5 and P10 (hippocampus and neocortex), up to P12-P14 in superficial layers",
     "mechanism": "onset programmed by age, timing accelerated by activity (GABA depolarisation -> Ca2+ -> BDNF / TrkB -> KCC2)"
   },

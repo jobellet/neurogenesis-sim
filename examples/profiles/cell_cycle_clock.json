@@ -1,17 +1,24 @@
 {
   "id": "cell_cycle_clock_mouse_neocortex",
-  "description": "Neocortical neuronogenetic interval E11-E17 (11 integer cell cycles CC1-CC11): power-law cell-cycle exit fraction Q(CC) = min(1, k * CC^a) and cycle length T_C lengthening from 8.1 h to 20.0 h primarily via G1.",
+  "description": "Neocortical neuronogenetic interval E11-E17 (11 integer cell cycles CC1-CC11): power-law cell-cycle exit fraction Q(CC) = min(1, k * CC^a) and cycle length T_C lengthening from 8.1 h to 18.4 h primarily via G1.",
   "citations": [
     "Takahashi, Nowakowski & Caviness 1995, J Neurosci 15:6046-6057",
     "Takahashi, Nowakowski & Caviness 1996, J Neurosci 16:6183-6196",
     "Caviness, Takahashi & Nowakowski 2000, in Nelson & Luciana, eds., Handbook of Developmental Cognitive Neuroscience, MIT Press, pp. 7-22"
   ],
+  "provenance_notes": {
+    "T_C_hours": "Measured by Takahashi et al. 1995, J Neurosci 15:6046, Table 1, for the cycle started at 9:00 on each of E11-E16: T_C 8.1, 10.2, 11.4, 15.1, 17.5, 18.4 h. The 11 per-cycle values here are derived, not measured: starting at E11 9:00, each cycle's length is read by linear interpolation of that daily table at the time the cycle starts (18.4 h held after E16). The eleven cycles then end 140 h (5.8 days) after the start, consistent with 11 cycles over E11-E17 (Takahashi et al. 1996). Replaces an earlier table that ended at 20.0 h, which the paper does not give.",
+    "T_G1_hours": "Same derivation from Table 1 of Takahashi et al. 1995: T_G1 = T_C - (T_S + T_G2+M) = 3.2, 3.3, 5.5, 9.3, 11.8, 12.4 h for E11-E16 (T_G2+M is 2.0 h throughout and T_S about 4 h without a systematic trend), a fourfold increase. Interpolated per cycle in the same way as T_C. The earlier table (3.0 to 15.0 h, fivefold) was not from the paper.",
+    "Q": "Takahashi et al. 1996, J Neurosci 16:6183: the leaving fraction Q of the whole proliferative population is 0.11 (E12), 0.19 (E13), 0.34 (E14), 0.59 (E15), 0.54 (E16) (Table 3); the PVE alone is 0.34-0.38 at E14. Q is extrapolated to 0 at E11 and to 1.0 early on E17, i.e. 10.8 cycles. The power law k * CC^a (k = 0.009, a = 1.97) is this repository's fit to that curve, not a formula of the paper; the per-cycle values are not measured.",
+    "basal_death_prob_per_cycle": "Takahashi et al. 1996: pyknosis and electron microscopy counts range from 0% to a few percent in the proliferative zone (Stensaas 1968; Hinds and Ruffett 1971; Nowakowski and Rakic 1981; Gressens 1991; Takahashi 1992; Reznikov and van der Kooy 1995). ISEL+ staining gives 50-70% (Blaschke et al. 1996), which the authors consider unclear because it would preclude growth of the proliferative epithelium; they call the rate 'unknown but probably small'. 0.01 per cycle is a modelling choice within the 0-few percent range, not a measurement.",
+    "reading": "Takahashi 1995 and 1996 read from the PDFs on 2026-11-04. Caviness et al. 1995 and 2000 not read; they are no longer needed for T_C."
+  },
   "cycles": 11,
   "k": 0.009,
   "a": 1.97,
   "basal_death_prob_per_cycle": 0.01,
-  "T_C_hours": [8.1, 8.5, 9.2, 10.2, 11.5, 13.0, 14.8, 16.8, 18.2, 19.3, 20.0],
-  "T_G1_hours": [3.0, 3.5, 4.2, 5.2, 6.5, 8.0, 9.8, 11.8, 13.2, 14.3, 15.0],
+  "T_C_hours": [8.1, 8.8, 9.6, 10.3, 10.8, 11.4, 13.1, 15.1, 16.6, 17.8, 18.4],
+  "T_G1_hours": [3.2, 3.2, 3.3, 3.5, 4.5, 5.5, 7.3, 9.3, 10.9, 12.0, 12.4],
   "reference_Q": [0.009, 0.035, 0.078, 0.138, 0.214, 0.307, 0.416, 0.541, 0.683, 0.840, 1.000],
   "reference_PVE": [1.00, 1.98, 3.82, 7.05, 12.15, 19.09, 26.46, 30.90, 28.36, 18.01, 5.77],
   "reference_OUT": [0.02, 0.14, 0.60, 1.95, 5.21, 11.72, 22.01, 33.45, 38.71, 30.25, 11.53],
