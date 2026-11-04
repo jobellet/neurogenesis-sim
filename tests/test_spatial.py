@@ -241,3 +241,48 @@ def test_declared_cost_dense_and_sparse(n, box, cutoff):
     tracemalloc.stop()
     declared, _ = CellList.declared_cost(n, n, max(1.0, len(src) / n))
     assert declared / 3 <= measured <= declared * 3
+
+
+@pytest.mark.parametrize("layout", ["uniform", "grid_boundaries", "clustered"])
+def test_jax_backend_matches_numpy(layout):
+    """backend="jax" returns the same indices as NumPy and distances within floating-point tolerance."""
+    rng = np.random.default_rng(11)
+    box = None
+    for n in (0, 1, 7, 120):
+        pos = rng.random((n, 3))
+        if layout == "grid_boundaries":
+            pos = np.round(pos * 5) / 5
+        elif layout == "clustered":
+            pos = rng.normal(size=(n, 3)) * rng.choice([0.05, 0.4], size=(n, 1))
+        queries = np.concatenate([pos[:40], rng.random((30, 3)) * 1.6 - 0.3, np.full((2, 3), 50.0)])
+        for cutoff in (0.07, 0.2):
+            ref = CellList(pos, cutoff, box)
+            jax_cl = CellList(pos, cutoff, box, backend="jax")
+            assert jax_cl.backend == "jax"
+            for radius in (cutoff, 2.3 * cutoff):
+                a = ref.query_radius(queries, radius, return_distances=True)
+                b = jax_cl.query_radius(queries, radius, return_distances=True)
+                assert np.array_equal(a[0], b[0]) and np.array_equal(a[1], b[1])
+                assert np.allclose(a[2], b[2], rtol=1e-12, atol=1e-12)
+            for k in (1, 30):
+                a = ref.query_knn(queries, k)
+                b = jax_cl.query_knn(queries, k)
+                assert np.array_equal(a[0], b[0])
+                assert np.allclose(a[1], b[1], rtol=1e-12, atol=1e-12)
+
+
+def test_jax_backend_determinism_and_validation():
+    rng = np.random.default_rng(3)
+    pos = rng.random((50, 3))
+    with pytest.raises(ValueError):
+        CellList(pos, 0.2, backend="cuda")
+    a = CellList(pos, 0.2, backend="jax")
+    b = CellList(pos, 0.2, backend="jax")
+    r1 = a.query_radius(pos, 0.2, return_distances=True)
+    r2 = b.query_radius(pos, 0.2, return_distances=True)
+    for x, y in zip(r1, r2):
+        assert isinstance(x, np.ndarray)
+        assert np.array_equal(x, y)
+    k1 = a.query_knn(pos, 4)
+    k2 = b.query_knn(pos, 4)
+    assert np.array_equal(k1[0], k2[0]) and np.array_equal(k1[1], k2[1])
