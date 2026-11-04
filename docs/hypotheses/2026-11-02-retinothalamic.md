@@ -97,3 +97,20 @@ the 10-seed results were known, so they are exploratory.
   about 510–590 seeds per group. Future runs should compare conditions seed by seed.
 - **Means moved a little.** 100-seed WT separation is 0.621 against 0.671 at 10 seeds (seeds 0–9 happen to be high, about
   0.5 SD); r_x 0.921 against 0.911.
+
+## 1000-seed rerun (appended 2026-11-04, after the runs; not part of the pre-registered plan)
+The run-2 settings were extended to seeds 0–999 to settle the corner-separation endpoint, which the 100-seed power analysis
+said needed hundreds of paired seeds. The sample size was chosen after seeing the 100-seed results and the statistics are
+exploratory (uncorrected p-values). Seeds 100–999 ran on the cluster as 180 array tasks of 5 seeds (3.6 core-hours), at
+commit dc2186b like seeds 0–99; seed 0 reproduces the earlier run exactly (largest difference 0). Separation is undefined
+for 8 seeds (87, 127, 240, 289, 369, 401, 523, 811: no responding relay cell at a corner), so it uses n = 992; every other
+metric n = 1000. The driver and per-seed files are not committed here.
+- **Verdicts unchanged:** H1, H2 held (EphA-KO r_x 0.001, |Δr_y| 0.013), H3 orientation held (r_x, r_y 0.924 in TTX and
+  β2-KO), H3 blurring **weak** by the one-pooled-SD rule: error +0.0032 (TTX) and +0.0034 (β2-KO), ratio 0.19 and 0.20;
+  separation −0.0072 and −0.0037, ratio −0.06 and −0.03.
+- **Topographic error:** paired dz +1.15 (95% CI 1.07 to 1.23) for TTX and +1.10 (1.02 to 1.19) for β2-KO, higher than WT in
+  899 and 876 of 1000 seeds.
+- **Corner separation, settled:** the drop is detectable for both conditions, and tiny. TTX −0.0072 (dz −0.28, CI −0.35 to
+  −0.22, p 5e-17), β2-KO −0.0037 (dz −0.13, CI −0.20 to −0.07, p 1e-5); 0.06 and 0.03 pooled SD, so far below the
+  one-SD criterion for "clear". The 100-seed estimates (−0.0096 and −0.0049) were slightly larger, within sampling noise.
+- **Seeds for 80% power, paired:** about 9 for the topographic-error shift, about 99 (TTX) and 437 (β2-KO) for separation.

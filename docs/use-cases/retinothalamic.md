@@ -17,7 +17,7 @@ simulation from one stage checkpoint to the next, and the primary developmental 
 | Question | Result in this simulation |
 |---|---|
 | Does the EphA knockout disrupt the x map? | Yes. In the p2A-shaped relay, r_x falls from 0.832 in WT to 0.013. The y map remains (r_y 0.769). |
-| Does activity deprivation blur the map? | Only weakly in this setup: the change is smaller than the across-seed variation. With 100 seeds it is a small but consistent shift (topographic error +0.003, higher than WT in 86–87 of 100 seeds), see {ref}`larger-seed rerun <retino-100-seeds>`. |
+| Does activity deprivation blur the map? | Only weakly in this setup: the change is smaller than the across-seed variation. With 100 and 1000 seeds it is a small but consistent shift (topographic error +0.003, higher than WT in about 88% of seeds), see {ref}`larger-seed rerun <retino-100-seeds>`. |
 | Does relay shape matter? | The equal-volume box has stronger map scores than p2A. Its smaller dimensions also change spatial extent, so this does not isolate shape alone. |
 
 ## Read the animation
@@ -320,6 +320,14 @@ below 1e-13). The corner-separation drop is detectable for TTX (−0.0096, dz �
 dz −0.17, interval includes 0). A paired comparison needs about 8–10 seeds for the topographic-error shift; an unpaired
 one would need more than 500 per group. Future runs should therefore compare conditions seed by seed. The expression
 variant (50 seeds) gives the same picture. The per-seed data and the driver script are not in the repository.
+
+**1000 seeds.** The same settings were then run for seeds 0–999 (separation: 992 seeds, undefined for 8) to settle the
+corner-separation endpoint; seed 0 is reproduced exactly on the cluster. The verdicts do not change. The topographic-error
+shift is +0.0032 (TTX) and +0.0034 (b2KO), higher than WT in 899 and 876 of 1000 seeds. The separation drop is now
+detectable for both conditions and tiny: TTX −0.0072 (dz −0.28, 95% CI −0.35 to −0.22) and b2KO −0.0037 (dz −0.13, CI −0.20
+to −0.07), that is 0.06 and 0.03 of the across-seed SD. For 80% power in a paired comparison, about 99 (TTX) and 437 (b2KO)
+seeds are needed for separation, and about 9 for the topographic error. Sample size and statistics were chosen after the
+10-seed results, so they are exploratory.
 
 ## Limits and toolbox findings
 Found while writing this example (run 1), fixed afterwards:
