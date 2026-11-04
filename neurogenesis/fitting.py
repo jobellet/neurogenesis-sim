@@ -237,6 +237,10 @@ def jacobian(project: Dict[str, Any], targets: Sequence[Dict[str, Any]], genome:
     return J, [f[0] for f in fits]
 
 
+def _target_name(t: Dict[str, Any]) -> str:
+    return str(t.get("name") or (t["metric"] + (f" ({t['cell_type']})" if "cell_type" in t else "")))
+
+
 def identifiability_report(J: np.ndarray, names: Sequence[str], targets: Sequence[Dict[str, Any]],
                            rtol: float = 1e-9) -> Dict[str, Any]:
     """What the Jacobian says about the fit: Fit params that move no target (`unidentifiable`), targets that no param
@@ -249,8 +253,7 @@ def identifiability_report(J: np.ndarray, names: Sequence[str], targets: Sequenc
     tiny = rtol * max(1.0, float(np.abs(Js).max()) if Js.size else 1.0)
     return {
         "unidentifiable": [n for j, n in enumerate(names) if not np.any(np.abs(Js[:, j]) > tiny)],
-        "unreachable": [t["metric"] + (f" ({t['cell_type']})" if "cell_type" in t else "")
-                        for i, t in enumerate(targets) if names and not np.any(np.abs(Js[i, :]) > tiny)],
+        "unreachable": [_target_name(t) for i, t in enumerate(targets) if names and not np.any(np.abs(Js[i, :]) > tiny)],
         "singular_values": sv.tolist(),
         "rank": int(np.sum(sv > rtol * sv.max())) if sv.size and sv.max() > 0 else 0,
     }
@@ -300,9 +303,10 @@ def fit(project: Dict[str, Any], targets: Sequence[Dict[str, Any]], seeds: Seque
                           f"cannot be fitted from these targets (unused by the model, masked by a clip, or outside "
                           f"their reach); drop it or add a target it affects", UserWarning, stacklevel=2)
         for t in report["unreachable"]:
-            warnings.warn(f"target {t!r} responds to no Fit param: it cannot be matched whatever the fitted values; "
-                          f"drop it, give it weight 0 (a diagnostic) or add a Fit param that acts on it",
-                          UserWarning, stacklevel=2)
+            if any(float(tg.get("weight", 1.0)) > 0 and _target_name(tg) == t for tg in targets):   # weight 0 = a diagnostic
+                warnings.warn(f"target {t!r} responds to no Fit param: it cannot be matched whatever the fitted values; "
+                              f"drop it, give it weight 0 (a diagnostic) or add a Fit param that acts on it",
+                              UserWarning, stacklevel=2)
     x, best, hist = cmaes(loss_of, x0, sigma0=sigma0, iterations=iterations, popsize=popsize, seed=seed, log=log)
     g = with_fit(genome, values_of(x))
     loss, metrics = evaluate(project, g, targets, seeds)
