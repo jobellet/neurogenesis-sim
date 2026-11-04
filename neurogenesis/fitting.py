@@ -15,10 +15,15 @@ several seeds per evaluation make the fit robust to developmental noise. The def
 Ostermeier 2001, Evol Comput) on the [0, 1]-coded Fit values: gradient free, robust to stochastic development, and
 deterministic for a given `seed`. Metrics are registered with `@register_metric`; built in: cell_count, density,
 layer_thickness, synapse_count, mean_in_degree, connection_probability, firing_rate.
+
+Before searching, `fit` measures the Jacobian of the metrics with respect to the Fit values (`jacobian`) and warns about
+a Fit param that moves no target metric (it cannot be fitted from these targets: unused by the model, masked by a clip,
+or outside the targets' reach) and about a target that no Fit param moves (it cannot be matched whatever the values).
 """
 from __future__ import annotations
 
 import copy
+import warnings
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -203,6 +208,54 @@ def cmaes(f: Callable[[np.ndarray], float], x0: np.ndarray, sigma0: float = 0.3,
     return best_x, best_f, hist
 
 
+def jacobian(project: Dict[str, Any], targets: Sequence[Dict[str, Any]], genome: Optional[Dict[str, Any]] = None,
+             seeds: Sequence[int] = (0, 1, 2), rel_step: float = 0.05) -> Tuple[np.ndarray, List[str]]:
+    """Sensitivity of the target metrics (mean over development seeds) to each Fit param, by central differences over
+    +/- `rel_step` of the param's range (one-sided at a bound), around the genome's fitted values or the inits.
+    Returns (matrix of shape targets x Fit params, in metric units per full range of the param; Fit names in order).
+    Development is deterministic for given seeds, so a param that changes nothing gives exactly 0. Costs
+    2 x params x seeds developments."""
+    genome = genome or {}
+    fits = collect_fits(project)
+    if not fits:
+        return np.zeros((len(targets), 0)), []
+    lo = np.asarray([f[2] for f in fits], np.float64)
+    span = np.maximum(np.asarray([f[3] for f in fits], np.float64) - lo, 1e-12)
+    current = genome.get(FIT_KEY, {})
+    x0 = np.clip((np.asarray([current.get(f[0], f[1]) for f in fits], np.float64) - lo) / span, 0.0, 1.0)
+
+    def mean_metrics(x):
+        vals = {f[0]: float(v) for f, v in zip(fits, lo + x * span)}
+        return np.mean(np.asarray(evaluate(project, with_fit(genome, vals), targets, seeds)[1], np.float64), axis=0)
+
+    J = np.zeros((len(targets), len(fits)))
+    for j in range(len(fits)):
+        up, dn = x0.copy(), x0.copy()
+        up[j], dn[j] = min(x0[j] + rel_step, 1.0), max(x0[j] - rel_step, 0.0)
+        if up[j] > dn[j]:
+            J[:, j] = (mean_metrics(up) - mean_metrics(dn)) / (up[j] - dn[j])
+    return J, [f[0] for f in fits]
+
+
+def identifiability_report(J: np.ndarray, names: Sequence[str], targets: Sequence[Dict[str, Any]],
+                           rtol: float = 1e-9) -> Dict[str, Any]:
+    """What the Jacobian says about the fit: Fit params that move no target (`unidentifiable`), targets that no param
+    moves (`unreachable`), and the singular values of the Jacobian scaled by each target's tolerance and weight (the
+    directions of parameter space the data constrain are those with a large singular value; `rank` counts those above
+    `rtol` times the largest)."""
+    scale = np.asarray([float(t.get("scale", 1.0)) / np.sqrt(max(float(t.get("weight", 1.0)), 1e-12)) for t in targets])
+    Js = J / scale[:, None] if J.size else J
+    sv = np.linalg.svd(Js, compute_uv=False) if Js.size else np.zeros(0)
+    tiny = rtol * max(1.0, float(np.abs(Js).max()) if Js.size else 1.0)
+    return {
+        "unidentifiable": [n for j, n in enumerate(names) if not np.any(np.abs(Js[:, j]) > tiny)],
+        "unreachable": [t["metric"] + (f" ({t['cell_type']})" if "cell_type" in t else "")
+                        for i, t in enumerate(targets) if names and not np.any(np.abs(Js[i, :]) > tiny)],
+        "singular_values": sv.tolist(),
+        "rank": int(np.sum(sv > rtol * sv.max())) if sv.size and sv.max() > 0 else 0,
+    }
+
+
 @dataclass
 class FitResult:
     values: Dict[str, float]                 # fitted value per Fit target
@@ -210,13 +263,18 @@ class FitResult:
     genome: Dict[str, Any]                   # base genome with the fitted values (params.FIT_KEY)
     metrics: List[List[float]]               # metric values per seed at the fitted values
     history: List[dict] = field(default_factory=list)
+    jacobian: Optional[np.ndarray] = None    # (targets x Fit params) d metric / d value, at the start (see `jacobian`)
+    identifiability: Optional[Dict[str, Any]] = None   # `identifiability_report` of that Jacobian
 
 
 def fit(project: Dict[str, Any], targets: Sequence[Dict[str, Any]], seeds: Sequence[int] = (0, 1, 2),
         genome: Optional[Dict[str, Any]] = None, iterations: int = 30, popsize: Optional[int] = None,
-        sigma0: float = 0.3, seed: int = 0, log: Optional[Callable[[dict], None]] = None) -> FitResult:
+        sigma0: float = 0.3, seed: int = 0, log: Optional[Callable[[dict], None]] = None,
+        check_identifiability: bool = True) -> FitResult:
     """Fits every Fit param of the project (`collect_fits`) to the targets with CMA-ES, starting from their init (or
-    the values already in the genome). Deterministic for given seeds. A project without Fit params is evaluated as is."""
+    the values already in the genome). Deterministic for given seeds. A project without Fit params is evaluated as is.
+    With `check_identifiability` (default) the Jacobian at the start is computed first (2 x params x seeds extra
+    developments) and a warning names every Fit param that moves no target and every target no Fit param moves."""
     genome = genome or {}
     fits = collect_fits(project)
     if not fits:
@@ -233,7 +291,19 @@ def fit(project: Dict[str, Any], targets: Sequence[Dict[str, Any]], seeds: Seque
     def loss_of(x):
         return evaluate(project, with_fit(genome, values_of(x)), targets, seeds)[0]
 
+    J = report = None
+    if check_identifiability:
+        J, names = jacobian(project, targets, genome, seeds)
+        report = identifiability_report(J, names, targets)
+        for n in report["unidentifiable"]:
+            warnings.warn(f"Fit param {n!r} moves no target metric over +/-5% of its range on seeds {list(seeds)}: it "
+                          f"cannot be fitted from these targets (unused by the model, masked by a clip, or outside "
+                          f"their reach); drop it or add a target it affects", UserWarning, stacklevel=2)
+        for t in report["unreachable"]:
+            warnings.warn(f"target {t!r} responds to no Fit param: it cannot be matched whatever the fitted values; "
+                          f"drop it, give it weight 0 (a diagnostic) or add a Fit param that acts on it",
+                          UserWarning, stacklevel=2)
     x, best, hist = cmaes(loss_of, x0, sigma0=sigma0, iterations=iterations, popsize=popsize, seed=seed, log=log)
     g = with_fit(genome, values_of(x))
     loss, metrics = evaluate(project, g, targets, seeds)
-    return FitResult(values_of(x), loss, g, metrics, hist)
+    return FitResult(values_of(x), loss, g, metrics, hist, J, report)

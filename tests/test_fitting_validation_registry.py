@@ -228,3 +228,35 @@ def test_module_version_fields_round_trip_and_old_files_load():
     del d["version"], d["toolbox"]
     old = Module.from_dict(d)
     assert old.version == "0.1.0" and old.toolbox == "*"
+
+
+# E2: identifiability -------------------------------------------------------------------------------------------------
+def _project_with_unused_fit():
+    p = _project()
+    # `jitter` only displaces daughters: no cell-count target can see it
+    p["schedule"][1]["params"]["jitter"] = {"target": "jit", "init": 0.01, "lo": 0.0, "hi": 0.1}
+    return p
+
+
+def test_jacobian_and_report_flag_an_unused_fit_param_and_an_unreachable_target():
+    from neurogenesis.fitting import identifiability_report, jacobian
+    targets = [{"metric": "cell_count", "value": 300, "scale": 10},
+               {"metric": "layer_thickness", "cell_type": 1, "axis": 2, "value": 0.2, "scale": 0.02, "weight": 0.0}]
+    J, names = jacobian(_project_with_unused_fit(), targets, seeds=(0, 1))
+    assert names == ["jit", "p_div"] and J.shape == (2, 2)
+    assert J[0, 0] == 0.0 and J[0, 1] > 0           # more division, more cells; jitter changes no count
+    rep = identifiability_report(J, names, targets)
+    assert rep["unidentifiable"] == ["jit"] and rep["unreachable"] == ["layer_thickness (1)"]
+    assert rep["rank"] >= 1 and len(rep["singular_values"]) == 2
+
+
+def test_fit_warns_about_unidentifiable_params_and_can_be_silenced():
+    import warnings
+    targets = [{"metric": "cell_count", "value": 300, "scale": 10}]
+    with pytest.warns(UserWarning, match="'jit' moves no target metric"):
+        r = fit(_project_with_unused_fit(), targets, seeds=(0, 1), iterations=2)
+    assert r.identifiability["unidentifiable"] == ["jit"] and r.jacobian.shape == (1, 2)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        fit(_project_with_unused_fit(), targets, seeds=(0, 1), iterations=2, check_identifiability=False)
+        fit(_project(), targets, seeds=(0, 1), iterations=2)       # one param that matters: no warning
