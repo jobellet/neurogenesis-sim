@@ -4,8 +4,7 @@
   "citations": [
     "Rivera et al. 1999, Nature 397:251-255",
     "Ben-Ari 2002, Nat Rev Neurosci 3:728-739",
-    "Vu et al. 2000 (retina)",
-    "Zhang et al. 2003 (retina)"
+    "Vu, Payne & Copenhagen 2000, J Neurosci 20:1414-1423 (retina)"
   ],
   "observations": {
     "immature": "high NKCC1, [Cl-]i about 25-40 mM, E_Cl about -50 to -40 mV (above a rest of -65 to -70 mV): GABA depolarises",
