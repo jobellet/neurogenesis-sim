@@ -86,4 +86,52 @@ public class SimulationEngineTests
         vm.StepSimulation();
         Assert.Contains("requires a native model", vm.Status);
     }
+    [Fact]
+    public async Task HeadlessAction_GeneratePreset_CallsBridgeAndLoadsNetwork()
+    {
+        var vm = new MainViewModel();
+        // Wait briefly if bridge is starting
+        if (vm.Bridge != null)
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            while (!vm.Bridge.IsReady && !cts.IsCancellationRequested)
+            {
+                await Task.Delay(50);
+            }
+        }
+
+        Assert.True(vm.Bridge?.IsReady == true, "Bridge must be ready for generation test");
+        await vm.GeneratePresetAsync("column", 60, 42);
+
+        Assert.NotNull(vm.Scene);
+        Assert.Equal(60, vm.Scene.Network.NeuronCount);
+        Assert.True(vm.Scene.Network.SynapseCount > 0);
+        Assert.True(File.Exists(vm.CurrentNetworkPath));
+    }
+
+    [Fact]
+    public async Task HeadlessAction_SimulateRemote_CallsBridgeSimulate()
+    {
+        string path = Path.Combine(PythonFixtures.RepoRoot(), "desktop", "common", "fixtures", "microcircuit.ngb");
+        var vm = new MainViewModel();
+        await vm.OpenAsync(path);
+
+        if (vm.Bridge != null)
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            while ((!vm.Bridge.IsReady || !vm.CanSimulateRemote) && !cts.IsCancellationRequested)
+            {
+                await Task.Delay(50);
+            }
+        }
+
+        Assert.True(vm.Bridge?.IsReady == true, $"Bridge readiness failed. Status: {vm.Status}, Note: {vm.SceneNote}");
+        Assert.True(vm.CanSimulateRemote, $"CanSimulateRemote false. Scene: {vm.Scene != null}, IsBridgeReady: {vm.IsBridgeReady}, Status: {vm.Status}");
+
+        await vm.SimulateRemoteAsync(ticks: 100, seed: 12345);
+
+        Assert.Equal(100f, vm.CurrentTick);
+        Assert.Contains("Remote sim complete: 100 ticks", vm.Status);
+    }
 }
+

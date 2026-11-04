@@ -125,4 +125,96 @@ public class BridgeTests
         var res = await client.CallAsync("ping", ct: cts.Token);
         Assert.Equal("pong", res.GetString());
     }
+
+    [Fact]
+    public async Task ProgressEventsAreReceivedForLongRunningJobs()
+    {
+        string python = PythonFixtures.Python;
+        string repo = PythonFixtures.RepoRoot();
+
+        await using var client = new BridgeClient(python, repo);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await client.StartAsync(cts.Token);
+
+        var progressList = new List<(int Job, System.Text.Json.JsonElement Data)>();
+        client.ProgressReceived += (job, data) =>
+        {
+            progressList.Add((job, data.Clone()));
+        };
+
+        var sheetPlacement = new JsonObject
+        {
+            ["labels"] = new JsonArray(
+                new JsonArray(0.2, 0.2, 0.5),
+                new JsonArray(0.8, 0.8, 0.5)
+            )
+        };
+
+        var plan = new JsonObject
+        {
+            ["name"] = "toy",
+            ["regions"] = new JsonArray(
+                new JsonObject
+                {
+                    ["name"] = "sheet",
+                    ["origin"] = new JsonArray(0, 0, 0),
+                    ["size"] = new JsonArray(10, 10, 2),
+                    ["role"] = 1,
+                    ["placement"] = sheetPlacement
+                },
+                new JsonObject
+                {
+                    ["name"] = "map",
+                    ["origin"] = new JsonArray(20, 0, 0),
+                    ["size"] = new JsonArray(10, 10, 10),
+                    ["role"] = 0
+                }
+            ),
+            ["projections"] = new JsonArray(
+                new JsonArray("sheet", "map"),
+                new JsonArray("map", "map")
+            ),
+            ["rules"] = new JsonObject
+            {
+                ["placement"] = new JsonArray("mosaic"),
+                ["shift"] = new JsonArray("identity_offset"),
+                ["target"] = new JsonArray("topographic"),
+                ["probability"] = new JsonArray("identity_expression", "no_autapse", "source_sign"),
+                ["weight"] = new JsonArray("receptor_sign")
+            }
+        };
+
+        var planDefaultsRes = await client.CallAsync("plan_defaults", new JsonObject
+        {
+            ["plan"] = JsonNode.Parse(plan.ToJsonString())!,
+            ["genome"] = new JsonObject { ["count"] = new JsonObject { ["map"] = 10 } }
+        }, ct: cts.Token);
+        var genome = JsonNode.Parse(planDefaultsRes.GetProperty("genome").GetRawText())!;
+
+        var genes = new JsonArray(
+            new JsonObject
+            {
+                ["path"] = new JsonArray("guidance", "sheet->map", "w"),
+                ["lo"] = 20,
+                ["hi"] = 400
+            }
+        );
+
+        var p = new JsonObject
+        {
+            ["plan"] = JsonNode.Parse(plan.ToJsonString())!,
+            ["genome"] = genome,
+            ["genes"] = genes,
+            ["target_hz"] = 10.0,
+            ["gens"] = 1,
+            ["pop"] = 2,
+            ["seeds"] = 1,
+            ["ticks"] = 30,
+            ["input_current"] = 50
+        };
+
+        var res = await client.CallAsync("evolve", p, ct: cts.Token);
+        Assert.True(res.TryGetProperty("history", out _));
+        Assert.True(progressList.Count > 0, "Progress events should be received during evolve execution");
+    }
 }
