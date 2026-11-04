@@ -85,9 +85,9 @@ GUI (viz/): geometry and field editor, schedule editor, step-by-step development
 ## 3. Current state (2026-11-01)
 | Area | Present | Missing |
 |---|---|---|
-| Spiking | integer LIF kernel, bit-identical in Python, JAX and the browser; `two_compartment` and `hh` models; batched runs; cost estimator with machine calibration; STDP, Hebbian and three-factor plasticity (E1) | per-region choice of model |
+| Spiking | integer LIF kernel, bit-identical in Python, JAX and the browser; `two_compartment` and `hh` models; batched runs; cost estimator with machine calibration; STDP, Hebbian and three-factor plasticity (E1) | per-region choice of model; plasticity during exposure to stimulus streams and intrinsic plasticity (E6, E7) |
 | Development | `BodyPlan` (regions, projections), one fixed growth order (placement → sign → differentiation → identity → axons), rule registry in 5 phases (placement, shift, target, probability, weight), knockouts, tonic currents; geometry, fields, `Tissue`, stage schedule (A1–A5, B1–B5, C1–C13, D2, D3; see `docs/STAGES.md`) | chunked growth (D4), and the parts of C8, D1 and D2 marked partial below |
-| Genome / evolution | gene paths, [0, 1] coding, gene groups, JSON; island model, robust fitness, audits; `Param` sources (A3); fitting of `Fit` params (E2), inner-loop fitting and Pareto evolution (E3) | gradient-based fitting |
+| Genome / evolution | gene paths, [0, 1] coding, gene groups, JSON; island model, robust fitness, audits; `Param` sources (A3); fitting of `Fit` params (E2), inner-loop fitting and Pareto evolution (E3) | gradient-based fitting; environment seeds and learning audits (E9) |
 | Modules | save / load, composition, plugins, neuron model recorded; versions, local registry (G1); validation assays (E4) | a shared online catalogue |
 | GUI | 3D viewer and per-neuron editing of a finished network | geometry and field editor, schedule editor, development preview, Project import / export |
 | CI | GitHub Actions: tests on Python 3.10 and 3.12, browser-kernel equivalence, viewer build, cost command line, fixed CPU performance benchmarks (report only, regressions above 30% flagged) | coverage |
@@ -478,6 +478,117 @@ field or fit can replace; values are about the cited species and ages, and resul
 - **Status:** done: `neurogenesis.validation` and `python -m neurogenesis validate module.json` (stimuli per region,
   rate or fraction-active readout, metrics, gates, pass fraction, knockouts).
 
+**E6–E9: learning from stimulus streams.** Genes, not weights, are evolved: development grows the network and
+gene-coded local plasticity shapes it during passive exposure to a stimulus stream, with no learning objective inside
+the network. The experimenter scores the frozen network with a masked latent-prediction criterion after V-JEPA 2.1
+(Mur-Labadia et al. 2026, arXiv:2603.14482), written as an amount of information so that a constant code scores zero.
+Plan, controls and pre-registered predictions: `docs/hypotheses/2026-11-04-predictive-plasticity.md`; use case
+`docs/use-cases/predictive-plasticity.md`.
+
+**E6. Exposure to stimulus streams, with online plasticity.**
+- **Goal:** a developmental stage that presents a time-varying input stream to the input cells and lets plasticity act
+  while the network runs, so that a schedule can include a period of sensory experience. A stream is an array of
+  intensities over time and positions; the core names no modality.
+- **Deliverables:**
+  - an `expose` stage (`neurogenesis/stages/exposure.py`). Params: the stream (an array `(T, H, W)` or `(T, H, W, C)`
+    in the Project's `.npz`, or a registered generator called with the stage `rng`), ticks per frame, gain and offset of
+    the input current, the input cells (`{"region": ..., "cell_type": ...}`) and the channel each one reads, bilinear
+    sampling of the frame at each input cell's local (x, y), the rules to run (E1, E7) with their `Param`s, `block`
+    (ticks between weight updates; 1 = fully online), and an optional record of responses for E8;
+  - online updates: weights, and the thresholds of E7, carried in the JAX `scan` or updated every `block` ticks; the
+    `plastic` mask (K6) is honoured, so `critical_period_gate` can end the plasticity of an exposure;
+  - a cost declaration (ticks × (c_E · E + c_N · N) plus the declared costs of the rules), checked by
+    `neurogenesis.cost` before running; an entry in `docs/STAGES.md`.
+- **Out of scope:** file readers, cameras, retina-like transduction and masks (examples and modules); changes to the
+  `lif_int` kernel.
+- **Acceptance tests:** (1) determinism: same tissue, stream and seed give identical weights and responses; (2) neutral
+  parameters (no stream, no rule) are a no-op; (3) `block = 1` gives the same weights as the per-tick `step` of each E1
+  rule, and with every rule off the responses equal `simulate_tissue` with the same currents; (4) on a bar drifting
+  across a 2D input sheet, STDP shifts a target cell's input weights towards the inputs the bar crosses first (against
+  the drift; Fu et al. 2002, Science); (5) declared cost within a factor 3 of measurement, no dense N × N arrays,
+  nothing skipped, development fingerprints unchanged.
+- **Dependencies:** E1, A4, K6, C11 (`simulate_tissue`).
+- **Status:** not done.
+
+**E7. Local plasticity rules for predictive codes, and intrinsic plasticity.**
+- **Goal:** the local mechanisms that theory links to predictive and information-maximising codes, usable in `expose`
+  (E6) and `refine_by_activity` (C11), and one template with gene-coded coefficients that contains them, so that
+  evolution searches a space in which the known rules are points.
+- **Deliverables** (in `neurogenesis.spiking.plasticity`, each rule citing its source):
+  - intrinsic plasticity: per-neuron threshold homeostasis towards a target rate (Desai et al. 1999, Nat Neurosci), with
+    the entropy-maximising form as an option (Triesch 2007, Neural Comput);
+  - inhibitory STDP that balances excitation and inhibition (Vogels et al. 2011, Science);
+  - BCM with a sliding threshold (Bienenstock et al. 1982, J Neurosci) and triplet STDP (Pfister & Gerstner 2006,
+    J Neurosci);
+  - latent predictive learning: a predictive term (the change of the postsynaptic trace) plus a variance-normalised
+    Hebbian term (Halvagal & Zenke 2023, Nat Neurosci);
+  - dendritic prediction of somatic spiking for `two_compartment` (Urbanczik & Senn 2014, Neuron), which needs K7;
+  - `TemplateRule`: Δw_ij = η · x̄_j · [a₀ y_i + a₁ y_i (y_i − θ_i) + a₂ (y_i − ȳ_i) / σ_i² − a₃ Δȳ_i + a₄ (y_i − ŷ_i)
+    + a₅ m y_i] − a₆ y_i² w_ij (presynaptic trace x̄, postsynaptic trace y, sliding threshold θ, running mean ȳ and
+    variance σ², change Δȳ over one frame, dendritic prediction ŷ, modulator m), with coefficients, time constants and
+    learning rates as `Param`s per synapse class (pre type, post type, target compartment); signs (Dale's principle)
+    and bounds as in E1;
+  - rules change weights and thresholds between ticks: the four `lif_int` kernels are unchanged.
+- **Out of scope:** learning objectives or gradients inside the network.
+- **Acceptance tests:** (1) for their documented coefficients, the template gives the same weights as Hebb, Oja, BCM,
+  latent predictive learning and dendritic prediction on the same rasters; (2) intrinsic plasticity brings every
+  neuron's rate within 10 % of its target under stationary Poisson input; (3) inhibitory STDP balances a neuron's
+  excitatory and inhibitory currents (the test of Vogels et al. 2011); (4) BCM becomes selective to one of two
+  alternating input patterns; (5) latent predictive learning on a stream that alternates slowly between two sources
+  gives outputs more stable within a source than between sources; (6) determinism, bounds and signs kept, zero
+  coefficients change nothing, declared cost within a factor 3 of measurement.
+- **Dependencies:** E1; E6 for online use; K7 for the dendritic rule.
+- **Status:** not done.
+
+**E8. Representation metrics: masked predictive information.**
+- **Goal:** measure, on a frozen network and at several levels, how much information the representation of the hidden
+  parts of a stimulus stream carries that is predictable from the representation of its visible parts. The measure
+  follows the objective of V-JEPA 2.1 but counts information, so that a constant code scores zero and the measure can
+  serve as an evolutionary fitness (E9).
+- **Deliverables** (`neurogenesis.representation`, with its row in the README table as `tests/test_readme_status.py`
+  requires; registered metrics):
+  - dense readout: population spike-count vectors per grid position of a region (cells binned by local (x, y)) and per
+    time window, in O(N + spikes);
+  - masked predictive information between the responses to a full stream and to a masked one (the caller gives the
+    mask): InfoNCE scores with negatives from the other positions of the same stream and from other streams (van den
+    Oord et al. 2018, arXiv:1807.03748); two predictors, the network's own response or a closed-form ridge regression
+    from the context tokens around each masked token, fitted and scored on disjoint halves; a Gaussian estimate from
+    canonical correlations; a masked term and a context term weighted by λ/√d to the nearest masked token; a sum over
+    chosen regions (levels);
+  - effective dimension (participation ratio), temporal consistency (cosine label propagation between windows), and
+    closed-form ridge probes for given targets.
+- **Out of scope:** stimulus generation and masks (examples); any training of the network.
+- **Acceptance tests,** on synthetic codes: (1) a constant code scores 0 within the estimator's noise; (2) a code that
+  is the same at every position of a stream scores at chance against same-stream negatives, while a position-specific,
+  predictable code scores above chance; (3) a code that copies unpredictable noise scores about 0 on the masked tokens;
+  (4) the Gaussian estimate matches the analytic mutual information of jointly Gaussian toys within 5 %;
+  (5) determinism, memory O(tokens × negatives) with the bound documented, declared cost within a factor 3.
+- **Dependencies:** the E2 metric registry; J10 if it lands first.
+- **Status:** not done.
+
+**E9. Evolving plasticity across environments.**
+- **Goal:** evolve genomes (architecture and E7 coefficients) whose networks score high on E8 after an E6 exposure,
+  under conditions where learning pays more than innate wiring: the environment changes from one generation to the
+  next, so a genome cannot hard-wire one world (Hinton & Nowlan 1987, Complex Systems; Stephens 1991, Behav Ecol).
+- **Deliverables:**
+  - environment seeds: evaluators draw each individual's world and clips from a seed independent of the development
+    seed, fresh every generation (like `evolution.islands.seeds_of`), with separate validation and audit seeds;
+  - a learning audit in `neurogenesis.evolution.robust`: the same genome after normal exposure, no exposure, shuffled
+    exposure (frames permuted) and cross-rearing (reared in one world, tested in another), with the learning gain per
+    seed;
+  - multi-fidelity evaluation: short exposures for every individual, long ones for the best fraction;
+  - `examples/predictive_plasticity.py`: procedural worlds (textured sprites with occlusions, 16 × 16 to 32 × 32
+    pixels), ON/OFF input cells, two retinotopic levels, islands founded on the E7 test settings; under about 5 min on a
+    laptop CPU in its test configuration, with a test in `tests/test_examples.py`; the use case page filled in.
+- **Out of scope:** changing the algorithm of `evolve`; natural video datasets (a module, or a later task through the
+  I1 catalogue).
+- **Acceptance tests:** (1) environment seeds never meet the audit seeds; (2) the learning audit returns its four
+  conditions for a toy genome, deterministically; (3) multi-fidelity keeps the same best genome as full fidelity on a
+  toy evaluator whose short and long scores rank genomes alike; (4) the example's test configuration runs and reports
+  F, the learning gain and the effective dimension, deterministically.
+- **Dependencies:** E4, E6, E7, E8.
+- **Status:** not done.
+
 ### Phase F: Browser Viewer & Web Demo (viz/, TypeScript + three.js)
 
 `viz/` remains the lightweight browser viewer, the reference browser kernel implementation (`kernel.ts`), and the interactive web demo. Full-featured editors move to the native desktop apps (Phase H), while non-UI infrastructure (command protocols, schemas, and streaming) is exposed as shared core contracts.
@@ -554,6 +665,21 @@ user-set bound clips, and test that a long projection keeps its delay and simula
   `dendritic_attenuate` and `freeze` use the `max_delay` Param, default the storage bound of 255 ticks
   (`MAX_DELAY_TICKS`), and warn only when clipping. Still clipped at 31: `arbor_synapses`
   (`neurogenesis/stages/arbors.py`) and the connectome importer (`neurogenesis/data/importer.py`).
+
+**K7. Synapse target compartment (contract).**
+- **Goal:** let a synapse target the soma or the dendrite of a `two_compartment` neuron, so that feedforward input can
+  drive the soma while lateral and feedback input arrives on the dendrite, as dendritic prediction (E7) needs. Today
+  `two_compartment` sends every positive synaptic current to the dendrite and every negative one to the soma.
+- **Deliverables:** `SparseConnectivity.target_compartment` `(E,)` `uint8` (0 = the current routing, 1 = soma,
+  2 = dendrite), kept aligned by `take` / `concat` / `append` in every stage; carried by network JSON and `.npz`;
+  honoured by `two_compartment`; set per projection by `grow_axons` and `connect_by_hand` with a `Param` (default 0);
+  ignored by `lif_int` and `hh` (documented); added to NGB1 only if an app needs it, then with a protocol version bump.
+- **Acceptance tests:** (1) with the default 0 everywhere, `two_compartment` spikes and development fingerprints are
+  unchanged; (2) an excitatory synapse onto the soma gives a larger and faster somatic depolarisation than the same
+  synapse onto the dendrite; (3) JSON and `.npz` round trips; (4) if the Project schema stores the field, a schema
+  version bump with a migration test.
+- **Dependencies:** K2, P4.
+- **Status:** not done.
 
 ### Phase I: Connectome Data Layer
 
@@ -807,6 +933,12 @@ J10 (metrics) ── I5 / E2 / E4 ;  J7 with N4 ;  J8 after B3 + I1 ;  J9 after 
 J13 at the public release
 
 G1 any time after A1 ; G2 after the stages it uses ; G3 last
+
+Learning from stimulus streams:
+E1 + K6 ─ E6 ──────┐
+E1 ─ E7 ───────────┼─ E9 (with E4; example and use case)
+E2 registry ─ E8 ──┘
+K2 + P4 ─ K7 ── dendritic rule of E7 ; internal predictor of E9
 ```
 
 **Milestones:**
@@ -820,3 +952,5 @@ G1 any time after A1 ; G2 after the stages it uses ; G3 last
    its connectivity is described with the shared metrics.
 8. **M8:** C14, C15, C21–C23 merged; example G2.3 grows its layers from the cell-cycle clock and temporal competence
    (birth order predicts layer across development seeds), with a GABA polarity switch and competitive refinement.
+9. **M9:** E6–E9 merged; `examples/predictive_plasticity.py` runs, and steps 1–3 of
+   `docs/hypotheses/2026-11-04-predictive-plasticity.md` have dated outcomes; then K7 and step 4.

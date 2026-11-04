@@ -8,6 +8,7 @@
 | {doc}`connectome-constrained` | supervised import + semi-supervised fitting to connectome statistics | planned (phases I, P, N) |
 | {doc}`developmental-hypotheses` | knockouts, timing changes, activity manipulations | partially available |
 | {doc}`retinothalamic` | genes + activity, four conditions with pre-registered hypotheses | runs today (`examples/retinothalamic.py`) |
+| {doc}`predictive-plasticity` | unsupervised (genes) + exposure: plasticity rules evolved on a masked-prediction criterion | planned (E6–E9, K7) |
 | {doc}`teaching` | interactive exploration in the viewer and apps | available |
 
 ```{toctree}
@@ -19,5 +20,6 @@ layered-sheet
 connectome-constrained
 developmental-hypotheses
 retinothalamic
+predictive-plasticity
 teaching
 ```
