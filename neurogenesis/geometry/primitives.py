@@ -350,7 +350,7 @@ class CurvedSheet(Geometry):
         dv_points = (self._eval_surface(u, v + eps) - self._eval_surface(u, v - eps)) / (2*eps)
         n = np.cross(du_points, dv_points)
         n_len = np.linalg.norm(n, axis=-1, keepdims=True)
-        return np.where(n_len > 0, n / n_len, np.array([0, 0, 1], dtype=np.float32))
+        return np.where(n_len > 0, n / np.where(n_len > 0, n_len, 1.0), np.array([0, 0, 1], dtype=np.float32))
 
     # Bytes of the (chunk, M, 3) difference array in _closest_points; peak temporary memory stays below
     # 3 x this bound (difference, its square, distances) whatever the number of points.

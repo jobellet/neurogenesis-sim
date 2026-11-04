@@ -137,6 +137,7 @@ def test_curved_sheet_closest_points_chunked():
     assert peak < 3 * CurvedSheet._CLOSEST_CHUNK_BYTES + big.shape[0] * 8 + (1 << 20)
 
 
+@pytest.mark.filterwarnings("error::RuntimeWarning")
 def test_curved_sheet_expressions_are_restricted(tmp_path):
     s = CurvedSheet("cos(pi * u)", "np.sin(v)", "0.5 * exp(-u^2)", thickness=0.1)
     p = s.surface_points[-1]
