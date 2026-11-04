@@ -17,7 +17,7 @@ simulation from one stage checkpoint to the next, and the primary developmental 
 | Question | Result in this simulation |
 |---|---|
 | Does the EphA knockout disrupt the x map? | Yes. In the p2A-shaped relay, r_x falls from 0.832 in WT to 0.013. The y map remains (r_y 0.769). |
-| Does activity deprivation blur the map? | Only weakly in this setup: the change is smaller than the across-seed variation. |
+| Does activity deprivation blur the map? | Only weakly in this setup: the change is smaller than the across-seed variation. With 100 seeds it is a small but consistent shift (topographic error +0.003, higher than WT in 86–87 of 100 seeds), see {ref}`larger-seed rerun <retino-100-seeds>`. |
 | Does relay shape matter? | The equal-volume box has stronger map scores than p2A. Its smaller dimensions also change spatial extent, so this does not isolate shape alone. |
 
 ## Read the animation
@@ -300,6 +300,26 @@ by setting RETINO_RELAY_MASK=relay_mask.npz and running docs/_scripts/make_media
 Atlas: Allen Developing Mouse Brain Atlas, developingmouse.brain-map.org (© 2008 Allen Institute for Brain Science);
 Thompson CL et al. (2014) A high-resolution spatiotemporal atlas of gene expression of the developing mouse brain.
 Neuron 83:309–323.
+
+(retino-100-seeds)=
+## Larger-seed rerun (100 seeds; not pre-registered)
+The run-2 settings were rerun for seeds 0–99 (separation: 99 seeds, it is undefined for seed 87), and seeds 0–9 reproduce
+the committed values. The statistics were chosen after the 10-seed results, so they are exploratory. The pre-registered
+verdicts do not change (H1, H2 held; H3 orientation held, blurring **weak**).
+
+| Condition | r_x | r_y | Topographic error | Corner separation |
+|---|---:|---:|---:|---:|
+| WT | 0.921 ± 0.018 | 0.922 ± 0.019 | 0.227 ± 0.018 | 0.621 ± 0.103 |
+| b2KO | 0.924 ± 0.017 | 0.923 ± 0.020 | 0.230 ± 0.018 | 0.616 ± 0.100 |
+| TTX | 0.924 ± 0.018 | 0.924 ± 0.019 | 0.230 ± 0.018 | 0.612 ± 0.100 |
+| EphAKO | 0.000 ± 0.131 | 0.913 ± 0.022 | 0.399 ± 0.019 | 0.589 ± 0.106 |
+
+Paired differences from WT (same seed): the topographic-error shift of TTX (+0.0029, dz +1.06) and b2KO (+0.0031,
+dz +1.19) is about 0.17 of the across-seed SD, yet consistent within a seed (higher in 86–87 of 100 seeds, Wilcoxon p
+below 1e-13). The corner-separation drop is detectable for TTX (−0.0096, dz −0.37, p 0.002) and not for b2KO (−0.0049,
+dz −0.17, interval includes 0). A paired comparison needs about 8–10 seeds for the topographic-error shift; an unpaired
+one would need more than 500 per group. Future runs should therefore compare conditions seed by seed. The expression
+variant (50 seeds) gives the same picture. The per-seed data and the driver script are not in the repository.
 
 ## Limits and toolbox findings
 Found while writing this example (run 1), fixed afterwards:
