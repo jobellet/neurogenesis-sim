@@ -212,3 +212,38 @@ def check_online(ref: Union[str, Path, Dict[str, Any]], timeout: float = 15.0) -
                 except OSError as exc:
                     errs.append(f"provenance[{key!r}]: {s} could not be checked ({exc})")
     return errs
+
+
+def project_report(project: Dict[str, Any]) -> Dict[str, Any]:
+    """What a project's parameters rest on: the profiles it declares in `metadata["profiles"]` (ids or paths of the
+    profiles whose defaults it uses), the status of their entries, what was actually read of their sources, and the
+    genes and `Fit` parameters it leaves free. A declaration, not a check: the project's own values may differ from the
+    profiles', and then the profiles describe only the defaults it started from."""
+    from neurogenesis.params import collect_fits, collect_project_genes
+
+    ids = list((project.get("metadata") or {}).get("profiles", []))
+    profs = [load_parameter_profile(i) for i in ids]
+    evidence = {e: 0 for e in EVIDENCE}
+    open_items: List[Dict[str, str]] = []
+    for prof in profs:
+        for key, e in prof.get("provenance", {}).items():
+            if e.get("evidence") in evidence:
+                evidence[e["evidence"]] += 1
+            if e.get("status") in ("assumed", "free"):
+                open_items.append({"profile": str(prof.get("id")), "key": key, "status": e["status"],
+                                   "quantity": e.get("quantity", "")})
+    return {"profiles": [str(p.get("id")) for p in profs], "counts": provenance_counts(profs), "evidence": evidence,
+            "assumed_or_free": open_items, "genes": len(collect_project_genes(project)),
+            "fits": len(collect_fits(project))}
+
+
+def format_report(report: Dict[str, Any]) -> str:
+    """The report of `project_report` as text for a log, a README or a use-case page."""
+    c = report["counts"]
+    lines = [f"profiles: {', '.join(report['profiles']) or 'none declared'}",
+             f"entries: {c['measured']} measured, {c['derived']} derived, {c['assumed']} assumed, {c['free']} free",
+             "evidence read: " + ", ".join(f"{n} {k}" for k, n in report["evidence"].items() if n) if any(
+                 report["evidence"].values()) else "evidence read: none declared",
+             f"left to genes: {report['genes']}; to Fit: {report['fits']}"]
+    lines += [f"  {i['status']:7s} {i['profile']}.{i['key']}: {i['quantity']}" for i in report["assumed_or_free"]]
+    return "\n".join(lines)

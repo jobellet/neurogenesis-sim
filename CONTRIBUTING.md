@@ -25,3 +25,6 @@ parameter of a profile declares a status (`measured`, `derived`, `assumed` or `f
 and, when it comes from papers, the DOI and what was actually read (`full_text`, `abstract`, `title_only`,
 `not_checked`). `python -m neurogenesis profile check --all` must pass; a test runs it on the shipped profiles. A value
 applied to a species or region other than the one it was measured in is written as such in `note`.
+A numeric stage parameter that users may draw from a gene or a `Fit` gets a range of validity in
+`neurogenesis/stages/bounds.py`; `tests/test_stage_bounds.py` then runs the stage on random values and on the corners of
+that range, and needs a harness for the new stage.

@@ -231,6 +231,10 @@ def cmd_import(args: argparse.Namespace) -> None:
 def cmd_profile(args: argparse.Namespace) -> None:
     from . import profiles
 
+    if args.profile_command == "report":
+        project = json.loads(Path(args.project).read_text(encoding="utf-8"))
+        print(profiles.format_report(profiles.project_report(project)))
+        return
     if args.profile_command == "show":
         prof = profiles.load_parameter_profile(args.profile)
         print(f"{prof.get('id')}: {prof.get('description', '')}")
@@ -353,6 +357,9 @@ def main() -> None:
     q.add_argument("profiles", nargs="*", help="profile ids or paths")
     q.add_argument("--all", action="store_true", help="every profile found (examples/profiles, ./profiles, $NEUROGENESIS_PROFILES)")
     q.add_argument("--online", action="store_true", help="also ask Crossref whether each DOI exists (needs the network)")
+    q.set_defaults(func=cmd_profile)
+    q = prof_sub.add_parser("report", help="What a project's parameters rest on (profiles in metadata.profiles, genes, Fit)")
+    q.add_argument("project", help="project JSON")
     q.set_defaults(func=cmd_profile)
     q = prof_sub.add_parser("show", help="List the parameters of a profile with their status")
     q.add_argument("profile", help="profile id or path")

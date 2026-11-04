@@ -67,6 +67,29 @@ the parent's entry would describe another species.
 Load a resolved profile with `neurogenesis.profiles.load_parameter_profile("my_stage_rat_v1")`. `provenance_counts` tells
 how much of a set of profiles is measured, derived, assumed or free.
 
+## Free parameters and ranges of validity
+
+`free` entries are virtual parameters. A stage accepts any value of a scalar parameter inside the range declared in
+`neurogenesis/stages/bounds.py` (`PARAM_BOUNDS`), whatever the other parameters are, and `tests/test_stage_bounds.py` runs
+each listed stage on random values and on the corners of that box. These are ranges of validity of the code, not of
+biology: a gene or a `Fit` may take any value inside them, including combinations found in no species. A profile default
+must lie inside them (also tested). When you add a numeric parameter that users will draw from a gene, add it to
+`PARAM_BOUNDS` and to the harness of that test.
+
+## What a project rests on
+
+A project can list the profiles whose defaults it started from in `metadata["profiles"]`. Then
+
+```
+python -m neurogenesis profile report project.json
+```
+
+prints how many of their entries are measured, derived, assumed or free, how much of the sources was actually read, which
+entries are assumed or free, and how many parameters the project leaves to genes and to `Fit`
+(`neurogenesis.profiles.project_report` gives the same as a dict, for a use-case page). It is a declaration, not a check:
+the project's own values may differ from the profiles'. When a use case claims that a simulation recovers independent
+observations, quote this report and keep the compared observations out of the parameters.
+
 ## Adding a profile (checklist)
 
 1. One profile per pull request, in `examples/profiles/` (or a folder you point `$NEUROGENESIS_PROFILES` at).

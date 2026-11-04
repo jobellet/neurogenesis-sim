@@ -127,3 +127,23 @@ def test_cli_check_exit_status(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr("sys.argv", ["neurogenesis", "profile", "show", str(good)])
     cli.main()
     assert "measured" in capsys.readouterr().out
+
+
+def test_project_report_counts_profiles_genes_and_fits(tmp_path, capsys, monkeypatch):
+    from neurogenesis.profiles import format_report, project_report
+    project = {"metadata": {"profiles": ["cell_cycle_clock", "transporter_switch"]}, "geometry": {}, "fields": {},
+               "schedule": [{"name": "s", "operator": "cell_cycle_clock",
+                             "params": {"k": {"type": "Gene", "path": ["k"], "lo": 0.0, "hi": 0.1},
+                                        "a": {"type": "Fit", "target": "t", "lo": 0.0, "hi": 3.0, "init": 1.0}}}]}
+    r = project_report(project)
+    assert r["profiles"] == ["cell_cycle_clock_mouse_neocortex", "transporter_switch_rodent_cortex"]
+    assert r["counts"] == provenance_counts(["cell_cycle_clock", "transporter_switch"])
+    assert r["genes"] == 1 and r["fits"] == 1
+    assert any(i["key"] == "params.activity_gain" and i["status"] == "free" for i in r["assumed_or_free"])
+    assert "left to genes: 1; to Fit: 1" in format_report(r)
+    assert project_report({"schedule": []})["profiles"] == []
+    path = tmp_path / "project.json"
+    path.write_text(json.dumps(project))
+    monkeypatch.setattr("sys.argv", ["neurogenesis", "profile", "report", str(path)])
+    cli.main()
+    assert "measured" in capsys.readouterr().out
