@@ -278,6 +278,13 @@ outside the matrix are kept. Filters synapses from `grow_axons`, `arbor_synapses
 matrix reproduces the `identity_expression` rule. Neutral: no `compat` = no-op. Cost O(E). Transmitter–receptor
 matching (P2) is not implemented.
 
+**`tissue_expand` (C24, `neurogenesis/stages/expansion.py`).** Dilates the positions of living cells about a centre
+(default: their centroid) by `1 + kappa * N_new / N_total` along the chosen `axes`, where `N_new` counts the cells
+added since the previous call. Proliferation then pushes existing cells outward, so density stays bounded while the
+count grows (in this simulation, with kappa 0.668 and growth x1.5 per cycle: about x5 per tangential axis over 8 cycles).
+The first call only records the count (or give `n_prev`); call it once before the first `proliferate`. Synapses keep
+their delays unless `recompute_delays` (with `conduction_velocity`, `max_delay`). Neutral `kappa` 0 = no-op. Cost O(N).
+
 **`critical_period_gate` (C23, `neurogenesis/stages/critical_period.py`).** Opens and closes a critical period of
 plasticity by setting the K6 `plastic` mask of the gated synapses (those onto `target_type` cells, all by default):
 `False` before opening, `True` while open, `False` after closing. Opening when the maturity of inhibition from
