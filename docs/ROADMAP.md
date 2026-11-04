@@ -354,7 +354,7 @@ field or fit can replace; values are about the cited species and ages, and resul
   - Acceptance tests: contact counts per type pair follow their distributions; with morphology, the compartment
     fractions match; in a layer 2/3 test tissue the total chandelier contacts per axon initial segment is about 40.
 - **C21 `transporter_switch`** — rat and mouse (Rivera et al. 1999, Nature 397:251–255; Ben-Ari 2002, Nat Rev Neurosci
-  3:728–739; retina: Vu et al. 2000, Zhang et al. 2003).
+  3:728–739; retina: Vu et al. 2000).
   - Immature: high NKCC1, [Cl⁻]i about 25–40 mM, E_Cl about −50 to −40 mV (above a rest of −65 to −70 mV): GABA
     depolarises. Mature: KCC2, [Cl⁻]i about 4–5 mM, E_Cl about −75 mV: GABA hyperpolarises.
   - Timing: NKCC1-dominated from E12 to about P4; functional switch between P5 and P10 (hippocampus and neocortex), up
