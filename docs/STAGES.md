@@ -278,6 +278,17 @@ outside the matrix are kept. Filters synapses from `grow_axons`, `arbor_synapses
 matrix reproduces the `identity_expression` rule. Neutral: no `compat` = no-op. Cost O(E). Transmitter–receptor
 matching (P2) is not implemented.
 
+**`fasciculate` (C16, `neurogenesis/stages/fasciculation.py`).** Follower axons bundle along pioneer tracts through
+homophilic adhesion (L1, NCAM, Fasciclin II). For morphological arbors, active neurite growth cone nodes steer towards
+nearby pioneer branch tangents within `radius`, weighted by `adhesion_matrix` [pre_type, post_type]; defasciculation
+occurs where `defasciculation_field` exceeds threshold. For point-to-point connections, bundles correlate target
+offsets. Neutral: no `adhesion_matrix` = no-op. Cost O(N + E).
+
+**`choice_point` (C17, `neurogenesis/stages/fasciculation.py`).** Midline and choice points where guidance receptors or target
+rules switch. When cells or growth cones enter a choice point `geometry` or `choice_field`, guidance receptor channels
+are updated (e.g. switching attraction to repulsion to prevent re-crossing). For projections, routes via an intermediate
+`waypoint_region`. Neutral: no `geometry`, `choice_field` or `waypoint_region` = no-op. Cost O(N + E).
+
 **`tissue_expand` (C24, `neurogenesis/stages/expansion.py`).** Dilates the positions of living cells about a centre
 (default: their centroid) by `1 + kappa * N_new / N_total` along the chosen `axes`, where `N_new` counts the cells
 added since the previous call. Proliferation then pushes existing cells outward, so density stays bounded while the

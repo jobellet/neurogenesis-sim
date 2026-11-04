@@ -278,9 +278,11 @@ sources, listed below the table.
 | C21 | done: `transporter_switch` (#74), per-cell chloride reversal potential from maturation (NKCC1 → KCC2 switch) |
 | C22 | done: `competitive_elimination` in `neurogenesis/stages/competition.py`, coactivity with the target versus a `fraction` of the strongest competitor, weaken by `delta` or remove; silent targets and non-plastic synapses unchanged; raster from `spikes` or `refine_by_activity` with `record` |
 | C23 | done: `critical_period_gate`, sets the K6 `plastic` mask (#73): opens on inhibitory maturity from a source cell type (or a maturity `Param`, or explicitly), closes after a number of gate calls, a maturity threshold or explicitly; `reopen`; mouse / cat ages in `examples/profiles/critical_period_gate.json` |
+| C16 | done: `fasciculate` in `neurogenesis/stages/fasciculation.py`, arbor tangent steering via `CellList` & adhesion matrix |
+| C17 | done: `choice_point` in `neurogenesis/stages/fasciculation.py`, receptor switch in geometry/field & waypoint routing |
 | C19 | partial: `contacts` and weight scaling done; `post_node` placement waits for N2/N3 |
 | C24 | done: `tissue_expand` in `neurogenesis/stages/expansion.py`, dilation by `1 + kappa * N_new / N_total` about a centre along chosen axes; optional delay recompute |
-| C16–C18, C20 | not done |
+| C18, C20 | not done |
 
 **Order and priorities.** C14 → C15 first (they make birth-order-dependent layering emerge in G2.3, instead of being
 imposed); C21, C22, C23 next (they use existing P3 / P4 and C11); C18 and C24 independent; C16, C17, C19 after N2 / N3;
