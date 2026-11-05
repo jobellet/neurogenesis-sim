@@ -754,6 +754,31 @@ documentation site, so anyone can grow and simulate a circuit without installing
 **J13. Citable releases.** `CITATION.cff`, a Zenodo DOI per tagged release, and a JOSS paper (`paper.md`) once the
 repository is public.
 
+### Phase M: functional connectomics, morphometry and continuous morphologies
+
+Full task text: one agent, branch `task/connectomics-morphometry`, one push per working module. Reuse `ArborStore`, `grow_arbors`, `arbor_synapses`, `cluster_boutons`, `refine_by_activity`, `prune`, the fitting metric registry, the connectome catalogue pattern and `neurogenesis.validation`; do not re-implement them.
+
+**M0. Remove the Jules references.** Docs use "agents"; isolation, generic-API and self-contained-test rules live in `AGENTS.md`. **Status:** done.
+
+**M1. Morphometry (`neurogenesis/morphometry/`: `tmd.py`, `features.py`, `metrics.py`).**
+- TMD persistence barcodes (Kanari 2018, Neuroinformatics; BlueBrain/TMD; siegert-lab/morphOMICs): filtration = path (or radial) distance from the soma, one (birth, death) pair per terminal branch, vectorised over the `ArborStore`; persistence images; squared Wasserstein (p = 2) with a documented O(n*m) bound and refusal above ~1e6 pairs.
+- MorphoPy-style features (berenslab/MorphoPy): per-compartment 3D density, radial and path-distance distributions, branch angle vs somatic distance, laminar stratification profile; fixed-length float32 vectors, O(nodes).
+- Fitting metrics `morphology_wasserstein_to_reference` and `laminar_density_profile_ks` (2D Fasano-Franceschini KS on two PCA components; UMAP optional, lazy, not added). SWC adapter `to_swc_bytes` round-tripping through `read_swc`.
+- **Status:** not started.
+
+**M2. Morphology catalogue and continuous latent sampling.**
+- `neurogenesis/data/morphology_catalogue.py` mirroring the connectome catalogue (NeuroMorpho.Org, MICrONS manifests, SHA256, licence, no download in tests); manifests in `datasets/morphology/`.
+- `neurogenesis/morphometry/latent.py`: descriptor, PCA, per-condition Gaussian with shrinkage covariance, `sample_cells(condition, n, rng)` with Gaussian-kernel weighting (continuum, not stereotypes; Weis, Hansel & Ecker, ssl_neuron). Optional lazy MorphOcc checkpoint adapter (no dependency, nothing bundled).
+- Stage `instantiate_morphologies` (`neurogenesis/stages/morphologies.py`): samples morphologies per cell context, attaches ArborStore trees; neutral = no-op; declared cost; `max_nodes`.
+- **Status:** not started.
+
+**M3. Functional connectomics metrics and two-phase example.**
+- `neurogenesis/metrics/function.py`: `pair_correlations`, `residual_correlations` (distance and RF corrected), `multiplicity_regression` (OLS slope, SE, p; reciprocity per bin), `tuning_metrics` (gOSI, surround suppression); registered as fitting metrics.
+- `neurogenesis/metrics/stimuli.py`: deterministic seeded natural-movie-style input currents.
+- `examples/cortical_microcircuit.py`: before eye opening, feedforward-driven selectivity with random recurrent L2/3; after, movie stimulation then `refine_by_activity` (STDP), `prune`, `scale`. Like-to-like must emerge, not be imposed (MICrONS, PMC11981947, Nature 640:8058; Ko et al., PubMed 23552948). Acceptance: positive multiplicity slope (P < 0.01), gOSI > 0.25 after pruning.
+- **Status:** not started.
+
+**M4. Docs and integration.** `docs/morphometry.md`, `docs/morphology-catalogue.md`, `docs/metrics.md` in the docs index; THIRD_PARTY.md entries (MorphoPy, TMD, morphOMICs, ssl_neuron, MorphOcc, NeuroMorpho.Org, MICrONS, awesome-connectomics); README status table. **Status:** not started.
 ### Phase G: modules, docs and examples
 
 **G1. Module registry.** Versioned modules (semantic version, toolbox version range), a local catalogue file, `neurogenesis install module.json`, compatibility checks.
