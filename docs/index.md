@@ -1,4 +1,4 @@
-# neurogenesis-sim
+﻿# neurogenesis-sim
 
 **Grow spiking neural networks the way nervous systems are built — by hand, by genes, or both — and simulate them
 cheaply.**
