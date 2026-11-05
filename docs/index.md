@@ -92,6 +92,7 @@ reference/api
 reference/project-format
 reference/profiles
 reference/neuron-models
+morphometry
 reference/bridge-protocol
 reference/ui-schema
 reference/glossary
