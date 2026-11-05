@@ -135,6 +135,12 @@ def target_loss(tissue: Tissue, targets: Sequence[Dict[str, Any]]) -> Tuple[floa
     loss, values = 0.0, []
     for tg in targets:
         if tg["metric"] not in METRICS:
+            try:
+                import neurogenesis.morphometry.metrics  # noqa: F401
+                import neurogenesis.data.targets  # noqa: F401
+            except ImportError:
+                pass
+        if tg["metric"] not in METRICS:
             raise ValueError(f"unknown metric {tg['metric']!r} (registered: {sorted(METRICS)})")
         m = METRICS[tg["metric"]](tissue, tg)
         values.append(m)

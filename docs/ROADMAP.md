@@ -1,4 +1,4 @@
-﻿# neurogenesis-sim roadmap
+# neurogenesis-sim roadmap
 
 This roadmap turns the current toolbox (body plan → one fixed growth procedure → spiking network) into a **versatile
 developmental engine**. A user must be able to:
@@ -764,8 +764,8 @@ Full task text: one agent, branch `task/connectomics-morphometry`, one push per 
 - TMD persistence barcodes (Kanari 2018, Neuroinformatics; BlueBrain/TMD; siegert-lab/morphOMICs): filtration = path (or radial) distance from the soma, one (birth, death) pair per terminal branch, vectorised over the `ArborStore`; persistence images; squared Wasserstein (p = 2) with a documented O(n*m) bound and refusal above ~1e6 pairs.
 - MorphoPy-style features (berenslab/MorphoPy): per-compartment 3D density, radial and path-distance distributions, branch angle vs somatic distance, laminar stratification profile; fixed-length float32 vectors, O(nodes).
 - Fitting metrics `morphology_wasserstein_to_reference` and `laminar_density_profile_ks` (2D Fasano-Franceschini KS on two PCA components; UMAP optional, lazy, not added). SWC adapter `to_swc_bytes` round-tripping through `read_swc`.
-- **Status:** partial: TMD barcodes, persistence images, Wasserstein, SWC adapter done (
-eurogenesis/morphometry/tmd.py); MorphoPy features and fitting metrics not started.
+- **Status:** done: 
+eurogenesis.morphometry (TMD barcodes, persistence images, Wasserstein, SWC adapter in 	md.py; MorphoPy features in eatures.py; fitting metrics morphology_wasserstein_to_reference and laminar_density_profile_ks in metrics.py).
 
 **M2. Morphology catalogue and continuous latent sampling.**
 - `neurogenesis/data/morphology_catalogue.py` mirroring the connectome catalogue (NeuroMorpho.Org, MICrONS manifests, SHA256, licence, no download in tests); manifests in `datasets/morphology/`.
