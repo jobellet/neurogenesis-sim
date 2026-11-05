@@ -114,6 +114,7 @@ development/roadmap
 development/contributing
 development/agents
 development/extending
+development/performance
 development/third-party
 faq
 citing
