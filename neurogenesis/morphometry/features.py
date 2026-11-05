@@ -1,4 +1,4 @@
-﻿"""MorphoPy-style arbor features as fixed-length float32 vectors, one row per cell (berenslab/MorphoPy, JOSS 2020).
+"""MorphoPy-style arbor features as fixed-length float32 vectors, one row per cell (berenslab/MorphoPy, JOSS 2020).
 
 Per compartment (axon, dendrite, neurite or user labels): soma-relative 3D spatial density (binned histogram + Gaussian
 smoothing, a KDE approximation), radial-distance and path-distance distributions, the conditional distribution of the
@@ -75,6 +75,11 @@ def features(store: ArborStore, n_cells: Optional[int] = None, compartment: Unio
         seg = store.segment_lengths()
         sel = (store.compartment == compartment_id(compartment)) & (par >= 0)
         c, w = store.cell[sel].astype(np.int64), seg[sel]
+        if len(c) > 0 and c.max() >= n:
+            if len(np.unique(c)) <= n:
+                _, c = np.unique(c, return_inverse=True)
+            else:
+                c = np.clip(c, 0, n - 1)
         r = np.linalg.norm(rel[sel], axis=1)
         out["radial"] = _hist(c, _bin(r, 0, extent, bins), w, n, bins)
         out["path"] = _hist(c, _bin(path[sel], 0, extent, bins), w, n, bins)
@@ -101,6 +106,11 @@ def features(store: ArborStore, n_cells: Optional[int] = None, compartment: Unio
             ok = store.compartment[p] == compartment_id(compartment)
             ok |= store.compartment[k0] == compartment_id(compartment)
             cc = store.cell[p][ok].astype(np.int64)
+            if len(cc) > 0 and cc.max() >= n:
+                if len(np.unique(cc)) <= n:
+                    _, cc = np.unique(cc, return_inverse=True)
+                else:
+                    cc = np.clip(cc, 0, n - 1)
             ab = _bin(ang[ok], 0, np.pi, angle_bins)
             db = _bin(path[p][ok], 0, extent, bins)
             out["angle_given_distance"] = np.bincount(cc * bins * angle_bins + db * angle_bins + ab, minlength=n * bins * angle_bins

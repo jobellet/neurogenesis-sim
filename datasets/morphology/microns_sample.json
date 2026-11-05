@@ -1,0 +1,22 @@
+{
+  "id": "microns_sample",
+  "title": "MICrONS Released Cortical Reconstruction Sample",
+  "license": "CC-BY-4.0",
+  "citation": "MICrONS Consortium (2021) Functional connectomics spanning multiple areas of mouse visual cortex.",
+  "url": "https://bossdb-open-data.s3.amazonaws.com/microns/",
+  "files": [
+    {
+      "name": "cell_c.swc",
+      "url": "https://bossdb-open-data.s3.amazonaws.com/microns/sample/cell_c.swc",
+      "sha256": "b96d06da9012be66f612d3ee60958b042d53042334ccba8415632a13ff153c11",
+      "size": 192,
+      "conditions": {
+        "species": "mouse",
+        "region": "visual_cortex",
+        "layer": "L5",
+        "age": "adult",
+        "cell_type": "deep_pyramidal"
+      }
+    }
+  ]
+}

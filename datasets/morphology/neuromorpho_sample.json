@@ -1,0 +1,35 @@
+{
+  "id": "neuromorpho_sample",
+  "title": "NeuroMorpho.Org Sample Reconstructions",
+  "license": "CC-BY-NC-SA-4.0",
+  "citation": "Ascoli, G.A. et al. (2007) NeuroMorpho.Org: a central resource for neuronal morphologies. J Neurosci 27(35):9245-9251.",
+  "url": "http://neuromorpho.org/dableFiles/",
+  "files": [
+    {
+      "name": "cell_a.swc",
+      "url": "http://neuromorpho.org/dableFiles/sample/cell_a.swc",
+      "sha256": "e9a498d6304e3613cd7c82d19d9fad30cf415e047f96076fb221a11fc1aaba2a",
+      "size": 240,
+      "conditions": {
+        "species": "mouse",
+        "region": "cortex",
+        "layer": "L23",
+        "age": "P28",
+        "cell_type": "pyramidal"
+      }
+    },
+    {
+      "name": "cell_b.swc",
+      "url": "http://neuromorpho.org/dableFiles/sample/cell_b.swc",
+      "sha256": "f6d2f1529ce27ee86b158c88d76c25fdf6200e4c7f9dd9eeb9507ed449763ac9",
+      "size": 237,
+      "conditions": {
+        "species": "mouse",
+        "region": "cortex",
+        "layer": "L4",
+        "age": "P28",
+        "cell_type": "stellate"
+      }
+    }
+  ]
+}

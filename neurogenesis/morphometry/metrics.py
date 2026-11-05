@@ -150,9 +150,10 @@ def morphology_wasserstein_to_reference(t_or_vectors: Union[Tissue, np.ndarray],
         if ref is None:
             return 0.0
         cells = select(tissue, o)
-        if len(cells) == 0 or getattr(tissue, "arbors", None) is None or tissue.arbors.n_nodes == 0:
+        arbors = getattr(tissue, "arbors", None) or getattr(tissue, "morphology", None)
+        if len(cells) == 0 or arbors is None or arbors.n_nodes == 0:
             return float(np.sum(np.asarray(ref) ** 2))
-        sub_arbor = tissue.arbors.select_cells(cells)
+        sub_arbor = arbors.select_cells(cells)
         if sub_arbor.n_nodes == 0:
             return float(np.sum(np.asarray(ref) ** 2))
         bars = barcodes(sub_arbor, filtration=o.get("filtration", "path"),
@@ -187,9 +188,10 @@ def laminar_density_profile_ks(t_or_descriptors: Union[Tissue, np.ndarray],
         if ref is None:
             return 1.0
         cells = select(tissue, o)
-        if len(cells) == 0 or getattr(tissue, "arbors", None) is None or tissue.arbors.n_nodes == 0:
+        arbors = getattr(tissue, "arbors", None) or getattr(tissue, "morphology", None)
+        if len(cells) == 0 or arbors is None or arbors.n_nodes == 0:
             return 0.0
-        sub_arbor = tissue.arbors.select_cells(cells)
+        sub_arbor = arbors.select_cells(cells)
         if sub_arbor.n_nodes == 0:
             return 0.0
         feat = features(sub_arbor, n_cells=len(cells), extent=float(o.get("extent", 1.0)),

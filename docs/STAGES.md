@@ -362,6 +362,17 @@ Weight `weight` (1) with the presynaptic sign (`dale`, True). Each synapse recor
 `path_length` and `dendritic_distance`. No arbors or no `contact_distance` is the no-op. The cost assumes 50 nodes per
 cell unless `expected_nodes` is given.
 
+**`instantiate_morphologies` (M2).** Samples neuronal morphologies from a continuous latent phenotype space conditioned on cell context and attaches them as `ArborStore` trees rooted at each cell's soma.
+| Param | Default | Meaning |
+|---|---|---|
+| `catalogue` | none | manifest path or directory of SWC reconstructions (none = no-op) |
+| `attachment_prob` | 1.0 | probability of attaching a morphology to each selected cell (<= 0 is no-op) |
+| `n_neurites` | 1 | number of neurite trees attached per cell |
+| `cells` | all | `{region, cell_type}` cell selector |
+| `conditions` | `{}` | context dict or condition mapping |
+| `max_nodes` | 10⁶ | safety bound on total nodes created |
+| `shrinkage` | 0.2 | covariance shrinkage in latent space |
+
 ## Pharmacology (P1–P3, `neurogenesis/pharmacology.py`, `neurogenesis/stages/pharmacology.py`)
 A **profile** (JSON: `id`, `transmitters` (at most 7, bit k of `Tissue.transmitter`), `receptors`) maps each receptor
 class (the value of a synapse's `receptor_class`) to a `transmitter`, a `sign` (+1, −1 or `"pre"`: the weight keeps

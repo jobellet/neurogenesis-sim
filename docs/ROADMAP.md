@@ -771,7 +771,9 @@ eurogenesis.morphometry (TMD barcodes, persistence images, Wasserstein, SWC adap
 - `neurogenesis/data/morphology_catalogue.py` mirroring the connectome catalogue (NeuroMorpho.Org, MICrONS manifests, SHA256, licence, no download in tests); manifests in `datasets/morphology/`.
 - `neurogenesis/morphometry/latent.py`: descriptor, PCA, per-condition Gaussian with shrinkage covariance, `sample_cells(condition, n, rng)` with Gaussian-kernel weighting (continuum, not stereotypes; Weis, Hansel & Ecker, ssl_neuron). Optional lazy MorphOcc checkpoint adapter (no dependency, nothing bundled).
 - Stage `instantiate_morphologies` (`neurogenesis/stages/morphologies.py`): samples morphologies per cell context, attaches ArborStore trees; neutral = no-op; declared cost; `max_nodes`.
-- **Status:** not started.
+- **Status:** done: 
+eurogenesis.data.morphology_catalogue, 
+eurogenesis.morphometry.latent and stage instantiate_morphologies.
 
 **M3. Functional connectomics metrics and two-phase example.**
 - `neurogenesis/metrics/function.py`: `pair_correlations`, `residual_correlations` (distance and RF corrected), `multiplicity_regression` (OLS slope, SE, p; reciprocity per bin), `tuning_metrics` (gOSI, surround suppression); registered as fitting metrics.

@@ -1,4 +1,4 @@
-﻿# neurogenesis-sim
+# neurogenesis-sim
 
 **Grow spiking neural networks the way nervous systems are built — by hand, by genes, or both — and simulate them
 cheaply.**
@@ -93,6 +93,7 @@ reference/project-format
 reference/profiles
 reference/neuron-models
 morphometry
+morphology-catalogue
 reference/bridge-protocol
 reference/ui-schema
 reference/glossary
