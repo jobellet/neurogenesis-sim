@@ -1,4 +1,4 @@
-﻿# neurogenesis-sim
+# neurogenesis-sim
 
 **Grow spiking neural networks the way nervous systems are built, by hand, by genes, or both, and simulate them
 cheaply.**
@@ -71,7 +71,7 @@ young and their API may still change. Everything open is in `docs/ROADMAP.md` (t
 | Geometry and fields | `neurogenesis.geometry`, `neurogenesis.fields` | Primitives, CSG, meshes and voxel masks (`.npz`); grid, analytic, vector, label, layer-stack and pinwheel fields, gradients and distances; every field usable as a `Param`. |
 | Interoperability | `neurogenesis.interop` | Export / import with a report of what is exact, approximated or dropped: SONATA (`python -m neurogenesis export net.json --format sonata --out dir`), exact round trip; one shared translation of the integer neuron into a current-based exponential LIF. |
 | Bridge and apps | `neurogenesis.bridge`, `desktop/` | JSON-lines server (`python -m neurogenesis.bridge`), NGB1 binary networks, UI schema export (`python -m neurogenesis ui-schema`); native macOS app; Windows / Linux app in progress. |
-| Analysis | `neurogenesis.analysis` | Frequency–current curves (from rest), mosaic regularity. |
+| Analysis & metrics | `neurogenesis.analysis`, `neurogenesis.metrics` | Frequency–current curves (from rest), mosaic regularity; functional pair correlations, distance-adjusted residual correlations, synaptic multiplicity regression (MICrONS like-to-like rule), tuning metrics (gOSI, SSI), and in-silico natural movie stimuli. |
 | Viewer | `viz/` | Browser 3D viewer and sandbox (three.js): imports network JSON, shows neurons by role and sign, rasters, per-neuron inspection and editing. |
 
 ## Install and try

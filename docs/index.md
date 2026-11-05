@@ -94,6 +94,7 @@ reference/profiles
 reference/neuron-models
 morphometry
 morphology-catalogue
+metrics
 reference/bridge-protocol
 reference/ui-schema
 reference/glossary

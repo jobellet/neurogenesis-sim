@@ -779,7 +779,7 @@ eurogenesis.morphometry.latent and stage instantiate_morphologies.
 - `neurogenesis/metrics/function.py`: `pair_correlations`, `residual_correlations` (distance and RF corrected), `multiplicity_regression` (OLS slope, SE, p; reciprocity per bin), `tuning_metrics` (gOSI, surround suppression); registered as fitting metrics.
 - `neurogenesis/metrics/stimuli.py`: deterministic seeded natural-movie-style input currents.
 - `examples/cortical_microcircuit.py`: before eye opening, feedforward-driven selectivity with random recurrent L2/3; after, movie stimulation then `refine_by_activity` (STDP), `prune`, `scale`. Like-to-like must emerge, not be imposed (MICrONS, PMC11981947, Nature 640:8058; Ko et al., PubMed 23552948). Acceptance: positive multiplicity slope (P < 0.01), gOSI > 0.25 after pruning.
-- **Status:** not started.
+- **Status:** done: `neurogenesis.metrics` (`function.py`, `stimuli.py`), registered fitting metrics, and `examples/cortical_microcircuit.py`.
 
 **M4. Docs and integration.** `docs/morphometry.md`, `docs/morphology-catalogue.md`, `docs/metrics.md` in the docs index; THIRD_PARTY.md entries (MorphoPy, TMD, morphOMICs, ssl_neuron, MorphOcc, NeuroMorpho.Org, MICrONS, awesome-connectomics); README status table. **Status:** not started.
 ### Phase G: modules, docs and examples
