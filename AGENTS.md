@@ -1,4 +1,4 @@
-# AGENTS.md: guide for agents working on neurogenesis-sim
+﻿# AGENTS.md: guide for agents working on neurogenesis-sim
 
 ## What this repository is
 A general toolbox to grow spiking neural networks from genes and hand-made specifications, simulate them cheaply, and
@@ -44,12 +44,13 @@ the roadmap (e.g. "C4 migrate"), and stay within its scope.**
   (`spiking/jax_backend.py`), the browser (`viz/src/sim/kernel.ts`), and the portable C kernel `nglif` (`desktop/common/native/nglif/`). Any change to one must be made to all four,
   with the equivalence tests passing.
 - **Desktop apps & shared contracts ownership.**
-  - Jules agents never edit `desktop/mac/` (owned by the Mac agent) nor `desktop/avalonia/` (owned by the Avalonia agent).
+  - Other agents never edit `desktop/mac/` (owned by the Mac agent) nor `desktop/avalonia/` (owned by the Avalonia agent). Each agent only creates or modifies files within its own task's domain (file isolation avoids pull-request collisions).
   - `desktop/common/` and `neurogenesis/bridge/` are shared contracts (protocol, NGB1 binary network format, UI schema, visual spec, C kernel `nglif`, golden fixtures, runtime scripts).
   - Change them only in dedicated tasks with a version bump, an updated spec, and all apps' CI passing.
 - **Protocol & schema versioning.** Any change to `desktop/common/PROTOCOL.md`, `UI_SCHEMA.md` or Project schema requires backward compatibility, explicit versioning and migration tests.
 - **Generality.** No species, organ, task or environment names inside `neurogenesis/`. Use them only in `examples/`,
   in tests as toy content, or in separate module repositories.
+- **Self-contained tests.** Each stage or module test builds its own toy `Tissue` / fixtures directly and never depends on an unmerged branch.
 - **Contracts.** The Project schema (A1), `Tissue` (A2), `Param` (A3) and the Stage interface (A4) are shared.
   - Change them only within those tasks, or in a dedicated PR that updates every user and the schema version.
   - A change to a contract must also update the docs, migrations and tests.

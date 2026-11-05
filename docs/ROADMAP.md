@@ -1,4 +1,4 @@
-# neurogenesis-sim roadmap
+﻿# neurogenesis-sim roadmap
 
 This roadmap turns the current toolbox (body plan → one fixed growth procedure → spiking network) into a **versatile
 developmental engine**. A user must be able to:
@@ -496,7 +496,7 @@ Native desktop applications with zero developer setup required for end users:
 - **Ownership & Isolation:**
   - `desktop/mac/` is owned strictly by the macOS agent.
   - `desktop/avalonia/` is owned strictly by the Avalonia agent.
-  - Jules agents never edit `desktop/mac/` or `desktop/avalonia/`.
+  - Other agents never edit `desktop/mac/` or `desktop/avalonia/`.
   - `desktop/common/` and `neurogenesis/bridge/` are shared contracts (protocol, NGB1 binary network format, UI schema, visual spec, C kernel `nglif`, golden fixtures, runtime scripts).
   - No app may duplicate shared logic. Everything about stages, Params, models, and genes is driven by the bridge and the UI schema. Visual look is specified by `visual_spec.json`. Simulation uses `nglif`.
 
