@@ -38,3 +38,16 @@ request to Google's servers.
 | Lateral-inhibition differentiation (Notch–Delta) | Collier JR, Monk NAM, Maini PK, Lewis JH (1996). *J Theor Biol* |
 | Laminar targeting of axons | Xiao T, Staub W, Robles E, Gosse NJ, Cole GJ, Baier H (2011). *Cell*; Robles E, Filosa A, Baier H (2013). *J Neurosci* |
 | Island-model evolution | Whitley D, Rana S, Heckendorn RB (1999). *J Comput Inf Technol* |
+| Topological Morphology Descriptor (TMD) | Kanari L et al. (2018). *Neuroinformatics*; BlueBrain/TMD (LGPL-3.0, https://github.com/BlueBrain/TMD); population statistics in morphOMICs (siegert-lab/morphOMICs, GPL-3.0, https://github.com/siegert-lab/morphOMICs) |
+| Morphometric feature extraction | MorphoPy (berenslab/MorphoPy, MIT, https://github.com/berenslab/MorphoPy; JOSS 2020) |
+| Continuous morphological phenotype space | Weis M, Hansel C, Ecker AS (2021). *arXiv:2112.12482*; ssl_neuron (MIT, https://github.com/marissaweis/ssl_neuron); functional continuum in DECEMber (PMC12155019) |
+| Implicit morphology occupancy model (MorphOcc) | Continuous somatodendritic representation in $\mathbb{R}^{64}$ with PointNet encoder and MLP occupancy decoder (https://openreview.net/pdf/9efa243eba5e55a2d17681f38d6212cfa1690b3b.pdf) |
+| Functional connectomics like-to-like wiring rule | MICrONS Consortium. Functional connectomics reveals general wiring rule in mouse visual cortex. *Nature* 640:8058 (2025) / *PMC11981947* / *Cell* 2025; curated tool inventory in awesome-connectomics (https://github.com/ceesem/awesome-connectomics) |
+| Developmental sequence of cortical microcircuits | Ko H, Ho FER, Mrsic-Flogel TD et al. (2013). The emergence of functional microcircuits in visual cortex. *Nature* 496:96-100 (PubMed 23552948) |
+| 2D Kolmogorov–Smirnov test | Fasano G, Franceschini A (1987). A multidimensional version of the Kolmogorov–Smirnov test. *Mon Not R Astron Soc* 225:155-170 |
+
+## Data sources and licences
+| Resource | Licence & Citation | Use |
+|---|---|---|
+| NeuroMorpho.Org | CC-BY-NC-SA (archive-specific terms); Ascoli GA et al. (2007). *J Neurosci* 27:9245-9251; http://neuromorpho.org | Public neuronal reconstruction repository; manifests under `datasets/morphology/` |
+| MICrONS Multi-Area Connectome | CC-BY-4.0; MICrONS Consortium (2021, 2025); https://bossdb.org/project/microns-minnie | Functional connectomics and reconstruction data |

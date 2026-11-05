@@ -190,7 +190,7 @@ def tuning_metrics(responses: np.ndarray, angles: Sequence[float],
 
     `responses`: (N, n_angles) tuning responses to oriented gratings.
     `angles`: orientations in radians.
-    gOSI = |sum_theta R(theta) e^{2i theta}| / sum_theta R(theta).
+    gOSI = ``|sum_theta R(theta) e^{2i theta}| / sum_theta R(theta)``.
     SSI = max(0, (R_center - R_annulus) / max(R_center, 1e-6)).
     """
     R = np.asarray(responses, dtype=np.float64)

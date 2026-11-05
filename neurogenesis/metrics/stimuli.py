@@ -18,6 +18,7 @@ def generate_natural_movie(n_frames: int, height: int = 32, width: int = 32,
 
     - Temporal AR(1) autoregression with time constant `tau_temp` frames.
     - Spatial Gaussian convolution with scale `sigma_spat`.
+
     Returns array of shape (n_frames, height, width) with float32 values.
     """
     rng = np.random.default_rng(seed)

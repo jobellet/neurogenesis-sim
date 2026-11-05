@@ -97,3 +97,15 @@ Generated from the docstrings of the installed package.
 .. automodule:: neurogenesis.bridge.ngb
    :members:
 ```
+
+## Morphometry and metrics
+```{eval-rst}
+.. automodule:: neurogenesis.morphometry
+   :members: barcodes, persistence_images, wasserstein_squared, features, stratification_peaks, morphology_wasserstein_to_reference, laminar_density_profile_ks
+
+.. automodule:: neurogenesis.metrics
+   :members: pair_correlations, residual_correlations, multiplicity_regression, tuning_metrics, generate_natural_movie, movie_input_currents
+
+.. automodule:: neurogenesis.data.morphology_catalogue
+   :members: load_morphology_manifest, fetch_morphology_manifest, load_catalogue_cells
+```
