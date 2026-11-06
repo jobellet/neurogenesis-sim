@@ -7,10 +7,10 @@ from typing import Any, Dict, Tuple
 import numpy as np
 
 from neurogenesis.arbors import NODE_BYTES, SOMA, ArborStore, compartment_id
-from neurogenesis.params import resolve, worst_case
+from neurogenesis.params import resolve, resolve_nested, worst_case
 from neurogenesis.spatial import CellList
 from neurogenesis.stages.base import register_stage
-from neurogenesis.tissue import Tissue
+from neurogenesis.tissue import Tissue, effective_max_delay
 
 MAX_DELAY = 31
 _MEAN_CONTACTS = 27          # mean candidate nodes per axon node within the contact distance, for the N3 cost
@@ -176,8 +176,10 @@ class ArborSynapses:
     with probability `p_contact`, keeping at most `max_per_pair` (closest first) per (pre cell, post cell). Pre nodes
     have a compartment in `pre_compartments` (default axon, neurite), post nodes one in `post_compartments` (default
     dendrite, neurite, soma). Delay = round(axonal path length from the pre soma / `axon_velocity` + dendritic path
-    length to the post soma / `dendrite_velocity` (ignored if absent)), clipped to [1, 31] ticks with a counted
-    warning. Weight `weight` with the presynaptic sign (`dale`, default True). Synapses record `pre_node`, `post_node`,
+    length to the post soma / `dendrite_velocity` (ignored if absent)), clipped to [1, `max_delay`] ticks (default 31,
+    at most 255: longer delays use multi-word spike history in the kernels) with a counted warning.
+    `axon_velocity_by_type` (list, optional) gives the velocity per presynaptic `cell_type` (index = type; types past
+    its end use `axon_velocity`), e.g. per-population myelination. Weight `weight` with the presynaptic sign (`dale`, default True). Synapses record `pre_node`, `post_node`,
     `path_length` (axonal) and `dendritic_distance`. No arbors or no `contact_distance` is the no-op.
     """
 
@@ -221,15 +223,25 @@ class ArborSynapses:
         plen = m.path_length_to_root()
         axon_len, dend_len = plen[a], plen[b]
         v_ax = float(resolve(params.get("axon_velocity", 1.0), genome, fields))
-        t = axon_len / v_ax
+        by_type = params.get("axon_velocity_by_type")
+        if by_type is not None:
+            vt = np.asarray(resolve_nested(by_type, genome, fields), np.float64).reshape(-1)
+            ct = tissue.cell_type[pre_c]
+            v = np.full(len(ct), v_ax)
+            known = (ct >= 0) & (ct < len(vt))
+            v[known] = vt[ct[known]]
+            t = axon_len / v
+        else:
+            t = axon_len / v_ax
         if params.get("dendrite_velocity") is not None:
             t = t + dend_len / float(resolve(params["dendrite_velocity"], genome, fields))
+        max_d = MAX_DELAY if params.get("max_delay") is None else effective_max_delay(resolve(params["max_delay"], genome, fields))
         delay = np.round(t).astype(np.int64)
-        n_clip = int(np.sum(delay > MAX_DELAY))
+        n_clip = int(np.sum(delay > max_d))
         if n_clip:
-            warnings.warn(f"arbor_synapses: {n_clip} synapses clipped to maximum delay {MAX_DELAY} ticks (kernel limit)",
+            warnings.warn(f"arbor_synapses: {n_clip} synapses clipped to maximum delay {max_d} ticks (max_delay)",
                           UserWarning, stacklevel=3)
-        delay = np.clip(delay, 1, MAX_DELAY)
+        delay = np.clip(delay, 1, max_d)
         w = np.full(len(a), int(resolve(params.get("weight", 1), genome, fields)), np.int32)
         if bool(resolve(params.get("dale", True), genome, fields)):
             w = np.abs(w) * np.where(tissue.sign[pre_c] < 0, -1, 1).astype(np.int32)

@@ -357,8 +357,10 @@ compartment changes); `read_swc` / `write_swc` for SWC files (`scale` converts u
 default axon and neurite) within `contact_distance` of dendritic nodes (`post_compartments`, default dendrite, neurite,
 soma) of another cell, found through the cell list over nodes. Each contact is kept with `p_contact` (1.0), at most
 `max_per_pair` (1) per cell pair, closest first. Delay = round(axonal path length / `axon_velocity` (1.0) +
-dendritic path length / `dendrite_velocity` (ignored if absent)), clipped to [1, 255] ticks with a counted warning.
-Weight `weight` (1) with the presynaptic sign (`dale`, True). Each synapse records `pre_node`, `post_node`,
+dendritic path length / `dendrite_velocity` (ignored if absent)), clipped to [1, `max_delay`] ticks with a counted
+warning (`max_delay` defaults to 31, at most 255; delays above 31 use multi-word spike history in all kernels).
+`axon_velocity_by_type` (optional list, index = presynaptic `cell_type`; types past its end use `axon_velocity`) sets a
+velocity per cell type, e.g. per-population myelination. Weight `weight` (1) with the presynaptic sign (`dale`, True). Each synapse records `pre_node`, `post_node`,
 `path_length` and `dendritic_distance`. No arbors or no `contact_distance` is the no-op. The cost assumes 50 nodes per
 cell unless `expected_nodes` is given.
 

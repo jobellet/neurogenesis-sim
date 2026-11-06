@@ -152,6 +152,26 @@ def test_arbor_synapses_clip_delays_with_a_warning_and_keep_signs():
     assert any("clipped" in str(x.message) for x in w)
 
 
+def test_arbor_synapses_max_delay_and_velocity_per_type():
+    t = _two_cells()
+    t.morphology.compartment[14:] = AXON
+    t.morphology.compartment[1:13] = DENDRITE
+    long = _run("arbor_synapses", t, {"contact_distance": 0.6, "axon_velocity": 0.1, "max_delay": 127})
+    assert long.connectivity.delay[0] == 50                     # 5 / 0.1, no longer clipped at 31
+
+    def typed():
+        t = _two_cells()
+        t.cell_type[:] = [0, 1]
+        return t
+    base = {"contact_distance": 0.6, "axon_velocity": 2.0}
+    same = _run("arbor_synapses", _two_cells(), base).connectivity.delay[0]
+    fast = _run("arbor_synapses", typed(), dict(base, axon_velocity_by_type=[5.0])).connectivity.delay[0]
+    past = _run("arbor_synapses", typed(), dict(base, axon_velocity_by_type=[])).connectivity.delay[0]
+    assert (same, fast, past) == (5, 2, 5)                      # 10 / 2, 10 / 5 for type 0; empty list = global
+    with pytest.raises(ValueError):
+        _run("arbor_synapses", _two_cells(), dict(base, max_delay=300))
+
+
 def test_arbor_synapses_in_a_grown_tissue():
     t = _cells(40, 15.0)
     t = _run("grow_arbors", t, {"steps": 15, "n_neurites": 1, "compartment": "axon"}, seed=1)
