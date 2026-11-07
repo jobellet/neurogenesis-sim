@@ -1,8 +1,8 @@
-"""Criticality measures (neurogenesis.criticality) on branching processes with known m, and their failure modes."""
+"""Criticality measures (neurogenesis.analysis.criticality) on branching processes with known m, and their failure modes."""
 import numpy as np
 import pytest
 
-from neurogenesis import criticality as C
+from neurogenesis.analysis import criticality as C
 
 
 @pytest.mark.parametrize("m", [0.8, 0.95, 0.99])

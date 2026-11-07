@@ -64,6 +64,9 @@ Generated from the docstrings of the installed package.
 .. automodule:: neurogenesis.spiking.batch
    :members: simulate_counts
 
+.. automodule:: neurogenesis.spiking.numba_backend
+   :members: simulate, arrays
+
 .. automodule:: neurogenesis.spiking.models
    :members: register_model
 
@@ -71,15 +74,25 @@ Generated from the docstrings of the installed package.
    :members: STDPRule, HebbianRule, ThreeFactorRule
 ```
 
-## Cost and analysis
+## Cost
 ```{eval-rst}
 .. automodule:: neurogenesis.cost
    :members: estimate, check, calibrate, memory_bytes, available_memory, CostError
 
-.. automodule:: neurogenesis.analysis
-   :members: fi_curve, nearest_neighbour_regularity
+```
 
-.. automodule:: neurogenesis.criticality
+## Analysis
+Measurements on grown networks and their activity (layout and rules for new measures: [](layout.md)).
+```{eval-rst}
+.. automodule:: neurogenesis.analysis
+
+.. automodule:: neurogenesis.analysis.cells
+   :members: fi_curve
+
+.. automodule:: neurogenesis.analysis.structure
+   :members: nearest_neighbour_regularity, connection_lengths, within_group_fraction, modularity
+
+.. automodule:: neurogenesis.analysis.criticality
    :members: summary, branching_mr, avalanches, powerlaw_fit, powerlaw_fit_xmin, crackling, branching_process
 ```
 

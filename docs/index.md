@@ -86,6 +86,7 @@ integration/index
 :maxdepth: 2
 :caption: Reference
 
+reference/layout
 reference/cli
 reference/stages
 reference/api

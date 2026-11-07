@@ -56,6 +56,13 @@ In a Project, the `grow_axons` stage takes these genes from its `guidance` param
 It does not read `genome["guidance"]`. A listed projection without guidance, or no `projections`/`guidance` at all,
 raises ValueError; `"projections": []` is the no-op.
 
+## Measuring what you grew
+Measures go to `neurogenesis.analysis`, never into stages: `structure` (wiring, modules, mosaics), `criticality`
+(population dynamics), `cells` (single-cell responses), or a new module of the same package for a new kind of
+measure. A measure reads arrays, tissues or recorded activity and does not change them. Layout, rules and the list of
+measures: `docs/reference/layout.md`. For fast CPU simulation of sparse activity, `neurogenesis.spiking.numba_backend`
+gives the same spikes as the JAX kernel.
+
 ## 2. A module project, step by step
 Recommended layout (one repository per module or family of modules):
 ```

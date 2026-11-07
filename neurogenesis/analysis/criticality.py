@@ -1,5 +1,7 @@
 """Measures of critical dynamics in population activity (NumPy, O(T) memory and time).
 
+Input: a population spike-count series, one value per tick (e.g. the per-tick spike totals of any kernel).
+
 - `branching_mr`: branching parameter m by multistep regression (Wilting & Priesemann 2018, Nat Commun), robust to
   subsampling: slopes r_k of A(t + k) on A(t), fitted as b * m^k. m = 1 is critical, m < 1 subcritical; the
   autocorrelation time is tau = -dt / ln m.

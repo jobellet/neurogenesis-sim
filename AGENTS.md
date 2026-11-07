@@ -41,8 +41,9 @@ the roadmap (e.g. "C4 migrate"), and stay within its scope.**
   - New options are off by default.
   - If a change must alter existing networks, stop and ask the maintainer.
 - **Kernel equivalence.** `lif_int` gives identical spikes in Python (`spiking/reference.py`), JAX
-  (`spiking/jax_backend.py`), the browser (`viz/src/sim/kernel.ts`), and the portable C kernel `nglif` (`desktop/common/native/nglif/`). Any change to one must be made to all four,
-  with the equivalence tests passing.
+  (`spiking/jax_backend.py`), Numba (`spiking/numba_backend.py`, CPU, single-channel synapses), the browser
+  (`viz/src/sim/kernel.ts`), and the portable C kernel `nglif` (`desktop/common/native/nglif/`). Any change to one must be
+  made to all of them, with the equivalence tests passing (`tests/test_kernel.py`, `tests/test_numba_backend.py`).
 - **Desktop apps & shared contracts ownership.**
   - Jules agents never edit `desktop/mac/` (owned by the Mac agent) nor `desktop/avalonia/` (owned by the Avalonia agent).
   - `desktop/common/` and `neurogenesis/bridge/` are shared contracts (protocol, NGB1 binary network format, UI schema, visual spec, C kernel `nglif`, golden fixtures, runtime scripts).
@@ -74,6 +75,8 @@ the roadmap (e.g. "C4 migrate"), and stay within its scope.**
 | a neuron model | `neurogenesis/spiking/models/<name>.py`, `register_model` | use `base.drivers` and `base.transmit`; `state_bytes`, `flops`, `substeps`; known-property tests; add to the parametrised tests in `tests/test_models.py` |
 | a geometry or field type | `neurogenesis/geometry/`, `neurogenesis/fields/` | JSON round trip through the Project schema; sampling test |
 | a GUI panel | `viz/src/ui/` | reads and writes Project files only (no hidden state); `npm run build` passes |
+| an analysis measure | `neurogenesis/analysis/<kind>.py` (cells, structure, criticality, or a new kind) | reads arrays / tissues / activity and never changes them; known-answer tests (synthetic data with a known value), degenerate inputs; a row in `docs/reference/layout.md` and the API page |
+| a simulation backend | `neurogenesis/spiking/<name>_backend.py` | identical `lif_int` spikes per neuron and tick against `jax_backend` (equivalence test); optional dependencies as an extra |
 | an example | `examples/<name>.py` | runs on a laptop CPU in under ~5 min; a test in `tests/test_examples.py` |
 
 ## Style
