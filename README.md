@@ -72,6 +72,7 @@ young and their API may still change. Everything open is in `docs/ROADMAP.md` (t
 | Interoperability | `neurogenesis.interop` | Export / import with a report of what is exact, approximated or dropped: SONATA (`python -m neurogenesis export net.json --format sonata --out dir`), exact round trip; one shared translation of the integer neuron into a current-based exponential LIF. |
 | Bridge and apps | `neurogenesis.bridge`, `desktop/` | JSON-lines server (`python -m neurogenesis.bridge`), NGB1 binary networks, UI schema export (`python -m neurogenesis ui-schema`); native macOS app; Windows / Linux app in progress. |
 | Analysis | `neurogenesis.analysis` | Frequency–current curves (from rest), mosaic regularity. |
+| Criticality | `neurogenesis.criticality` | Branching parameter by multistep regression, avalanche size / duration exponents (discrete power-law MLE, KS-chosen xmin), crackling scaling relation, a driven branching process for tests. |
 | Viewer | `viz/` | Browser 3D viewer and sandbox (three.js): imports network JSON, shows neurons by role and sign, rasters, per-neuron inspection and editing. |
 
 ## Install and try

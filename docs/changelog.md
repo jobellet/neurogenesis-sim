@@ -8,6 +8,9 @@
 - Cell list (D1) and sparse guidance (D2); online plasticity (E1).
 - Bridge (`python -m neurogenesis.bridge`), NGB1 format, portable C kernel `nglif` with golden fixtures, macOS app.
 - This documentation site.
+- Criticality measures (`neurogenesis.criticality`): branching parameter by multistep regression, avalanche
+  exponents with KS-chosen xmin, crackling scaling relation; `express` weight matrices accept Genes; `arbor_synapses`
+  `max_delay` and `axon_velocity_by_type`.
 
 ## Earlier
 - Integer LIF kernel identical in Python, JAX and the browser; neuron models `two_compartment` and `hh`; calibrated

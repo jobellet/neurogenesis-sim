@@ -78,6 +78,9 @@ Generated from the docstrings of the installed package.
 
 .. automodule:: neurogenesis.analysis
    :members: fi_curve, nearest_neighbour_regularity
+
+.. automodule:: neurogenesis.criticality
+   :members: summary, branching_mr, avalanches, powerlaw_fit, powerlaw_fit_xmin, crackling, branching_process
 ```
 
 ## Interoperability

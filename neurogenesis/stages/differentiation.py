@@ -10,7 +10,7 @@ import math
 from typing import Dict, Any, Tuple
 from neurogenesis.stages.base import register_stage
 from neurogenesis.tissue import Tissue
-from neurogenesis.params import resolve, Param, worst_case
+from neurogenesis.params import resolve, resolve_nested, Param, worst_case
 from neurogenesis.spatial import CellList
 from neurogenesis.fields import Field
 from neurogenesis.geometry import Geometry
@@ -57,7 +57,7 @@ class Express:
             tissue.expression = new_expr
 
         W_param = params.get("weights")
-        W = resolve(W_param, genome, fields, None) if W_param is not None else None
+        W = resolve_nested(W_param, genome, fields) if W_param is not None else None   # entries may be Genes
         
         if W is None:
             W = np.zeros((K, K), dtype=np.float32)
@@ -106,7 +106,7 @@ class Express:
             src, dst = cl.query_radius(tissue.positions, radius)
             
             W_n_param = params.get("neighbor_weights")
-            W_n = resolve(W_n_param, genome, fields, None) if W_n_param is not None else np.zeros((K, K))
+            W_n = resolve_nested(W_n_param, genome, fields) if W_n_param is not None else np.zeros((K, K))
             if isinstance(W_n, list):
                 W_n = np.array(W_n, dtype=np.float32)
             W_n = W_n.reshape((K, K))

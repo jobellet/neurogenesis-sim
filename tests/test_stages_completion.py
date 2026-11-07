@@ -132,6 +132,19 @@ def test_express_hill_activation():
         _run("express", t, {"K": Const(1), "activation": Const("relu")})
 
 
+def test_express_weight_matrices_accept_genes():
+    """Entries of `weights` and `neighbor_weights` may be Genes (as `morphogens` weights already could)."""
+    gene = lambda name: {"type": "Gene", "path": [name], "lo": -5.0, "hi": 5.0}
+    t = Tissue.empty(K=1)
+    t.add_cells(2, positions=np.array([[0.0, 0, 0], [0.05, 0, 0]]), expression=np.array([[1.0], [0.0]], np.float32),
+                K=1)
+    params = {"K": Const(1), "weights": Const([[gene("w")]]), "decay": Const(1.0), "radius": Const(0.1),
+              "neighbor_weights": Const([[gene("n")]])}
+    out = STAGE_REGISTRY["express"]().run(t, params, {"w": 2.0, "n": -3.0}, {}, np.random.default_rng(0))
+    sig = lambda x: 1 / (1 + np.exp(-x))
+    np.testing.assert_allclose(out.expression[:, 0], [sig(2.0 * 1 - 3.0 * 0), sig(2.0 * 0 - 3.0 * 1)], rtol=1e-5)
+
+
 # C7 ---------------------------------------------------------------------------------------------------------------
 def test_differentiate_conditions_see_positions_and_birth_order():
     t = Tissue.empty()
