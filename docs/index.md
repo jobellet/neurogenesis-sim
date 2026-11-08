@@ -1,45 +1,18 @@
 # neurogenesis-sim
 
-**A collaborative discovery platform to grow, perturb, and evolve spiking neural circuits.**
+**Grow spiking neural networks the way nervous systems are built, by hand, by genes, or both, and simulate them
+cheaply.**
 
-<div id="ng-hero-anim-root"></div>
+<div id="ng-hero-anim-root"><noscript>The interactive playground needs JavaScript.</noscript></div>
+<script src="_static/ngjs/ng-core.js"></script>
+<script src="_static/ngjs/ng-hero.js"></script>
 
-```python
-from neurogenesis.data import register_target
-from neurogenesis.development import BodyPlan, Region, grow
-from neurogenesis.fitting import evolve_circuit
-from neurogenesis.modules import share
-
-# 1. Define Target: evolvable objective with non-spiking or dynamic readout
-@register_target(name="alpha_sync")
-def target_alpha_sync(activity):
-    return score_alpha_oscillation(activity, target_freq=10.0, e_i_ratio=4.0)
-
-# 2. Grow & Perturb: biological schedule with gene and drug parameters
-plan = BodyPlan(name="cortex", regions=[Region("sheet", size=(40, 40, 5))])
-net = grow(plan, founding_genome, pharmacology={"GABA_antagonist": 0.2})
-
-# 3. Evolve & Share: optimize genome + pharmacology, export catalogue card
-evolved_genome, best_score = evolve_circuit(plan, target="alpha_sync", generations=20)
-share(plan, evolved_genome, target="alpha_sync", author="Bellet et al.", doi="10.1101/...")
-```
-
-<div class="circuit-preview-grid" style="display: flex; gap: 20px; margin: 24px 0; flex-wrap: wrap;">
-  <div style="flex: 1; min-width: 280px; border: 1px solid #e1e4e8; border-radius: 8px; padding: 14px; background: #fafbfc;">
-    <h4 style="margin-top: 0; color: #d73a49; font-weight: 600;">Baseline / Disordered Circuit</h4>
-    <img src="_static/media/viewer_raster.png" alt="Baseline asynchronous circuit" style="width: 100%; border-radius: 4px; border: 1px solid #e1e4e8;" />
-    <p style="font-size: 0.9em; color: #586069; margin-top: 10px; margin-bottom: 0;">
-      <strong>Pre-optimization:</strong> Asynchronous irregular firing; unaligned synaptic projections.
-    </p>
-  </div>
-  <div style="flex: 1; min-width: 280px; border: 1px solid #e1e4e8; border-radius: 8px; padding: 14px; background: #fafbfc;">
-    <h4 style="margin-top: 0; color: #28a745; font-weight: 600;">Evolved Synchronous Circuit</h4>
-    <img src="_static/media/topographic_map_growth.gif" alt="Evolved topographic synchronous circuit" style="width: 100%; border-radius: 4px; border: 1px solid #e1e4e8;" />
-    <p style="font-size: 0.9em; color: #586069; margin-top: 10px; margin-bottom: 0;">
-      <strong>Post-optimization:</strong> Emergence of 10 Hz synchronous oscillations and balanced E/I ratio ($R \ge 65\%$).
-    </p>
-  </div>
-</div>
+**What runs above.** A JavaScript port of the toolbox grows each individual through six stages (cell-cycle exit,
+interneuron production, radial and tangential migration, chemoaffinity axon guidance, competitive elimination during
+spontaneous waves) and simulates it with the integer `lif_int` kernel, whose spikes are identical to the Python
+reference. The task is a toy one: the cortex must report where its thalamic input was flashed, at a low energy cost.
+Each generation keeps the best of its offspring, so you can see which stage selection changes first. The model, its
+genes, its simplifications and the JavaScript API are described in {doc}`getting-started/playground`.
 
 neurogenesis-sim is a general toolbox for building circuits through development. You describe where tissue is (2D or
 3D shapes) and what is already known about it (layers, areas, maps, cell positions). You then choose a sequence of
@@ -53,6 +26,65 @@ simulated, measured, evolved and shared as a module.
 | Supervised (by hand) | geometry, cells, connections or connection rules | compiles and simulates exactly what you specified |
 | Unsupervised (genetic) | a genome and a schedule of stages | genes control every stage; evolution searches genomes that work for every developmental seed |
 | Semi-supervised | a hand-made scaffold (layers, maps, landmarks) plus a schedule | genes and fitted parameters work on top of the scaffold |
+
+## The same idea in Python
+The toolbox's own `grow` and island evolution (`neurogenesis.evolution.islands.evolve`) on a sensor sheet projecting
+onto a grown map: two guidance genes (receptor-gradient gain and arbor spread) evolve until the map reports where the
+sheet is stimulated. It runs in a few seconds on a laptop CPU and prints the best fitness (minus the decoding error) of
+each generation.
+
+```python
+import numpy as np
+from neurogenesis.development import BodyPlan, FixedPlacement, Region, grow, region_of
+from neurogenesis.evolution.islands import evolve
+from neurogenesis.spiking.batch import simulate_counts
+
+# A sensor sheet (hand-placed scaffold) projects onto a map grown from a genome.
+sheet = [[(i + 0.5) / 6, (j + 0.5) / 6, 0.5] for i in range(6) for j in range(6)]
+plan = BodyPlan(name="map", regions=[
+    Region("sensor", origin=(0, 0, 0), size=(30, 30, 5), placement=FixedPlacement(sheet), role=1),
+    Region("map", origin=(50, 0, 0), size=(30, 30, 10))], projections=[("sensor", "map")])
+founder = dict(count=dict(map=200), inh_weight_factor=2.0, w_clip=2047,
+               migration=dict(map=dict(mean=np.full(3, 0.5), spread=0.35)),
+               inhibitory=dict(map=dict(a0=-6.0, a=np.zeros(3))),
+               guidance={("sensor", "map"): dict(B=np.zeros((3, 3)), c=np.zeros(3), sigma=0.3, p0=0.9, w=900.0)})
+genes = [(("guidance", ("sensor", "map"), "B", 0, 0), -3.0, 3.0),   # receptor-gradient gain along u (0: no map)
+         (("guidance", ("sensor", "map"), "sigma"), 0.05, 0.5)]      # arbor spread
+
+def evaluate(genomes, seeds):
+    """Fitness: stimulate sensor columns along u; the map's spike-weighted mean u should follow (minus error)."""
+    fit = []
+    for g in genomes:
+        err = []
+        for seed in seeds:
+            net = grow(plan, g, seed=seed)
+            sensor, target = region_of(net, plan, "sensor"), region_of(net, plan, "map")
+            u = np.array([net.neurons[i].x for i in target]) / 30 - 50 / 30
+            ext = np.zeros((6, net.num_neurons), np.int32)
+            for col in range(6):
+                ext[col, sensor[col * 6:(col + 1) * 6]] = 120     # one column of the sheet per stimulus
+            counts = simulate_counts([net], [ext], ticks=40)[0][:, target]
+            dec = (counts @ u) / np.maximum(counts.sum(1), 1)
+            err.append(np.sqrt(np.mean((dec - (np.arange(6) + 0.5) / 6) ** 2)))
+        fit.append(-float(np.mean(err)))
+    return fit, [{} for _ in genomes]
+
+population, history = evolve(founder, genes, evaluate, pop=8, gens=6, seeds_per_gen=2, parents=3, sigma=0.15)
+print([round(h["best"], 3) for h in history])
+```
+
+<div class="ng-figs">
+  <figure>
+    <img src="_static/media/topographic_map_growth.gif" alt="Growth of a topographic map" />
+    <figcaption>A topographic map grown from a genome (<code>examples/topographic_map.py</code>, seed 0): sensor→map
+    synapses coloured by the sensor's position. See <a href="use-cases/topographic-map.html">the use case</a>.</figcaption>
+  </figure>
+  <figure>
+    <img src="_static/media/viewer_raster.png" alt="The browser viewer running a column" />
+    <figcaption>The browser viewer running a 500-neuron column made with
+    <code>python -m neurogenesis generate</code>, with its spike raster. See <a href="tutorials/viewer.html">the viewer tutorial</a>.</figcaption>
+  </figure>
+</div>
 
 ## For AI assistants
 The whole documentation is also published as one Markdown file, with a generated status section (what exists, what
@@ -88,6 +120,7 @@ stages are young and their API may still change (see
 
 getting-started/installation
 getting-started/quickstart
+getting-started/playground
 getting-started/concepts
 ```
 

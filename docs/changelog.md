@@ -15,6 +15,12 @@
 - `neurogenesis.spiking.numba_backend`: event-driven CPU kernel with the same `lif_int` spikes (optional extra `fast`).
 - `express` weight matrices accept Genes; `arbor_synapses` `max_delay` and `axon_velocity_by_type`.
 - `neurogenesis.analysis.geometry`: cross-validated PCA (`cvpca`), participation ratio, connectivity dimensionality.
+- Front page (J12, part): a browser playground that grows and evolves a toy cortical map with a JavaScript port of the
+  toolbox (`docs/_static/ngjs/ng-core.js`: the `lif_int` kernel with spikes identical to Python, gene coding,
+  `seeds_of`, `coactivity`, competitive elimination, 2D stages) and animates the founder and the champion through six
+  stages (`docs/getting-started/playground.md`). It replaces the scripted animation, whose fitness curve and readout
+  were drawn, not computed; the front-page code example now uses functions that exist and runs
+  (`tests/test_docs_playground.py`), and the figure captions describe what the figures show.
 - Fixes to the discovery platform (PR #107):
   - `set_gene` and `from_unit` again raise `KeyError` on a gene path missing from the genome (a misspelled gene no
     longer becomes a silent dead gene); `create=True` adds missing keys.

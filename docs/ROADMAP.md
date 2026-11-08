@@ -750,6 +750,11 @@ statistical matches "in this simulation", with the spread between individuals as
 
 **J12. Zero-install web demo.** The browser viewer and kernel (Phase F) published with preset projects on the
 documentation site, so anyone can grow and simulate a circuit without installing anything.
+- **Status:** partial: the front page runs a browser playground (`docs/_static/ngjs/`): a JavaScript port of the
+  `lif_int` kernel (identical spikes to the Python reference), the gene coding, `coactivity`, competitive elimination
+  and 2D versions of six stages grows and evolves a toy cortical map (best offspring per generation), founder and
+  champion animated stage by stage; equivalence with Python in `tests/test_docs_playground.py`, described in
+  `docs/getting-started/playground.md`. Not done: the 3D viewer (`viz/`) with preset projects on the site.
 
 **J13. Citable releases.** `CITATION.cff`, a Zenodo DOI per tagged release, and a JOSS paper (`paper.md`) once the
 repository is public.

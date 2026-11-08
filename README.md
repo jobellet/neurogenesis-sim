@@ -4,7 +4,8 @@
 cheaply.**
 ## Documentation
 **<https://jobellet.github.io/neurogenesis-sim/>**: tutorials, use cases, integration guides, stage and API
-reference, related work. **For AI assistants:** the whole documentation, with a generated status section (what
+reference, related work. Its front page grows and evolves a small cortical map in the browser
+(`docs/_static/ngjs/`, a JavaScript port of the kernel and of six stages; `docs/getting-started/playground.md`). **For AI assistants:** the whole documentation, with a generated status section (what
 exists, what is not done, open pull requests), as one Markdown file to paste or upload into a chat:
 [neurogenesis-sim-context.md](https://jobellet.github.io/neurogenesis-sim/neurogenesis-sim-context.md) (~70k tokens)
 or the short [neurogenesis-sim-brief.md](https://jobellet.github.io/neurogenesis-sim/neurogenesis-sim-brief.md)
