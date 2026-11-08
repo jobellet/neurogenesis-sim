@@ -2,6 +2,8 @@
 
 **A collaborative discovery platform to grow, perturb, and evolve spiking neural circuits.**
 
+<div id="ng-hero-anim-root"></div>
+
 ```python
 from neurogenesis.data import register_target
 from neurogenesis.development import BodyPlan, Region, grow

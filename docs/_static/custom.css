@@ -519,3 +519,156 @@ img.gif-demo { border: 1px solid #ddd; }
 .catalogue-view-btn:hover {
   text-decoration: underline;
 }
+
+/* Front-Page Hero Developmental & Evolutionary Animation */
+.ng-hero-card {
+  border: 1px solid #1e293b;
+  border-radius: 12px;
+  background: #0f172a;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.22);
+  margin: 22px 0 30px 0;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.ng-hero-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 16px;
+  background: #1e293b;
+  border-bottom: 1px solid #334155;
+}
+
+.ng-hero-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ng-hero-pill {
+  background: #0f172a;
+  color: #94a3b8;
+  border: 1px solid #334155;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ng-hero-pill:hover {
+  color: #f8fafc;
+  border-color: #64748b;
+}
+
+.ng-hero-pill.active {
+  background: #0284c7;
+  color: #ffffff;
+  border-color: #38bdf8;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.35);
+}
+
+.ng-hero-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.ng-hero-btn {
+  background: #334155;
+  color: #f1f5f9;
+  border: 1px solid #475569;
+  border-radius: 6px;
+  padding: 5px 11px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ng-hero-btn:hover {
+  background: #0284c7;
+  border-color: #38bdf8;
+  color: #ffffff;
+}
+
+.ng-hero-canvas-wrap {
+  position: relative;
+  width: 100%;
+  background: #0b1120;
+  line-height: 0;
+}
+
+#ng-hero-canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.ng-hero-overlay-badge {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  color: #cbd5e1;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 999px;
+  line-height: 1.2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.ng-badge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #34d399;
+  box-shadow: 0 0 6px #34d399;
+}
+
+.ng-hero-footer {
+  padding: 14px 18px;
+  background: #1e293b;
+  border-top: 1px solid #334155;
+  color: #e2e8f0;
+}
+
+.ng-hero-footer-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.ng-hero-stage-tag {
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+  font-family: monospace;
+  font-size: 0.78rem;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.ng-hero-stage-title {
+  margin: 0 !important;
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.ng-hero-stage-desc {
+  margin: 0 !important;
+  font-size: 0.88rem;
+  color: #cbd5e1;
+  line-height: 1.48;
+}
