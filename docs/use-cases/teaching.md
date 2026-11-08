@@ -1,5 +1,7 @@
 # Teaching
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/neurogenesis-sim/blob/main/notebooks/use-cases/teaching.ipynb)
+
 - **Spiking dynamics:** the viewer simulates in the browser; students change thresholds, leaks, weights and delays and
   see the raster change immediately.
 - **Neuron models:** the same network with integer LIF, two-compartment and Hodgkin–Huxley neurons

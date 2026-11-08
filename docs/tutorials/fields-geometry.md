@@ -1,5 +1,7 @@
 # Tutorial 6 — Geometry and fields (experimental)
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/neurogenesis-sim/blob/main/notebooks/tutorials/fields-geometry.ipynb)
+
 ```{admonition} Experimental
 :class: warning
 Geometries and fields (roadmap phase B) are new and their API may still change. Geometries and fields declared in

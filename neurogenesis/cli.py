@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 from .spiking.morphology import MorphogeneticEngine
@@ -259,6 +260,155 @@ def cmd_profile(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
+def cmd_share(args: argparse.Namespace) -> None:
+    """Validate an experiment, compute costs, and export a catalogue-ready neurogenesis-card/1 bundle."""
+    from .data.catalogue import CARD_FORMAT, ORCID_REGEX, DOI_REGEX, validate_card, save_card
+    from .project import schema
+    from .stages.base import run_schedule
+    from .cost import estimate
+
+    # Validate ORCID
+    orcid = str(args.orcid).strip() if args.orcid else ""
+    if not orcid or not ORCID_REGEX.match(orcid):
+        raise SystemExit(f"Invalid ORCID {orcid!r}: must match format 0000-0000-0000-0000")
+
+    # Validate author
+    author = str(args.author).strip() if args.author else ""
+    if not author:
+        raise SystemExit("Author name must be provided")
+
+    # Validate DOI if provided
+    doi = str(args.doi).strip() if args.doi else None
+    if doi and not DOI_REGEX.match(doi):
+        raise SystemExit(f"Invalid DOI {doi!r}: must match format 10.xxxx/...")
+
+    # Load Project JSON
+    proj_path = Path(args.project)
+    if not proj_path.exists():
+        raise SystemExit(f"Project file not found: {proj_path}")
+    try:
+        project_data = json.loads(proj_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise SystemExit(f"Failed to read project JSON: {e}")
+
+    if project_data.get("version") != schema.SCHEMA_VERSION:
+        project_data = schema.migrate(project_data, project_data.get("version", "1.0.0"), schema.SCHEMA_VERSION)
+    schema.validate(project_data)
+
+    # Load genome
+    genome = dict(project_data.get("genome", {}))
+    if args.genome:
+        g_path = Path(args.genome)
+        if g_path.exists():
+            try:
+                g_data = json.loads(g_path.read_text(encoding="utf-8"))
+                if isinstance(g_data, dict):
+                    if "genome" in g_data and isinstance(g_data["genome"], dict):
+                        g_data = g_data["genome"]
+                    elif "best_genome" in g_data and isinstance(g_data["best_genome"], dict):
+                        g_data = g_data["best_genome"]
+                    genome.update(g_data)
+            except Exception as e:
+                raise SystemExit(f"Failed to read genome file: {e}")
+        else:
+            try:
+                g_data = json.loads(args.genome)
+                if isinstance(g_data, dict):
+                    genome.update(g_data)
+            except Exception as e:
+                raise SystemExit(f"Invalid genome argument: {e}")
+    project_data["genome"] = genome
+
+    # Load targets
+    targets = []
+    if args.targets:
+        t_path = Path(args.targets)
+        if t_path.exists():
+            try:
+                t_data = json.loads(t_path.read_text(encoding="utf-8"))
+                targets = t_data.get("targets", t_data) if isinstance(t_data, dict) else t_data
+            except Exception as e:
+                raise SystemExit(f"Failed to read targets file: {e}")
+        else:
+            try:
+                t_data = json.loads(args.targets)
+                targets = t_data.get("targets", t_data) if isinstance(t_data, dict) else t_data
+            except Exception as e:
+                raise SystemExit(f"Invalid targets argument: {e}")
+    elif "targets" in project_data:
+        targets = project_data["targets"]
+
+    if isinstance(targets, dict):
+        targets = [targets]
+    elif not isinstance(targets, list):
+        targets = []
+
+    # Run validation across held-out seeds [1000, 1001, 1002]
+    seeds = [1000, 1001, 1002]
+    val_scores = []
+    sample_tissue = None
+    from .data.targets import TARGETS
+    for s in seeds:
+        tissue = run_schedule(project_data, genome, seed=s)
+        if sample_tissue is None:
+            sample_tissue = tissue
+        seed_record = {}
+        for t in targets:
+            metric_name = t.get("metric") or t.get("name")
+            if metric_name in TARGETS:
+                spec = TARGETS[metric_name]
+                score = spec(tissue, t)
+                seed_record[metric_name] = round(float(score), 4)
+            else:
+                seed_record[metric_name or "cells"] = float(len(tissue.alive))
+        val_scores.append(seed_record)
+
+    # Compute cost estimation
+    n_neurons = max(1, len(sample_tissue.alive)) if sample_tissue else 100
+    n_synapses = len(sample_tissue.connectivity.pre) if sample_tissue and sample_tissue.connectivity and sample_tissue.connectivity.pre is not None else 0
+    model = project_data.get("neuron_model", "lif_int")
+    cost_est = estimate(model, n_neurons, n_synapses, ticks=1000, calibrated=False)
+    compute_cost = {
+        "memory_bytes": int(cost_est["memory_bytes"]),
+        "ops_per_tick": float(cost_est["ops_per_tick"]),
+        "verdict": str(cost_est["verdict"]),
+    }
+
+    # Card ID
+    card_id = args.name or project_data.get("metadata", {}).get("name") or proj_path.stem
+    card_id = re.sub(r"[^a-zA-Z0-9_-]", "-", card_id).strip("-").lower() or "microcircuit"
+
+    provenance = {
+        "authors": [{"name": author, "orcid": orcid}],
+    }
+    if doi:
+        provenance["doi"] = doi
+
+    card = {
+        "format": CARD_FORMAT,
+        "id": card_id,
+        "version": "1.0.0",
+        "project": project_data,
+        "genome": genome,
+        "targets": targets,
+        "compute_cost": compute_cost,
+        "provenance": provenance,
+        "validation": {
+            "seeds": seeds,
+            "scores": val_scores,
+        },
+    }
+
+    validate_card(card)
+
+    out_file = Path(args.out or f"{card_id}.card.json")
+    save_card(card, out_file)
+    try:
+        print(f"✓ Circuit card {card_id} exported to {out_file.resolve()}")
+    except UnicodeEncodeError:
+        print(f"[OK] Circuit card {card_id} exported to {out_file.resolve()}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="python -m neurogenesis",
@@ -383,6 +533,18 @@ def main() -> None:
     p_imp.add_argument("--format", required=True, choices=formats())
     p_imp.add_argument("--out", default="network.json", help="output network JSON (default: network.json)")
     p_imp.set_defaults(func=cmd_import)
+
+    # Subcommand: share (Track 3: collaborative catalogue cards)
+    p_share = subparsers.add_parser("share", help="Validate experiment and export a catalogue-ready neurogenesis-card/1 bundle")
+    p_share.add_argument("--project", required=True, help="Path to project JSON")
+    p_share.add_argument("--genome", default=None, help="Path to genome JSON file or JSON string")
+    p_share.add_argument("--targets", default=None, help="Path to targets JSON file or JSON string")
+    p_share.add_argument("--orcid", required=True, help="Author ORCID (e.g. 0000-0002-1825-0097)")
+    p_share.add_argument("--doi", default=None, help="Paper DOI (e.g. 10.1101/2026.01.01.123456)")
+    p_share.add_argument("--author", required=True, help="Author name")
+    p_share.add_argument("--name", default=None, help="Circuit card ID (slug)")
+    p_share.add_argument("--out", default=None, help="Output card JSON path (default: <name>.card.json)")
+    p_share.set_defaults(func=cmd_share)
 
     args = parser.parse_args()
     args.func(args)

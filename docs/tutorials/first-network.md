@@ -1,5 +1,7 @@
 # Tutorial 2 — Grow your first network
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/neurogenesis-sim/blob/main/notebooks/tutorials/first-network.ipynb)
+
 Goal: a sensor sheet that projects **topographically** onto a map, grown from a genome; then stimulate it and check,
 in this simulation, that neighbouring sensors drive neighbouring map neurons.
 

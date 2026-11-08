@@ -120,6 +120,12 @@ sceneManager.onNeuronSelected = (id: number | null) => {
   importNetwork,
   exportNetworkToFile,
   openStartupModal: () => inspector.openStartupModal(),
+  setGeneEIRatio: (val: number) => inspector.setGeneEIRatio(val),
+  setGeneSigmaScale: (val: number) => inspector.setGeneSigmaScale(val),
+  setDrugGabaDose: (val: number) => inspector.setDrugGabaDose(val),
+  setDrugAmpaGain: (val: number) => inspector.setDrugAmpaGain(val),
+  getTargetFitness: () => inspector.getTargetFitness(),
+  captureBaseline: () => inspector.captureBaseline(),
 };
 
 // Support Drag & Drop of network.json files directly onto the window
@@ -417,6 +423,7 @@ function generatePopulation(config: {
   inspector.setSelectedNeuron(null);
   sceneManager.syncPositionsFromMemory();
   sceneManager.updateGlobalSynapseGeometry();
+  inspector.captureBaseline();
 }
 
 function exportNetworkToFile(): void {
@@ -444,6 +451,7 @@ function importNetwork(net: SerializedNetwork): void {
   inspector.setSelectedNeuron(null);
   sceneManager.syncPositionsFromMemory();
   sceneManager.updateGlobalSynapseGeometry();
+  inspector.captureBaseline();
 }
 
 function initializeCorticalColumn(mem: SharedSimulationMemory, count: number): void {
@@ -585,6 +593,8 @@ function animate(): void {
 }
 
 requestAnimationFrame(animate);
+
+inspector.captureBaseline();
 
 // Open Simulation Setup Modal on initial startup unless in automated test mode
 if (!window.location.search.includes('no-modal') && !window.location.search.includes('test=1')) {

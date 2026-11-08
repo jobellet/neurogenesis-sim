@@ -1,5 +1,7 @@
 # Tutorial 5 — Projects, schedules and stages (experimental)
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/neurogenesis-sim/blob/main/notebooks/tutorials/schedules.ipynb)
+
 ```{admonition} Experimental
 :class: warning
 The stage library (roadmap phase C) is new and its API may still change. Every stage is a no-op with empty

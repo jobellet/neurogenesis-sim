@@ -1,5 +1,7 @@
 # Tutorial 1 — The command line
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/neurogenesis-sim/blob/main/notebooks/tutorials/cli.ipynb)
+
 The toolbox has two command-line entry points:
 
 | Entry point | Purpose |

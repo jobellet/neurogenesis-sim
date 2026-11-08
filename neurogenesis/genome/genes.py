@@ -13,12 +13,20 @@ import numpy as np
 INTEGER_ROOTS = ("count", "excitability")
 
 
-def _split(genome, path):
-    """(parent dict, key, array indices) for a path: dict keys first, then integer indices into an array value."""
+def _split(genome, path, create: bool = False):
+    """(parent dict, key, array indices) for a path: dict keys first, then integer indices into an array value.
+    If create is True, missing intermediate dict keys are created automatically.
+    """
     node, parent, key = genome, None, None
     for k, p in enumerate(path):
         if isinstance(node, dict):
-            parent, key, node = node, p, node[p]
+            if create and p not in node:
+                if k < len(path) - 1 and not isinstance(path[k + 1], int):
+                    node[p] = {}
+            if p not in node and not create:
+                raise KeyError(p)
+            parent, key = node, p
+            node = node.get(p) if create else node[p]
         else:
             return parent, key, tuple(path[k:])
     return parent, key, ()
@@ -31,8 +39,8 @@ def get_gene(genome, path) -> float:
 
 
 def set_gene(genome, path, v):
-    """Set a gene in place (array values are replaced by modified copies)."""
-    parent, key, idx = _split(genome, path)
+    """Set a gene in place (array values are replaced by modified copies). Auto-creates intermediate dicts."""
+    parent, key, idx = _split(genome, path, create=True)
     if idx:
         arr = np.array(parent[key], float)
         arr[idx] = v

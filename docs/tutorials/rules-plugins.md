@@ -1,5 +1,7 @@
 # Tutorial 7 — Your own rules, stages and models
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/neurogenesis-sim/blob/main/notebooks/tutorials/rules-plugins.ipynb)
+
 The toolbox is extended through registries. Your code lives in **your** package (a plugin); projects and modules
 list the plugin, and it is imported whenever they are loaded.
 

@@ -138,13 +138,20 @@ def test_migration_100_to_110_keeps_the_project_and_its_development(tmp_path):
            "genome": {}, "plugins": [], "metadata": {"a": 1}, "neuron_model": "lif_int"}
     (tmp_path / "old.json").write_text(json.dumps(old))
     p = Project.load(tmp_path / "old.json")
-    assert p.version == "1.1.0" and p.data_sources is None and p.pharmacology is None and p.morphology is None
+    assert p.version == "1.2.0" and p.data_sources is None and p.pharmacology is None and p.morphology is None
     d = p.to_dict()
     assert {k: v for k, v in d.items() if k != "version"} == {k: v for k, v in old.items() if k != "version"}
     a, b = run_schedule(old, {}, 3), run_schedule(d, {}, 3)
     assert np.array_equal(a.positions, b.positions)
+    # Single-step and chained migrations
+    m110 = schema.migrate(old, "1.0.0", "1.1.0")
+    assert m110["version"] == "1.1.0"
+    m120 = schema.migrate(m110, "1.1.0", "1.2.0")
+    assert m120["version"] == "1.2.0"
     chained = schema.migrate({"name": "toy", "regions": [], "projections": []}, "0.1.0", "1.1.0")
     assert chained["version"] == "1.1.0" and chained["plan"]["name"] == "toy"
+    chained120 = schema.migrate({"name": "toy", "regions": [], "projections": []}, "0.1.0", "1.2.0")
+    assert chained120["version"] == "1.2.0" and chained120["plan"]["name"] == "toy"
 
 
 def test_schema_110_sections_round_trip_and_validation(tmp_path):
@@ -161,3 +168,42 @@ def test_schema_110_sections_round_trip_and_validation(tmp_path):
     bad["data_sources"] = {"x": {"files": []}}
     with pytest.raises(ValueError, match="dataset"):
         schema.validate(bad)
+
+
+def test_schema_120_sections_and_migration(tmp_path):
+    """Test 1.2.0 optional sections (targets, compute_cost, provenance) round-trip and validation."""
+    targets = [{"metric": "alpha_resonance", "value": 4.0}]
+    cost = {"memory_bytes": 1024, "ops_per_tick": 500, "verdict": "fits"}
+    prov = {"authors": [{"name": "Jane Doe", "orcid": "0000-0002-1825-0097"}], "doi": "10.1101/2026.01.01.123456"}
+    p = Project(targets=targets, compute_cost=cost, provenance=prov)
+    assert p.version == "1.2.0"
+    p.save(tmp_path / "p120.json")
+
+    loaded = Project.load(tmp_path / "p120.json")
+    assert loaded.version == "1.2.0"
+    assert loaded.targets == targets
+    assert loaded.compute_cost == cost
+    assert loaded.provenance == prov
+
+    # Validation: targets can be list or dict
+    d = loaded.to_dict()
+    schema.validate(d)
+    d["targets"] = {"metric": "alpha"}
+    schema.validate(d)
+
+    # Rejection: invalid targets type
+    d["targets"] = "not-a-list-or-dict"
+    with pytest.raises(ValueError, match="targets"):
+        schema.validate(d)
+
+    # Rejection: invalid compute_cost type
+    d["targets"] = targets
+    d["compute_cost"] = [1, 2, 3]
+    with pytest.raises(ValueError, match="compute_cost"):
+        schema.validate(d)
+
+    # Rejection: invalid provenance type
+    d["compute_cost"] = cost
+    d["provenance"] = "invalid"
+    with pytest.raises(ValueError, match="provenance"):
+        schema.validate(d)

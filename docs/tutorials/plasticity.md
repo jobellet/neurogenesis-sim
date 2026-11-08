@@ -1,5 +1,7 @@
 # Tutorial 9 — Synaptic plasticity
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/neurogenesis-sim/blob/main/notebooks/tutorials/plasticity.ipynb)
+
 `neurogenesis.spiking.plasticity` provides three rules, each usable **offline** (`apply` on a recorded spike train)
 or **online**, tick by tick (`step`, no T × N memory):
 

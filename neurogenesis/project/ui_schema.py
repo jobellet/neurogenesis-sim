@@ -202,23 +202,65 @@ def export_ui_schema(project: Optional[Dict[str, Any]] = None, calibrated: bool 
             })
     doc["rules"] = rules_out
     
+    # Targets
+    from neurogenesis.data.targets import TARGETS
+    targets_out = []
+    for t_name in sorted(TARGETS.keys()):
+        spec = TARGETS[t_name]
+        targets_out.append({
+            "name": spec.name,
+            "title": spec.title or spec.name.replace("_", " ").title(),
+            "description": spec.description,
+            "requires_spiking": bool(spec.requires_spiking),
+            "unit": spec.unit,
+            "default_scale": float(spec.default_scale),
+            "options": spec.options_schema or {}
+        })
+    doc["targets"] = targets_out
+
     # Schedule Genes
     schedule_genes = []
     if project is not None:
-        raw_genes = collect_genes(project.get("schedule", []))
+        from neurogenesis.fitting import collect_project_genes
+        raw_genes = collect_project_genes(project)
         for path, lo, hi, integer in raw_genes:
             path_list = ["->".join(str(x) for x in k) if isinstance(k, tuple) else k for k in path]
             
-            # Need to figure out used_by. For each gene, we check all stages.
+            # Figure out used_by across stages, fields, and pharmacology/drugs
             used_by = []
             for i, config in enumerate(project.get("schedule", [])):
                 stage_name = config.get("name", f"stage_{i}")
                 for param_name, param_val in config.get("params", {}).items():
-                    # Check if this param uses this gene
                     param_genes = {}
                     _walk_genes(param_val, param_genes)
                     if path in param_genes:
                         used_by.append({"stage": stage_name, "param": param_name})
+
+            for field_name, field_def in project.get("fields", {}).items():
+                field_genes = {}
+                _walk_genes(field_def, field_genes)
+                if path in field_genes:
+                    used_by.append({"stage": f"field:{field_name}", "param": "field_param"})
+
+            for domain_key in ("pharmacology", "drugs"):
+                if domain_key in project:
+                    domain_val = project[domain_key]
+                    if isinstance(domain_val, dict):
+                        for item_name, item_def in domain_val.items():
+                            item_genes = {}
+                            _walk_genes(item_def, item_genes)
+                            if path in item_genes:
+                                used_by.append({"stage": domain_key, "param": item_name})
+                    elif isinstance(domain_val, list):
+                        for idx, item_def in enumerate(domain_val):
+                            item_genes = {}
+                            _walk_genes(item_def, item_genes)
+                            if path in item_genes:
+                                p_name = item_def.get("name", f"item_{idx}") if isinstance(item_def, dict) else f"item_{idx}"
+                                used_by.append({"stage": domain_key, "param": p_name})
+
+            if not used_by:
+                used_by.append({"stage": "genome", "param": str(path_list[0]) if path_list else "gene"})
                         
             schedule_genes.append({
                 "path": path_list,

@@ -1,5 +1,7 @@
 # Tutorial 10 — The browser viewer
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/neurogenesis-sim/blob/main/notebooks/tutorials/viewer.ipynb)
+
 The viewer (`viz/`, TypeScript + three.js) shows networks in 3D and simulates them live in the browser with the same
 integer kernel as Python (identical spikes).
 

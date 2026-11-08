@@ -21,7 +21,10 @@ import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+
+if TYPE_CHECKING:
+    from .tissue import Tissue
 
 import numpy as np
 
@@ -109,13 +112,14 @@ def load_profile(ref: Union[str, Dict[str, Any], Profile, None]) -> Profile:
 
 
 def compile_weights(tissue, profile: Profile, context: Optional[str] = None, genome: Optional[Dict[str, Any]] = None,
-                    require_transmitter: bool = True) -> Dict[str, int]:
+                    require_transmitter: bool = True, drugs: Optional[Dict[str, Any]] = None) -> Dict[str, int]:
     """Rewrites synapse weights in place from their receptor classes: |w| x gain with the receptor's sign in
     `context` ("pre": the weight keeps its sign, which stages set from the presynaptic cell). With
     `require_transmitter`, a synapse whose receptor binds a transmitter that the presynaptic cell does not release
     gets weight 0. Signs are recomputed from the receptor at every call, so the function can be applied again in
     another context (e.g. "immature", then "mature"); gains multiply the magnitudes at every call, so give gains other
-    than 1 only in one compilation. Returns counts: synapses changed and silenced. O(E)."""
+    than 1 only in one compilation. Supports drug dose modulation via `drugs` argument or `genome["drugs"]`.
+    Returns counts: synapses changed and silenced. O(E)."""
     genome = genome or {}
     c = tissue.connectivity
     c._sync()
@@ -135,6 +139,43 @@ def compile_weights(tissue, profile: Profile, context: Optional[str] = None, gen
         signs[k] = 0 if s == "pre" else float(s)
         gains[k] = g
         need[k] = profile.bit(r.transmitter) if r.transmitter is not None else 0
+
+    # Drug dose modulation
+    raw_drugs = drugs if drugs is not None else (genome.get("drugs") or (genome.get("pharmacology") or {}).get("drugs") or {})
+    active_drugs = dict(raw_drugs) if isinstance(raw_drugs, (dict, list, tuple)) else {}
+    if active_drugs:
+        for k, r in enumerate(profile.receptors):
+            r_name = r.name.lower()
+            t_name = (r.transmitter or "").lower()
+            for d_name, d_val in active_drugs.items():
+                d_key = str(d_name).lower()
+                target_match = False
+                effect = "antagonist"
+                dose = 0.0
+                if isinstance(d_val, dict):
+                    rec_spec = str(d_val.get("receptor") or d_val.get("target") or "").lower()
+                    if rec_spec and (rec_spec == r_name or rec_spec == t_name):
+                        target_match = True
+                    elif not rec_spec and (d_key in r_name or r_name in d_key or (t_name and (d_key in t_name or t_name in d_key))):
+                        target_match = True
+                    effect = str(d_val.get("effect", "antagonist")).lower()
+                    dose = float(resolve(d_val.get("dose", 0.0), genome, {}))
+                else:
+                    if d_key in r_name or r_name in d_key or (t_name and (d_key in t_name or t_name in d_key)) or d_key == "drug":
+                        target_match = True
+                    if "agonist" in d_key or "potentiator" in d_key:
+                        effect = "agonist"
+                    else:
+                        effect = "antagonist"
+                    dose = float(resolve(d_val, genome, {}))
+
+                if target_match:
+                    if effect == "antagonist":
+                        gains[k] *= max(0.0, 1.0 - dose)
+                    elif effect == "agonist":
+                        gains[k] *= max(0.0, 1.0 + dose)
+                    else:
+                        gains[k] *= max(0.0, float(dose))
     mag = np.abs(c.weight.astype(np.float64)) * gains[rc]
     keep_sign = np.where(c.weight < 0, -1.0, 1.0)            # weights are made with the presynaptic sign
     sign = np.where(pre_sign[rc], keep_sign, signs[rc])
@@ -183,3 +224,56 @@ def compile_conductances(tissue, profile: Profile, context: Optional[str] = None
     if c.tau_decay is None:
         c.tau_decay = np.full(E, np.nan, dtype=np.float32)
     return res
+
+
+def apply_drug(tissue, profile: Profile, drug: str = "drug", dose: float = 0.0,
+               effect: str = "antagonist", receptor: Optional[str] = None) -> Dict[str, int]:
+    """Applies a drug dose to tissue in place, modifying weights."""
+    drug_spec = {drug: {"dose": dose, "effect": effect, "receptor": receptor} if receptor else {"dose": dose, "effect": effect}}
+    return compile_weights(tissue, profile, genome={"drugs": drug_spec}, drugs=drug_spec)
+
+
+from .stages.base import register_stage
+
+
+@register_stage("apply_drug")
+class ApplyDrug:
+    """Applies a pharmacological drug dose to modulate receptor gains and synapse weights."""
+    title = "Apply Drug"
+    repeatable = True
+    conditional = True
+
+    def __init__(self, drug: str = "drug", dose: Any = 0.0, effect: str = "antagonist",
+                 receptor: Optional[str] = None, profile: Union[str, Profile] = "default"):
+        self.drug = drug
+        self.dose = dose
+        self.effect = effect
+        self.receptor = receptor
+        self.profile = profile
+
+    def run(self, tissue: Tissue, params: Optional[Dict[str, Any]] = None,
+            genome: Optional[Dict[str, Any]] = None, fields: Optional[Dict[str, Any]] = None,
+            rng: Optional[np.random.Generator] = None) -> Tissue:
+        params = params or {}
+        genome = genome or {}
+        fields = fields or {}
+        prof_val = params.get("profile", getattr(self, "profile", "default"))
+        prof = load_profile(resolve(prof_val, genome, fields))
+        drug_val = params.get("drug", getattr(self, "drug", "drug"))
+        drug = str(resolve(drug_val, genome, fields))
+        dose_val = params.get("dose", getattr(self, "dose", 0.0))
+        dose = float(resolve(dose_val, genome, fields))
+        effect_val = params.get("effect", getattr(self, "effect", "antagonist"))
+        effect = str(resolve(effect_val, genome, fields))
+        receptor_val = params.get("receptor", getattr(self, "receptor", None))
+        receptor = str(resolve(receptor_val, genome, fields)) if receptor_val is not None else None
+        apply_drug(tissue, prof, drug, dose, effect=effect, receptor=receptor)
+        return tissue
+
+    def __call__(self, tissue, plan=None, genome=None, rng=None):
+        return self.run(tissue, {}, genome or {}, {}, rng)
+
+    @classmethod
+    def cost(cls, N: int, E: int, params: Dict[str, Any]) -> Tuple[int, int]:
+        return (E * 4, E * 2)
+

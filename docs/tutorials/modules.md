@@ -1,5 +1,7 @@
 # Tutorial 8 — Modules: share and compose circuits
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/neurogenesis-sim/blob/main/notebooks/tutorials/modules.ipynb)
+
 A **module** is what one person designs or evolves and another reuses as-is: a body plan, a genome, an interface
 (input and output regions), validation records, provenance and the neuron model it was validated with.
 

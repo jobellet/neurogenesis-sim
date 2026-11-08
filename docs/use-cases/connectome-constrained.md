@@ -1,5 +1,7 @@
 # Connectome-constrained development (planned)
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/neurogenesis-sim/blob/main/notebooks/use-cases/connectome-constrained.ipynb)
+
 **Idea.** Public connectomes give, for a whole nervous system or a part of it, every neuron's type and position and
 the number of synapses between pairs of neurons. The toolbox will use them in two ways:
 

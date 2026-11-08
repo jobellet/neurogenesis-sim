@@ -1,5 +1,7 @@
 # Retina → relay: a small topographic-map experiment
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/neurogenesis-sim/blob/main/notebooks/use-cases/retinothalamic.ipynb)
+
 ```{raw} html
 <div class="ng-question-box">
   <p><strong>Guiding Question:</strong> <em>How does the retinotopy of the retina align with that of the lateral geniculate nucleus (dLGN) before the onset of vision—and what are the respective roles of graded molecular cues (Eph/ephrin) and patterned spontaneous retinal waves in wiring and refining this map?</em></p>

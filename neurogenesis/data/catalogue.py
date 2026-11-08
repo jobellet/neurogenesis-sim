@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import urllib.request
 from pathlib import Path
@@ -30,9 +31,17 @@ from typing import Any, Callable, Dict, Optional, Union
 PACKAGE_DATASETS = Path(__file__).resolve().parent / "datasets"
 CHUNK = 1 << 20
 
+CARD_FORMAT = "neurogenesis-card/1"
+ORCID_REGEX = re.compile(r"^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$")
+DOI_REGEX = re.compile(r"^10\.\d{4,9}/[-._;()/:A-Za-z0-9]+$")
+
 
 class DataError(RuntimeError):
     """A manifest is missing or invalid, a download failed, or a checksum does not match."""
+
+
+class CardError(ValueError, DataError):
+    """A catalogue card is missing, invalid, or malformed."""
 
 
 def data_dir(target: Optional[Union[str, Path]] = None) -> Path:
@@ -133,3 +142,186 @@ def fetch(ref: Union[str, Path, Dict[str, Any]], target: Optional[Union[str, Pat
         log(f"  {f['name']}: checksum ok")
     (d / "manifest.json").write_text(json.dumps(m, indent=1))
     return d
+
+
+def validate_card(card: Dict[str, Any]) -> None:
+    """Validate that the given dictionary conforms to the neurogenesis-card/1 schema."""
+    if not isinstance(card, dict):
+        raise CardError("Card must be a dictionary")
+
+    if card.get("format") != CARD_FORMAT:
+        raise CardError(f"Card format must be {CARD_FORMAT!r}, got {card.get('format')!r}")
+
+    required = ("format", "id", "version", "project", "genome", "targets", "compute_cost", "provenance", "validation")
+    for key in required:
+        if key not in card:
+            raise CardError(f"Card is missing required field: {key!r}")
+
+    if not isinstance(card["id"], str) or not card["id"].strip():
+        raise CardError("Card 'id' must be a non-empty string")
+    if not isinstance(card["version"], str) or not card["version"].strip():
+        raise CardError("Card 'version' must be a non-empty string")
+
+    # Project validation
+    if not isinstance(card["project"], dict):
+        raise CardError("Card 'project' must be a dictionary")
+    try:
+        from ..project import schema
+        schema.validate(card["project"])
+    except Exception as e:
+        raise CardError(f"Card 'project' is invalid: {e}") from e
+
+    # Genome validation
+    if not isinstance(card["genome"], dict):
+        raise CardError("Card 'genome' must be a dictionary")
+
+    # Targets validation
+    if not isinstance(card["targets"], list):
+        raise CardError("Card 'targets' must be a list")
+    for t in card["targets"]:
+        if not isinstance(t, dict):
+            raise CardError(f"Each target entry must be a dict, got {type(t).__name__}")
+
+    # Compute cost validation
+    cc = card["compute_cost"]
+    if not isinstance(cc, dict):
+        raise CardError("Card 'compute_cost' must be a dictionary")
+    for field in ("memory_bytes", "ops_per_tick", "verdict"):
+        if field not in cc:
+            raise CardError(f"Card 'compute_cost' missing required field {field!r}")
+    if not isinstance(cc["memory_bytes"], (int, float)) or cc["memory_bytes"] <= 0:
+        raise CardError("Card compute_cost.memory_bytes must be a positive number")
+    if not isinstance(cc["ops_per_tick"], (int, float)) or cc["ops_per_tick"] <= 0:
+        raise CardError("Card compute_cost.ops_per_tick must be a positive number")
+    if not isinstance(cc["verdict"], str):
+        raise CardError("Card compute_cost.verdict must be a string")
+
+    # Provenance validation
+    prov = card["provenance"]
+    if not isinstance(prov, dict):
+        raise CardError("Card 'provenance' must be a dictionary")
+    authors = prov.get("authors")
+    if not isinstance(authors, list) or len(authors) == 0:
+        raise CardError("Card provenance must contain a non-empty 'authors' list")
+    for author in authors:
+        if not isinstance(author, dict):
+            raise CardError("Author in provenance must be a dict")
+        if not author.get("name"):
+            raise CardError("Author must have a non-empty 'name'")
+        orcid = author.get("orcid")
+        if not orcid or not ORCID_REGEX.match(str(orcid)):
+            raise CardError(f"Invalid or missing ORCID {orcid!r} for author {author.get('name')!r} (must match 0000-0000-0000-0000)")
+    if "doi" in prov and prov["doi"] is not None:
+        if not DOI_REGEX.match(str(prov["doi"])):
+            raise CardError(f"Invalid DOI {prov['doi']!r} in provenance (must match 10.xxxx/...)")
+
+    # Validation records
+    val = card["validation"]
+    if not isinstance(val, dict):
+        raise CardError("Card 'validation' must be a dictionary")
+    if "seeds" not in val or not isinstance(val["seeds"], list) or len(val["seeds"]) == 0:
+        raise CardError("Card validation must contain a non-empty 'seeds' list")
+
+
+def load_card(ref: Union[str, Path, Dict[str, Any]]) -> Dict[str, Any]:
+    """Load and validate a catalogue card from dict, file path, or card id."""
+    if isinstance(ref, dict):
+        validate_card(ref)
+        return ref
+
+    p = Path(ref)
+    candidates = []
+    if p.exists() and p.is_file():
+        candidates.append(p)
+    elif p.suffix == ".json" and p.exists():
+        candidates.append(p)
+    else:
+        search_dirs = [
+            os.environ.get("NEUROGENESIS_CATALOGUE"),
+            "catalogue",
+            Path(__file__).resolve().parents[2] / "catalogue",
+            Path(__file__).resolve().parent / "catalogue",
+        ]
+        cand_names = [str(ref)]
+        if not str(ref).endswith(".json"):
+            cand_names.extend([
+                f"{ref}.json",
+                f"{str(ref).replace('-', '_')}.json",
+                f"{str(ref).replace('_', '-')}.json",
+            ])
+        for d in search_dirs:
+            if d:
+                for fname in cand_names:
+                    cand = Path(d) / fname
+                    if cand.exists():
+                        candidates.append(cand)
+                        break
+                if candidates:
+                    break
+        if not candidates:
+            for fname in cand_names:
+                if Path(fname).exists():
+                    candidates.append(Path(fname))
+                    break
+
+    if not candidates:
+        raise CardError(f"Catalogue card {ref!r} not found")
+
+    found = candidates[0]
+    try:
+        data = json.loads(found.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise CardError(f"Failed to read catalogue card at {found}: {e}") from e
+
+    validate_card(data)
+    return data
+
+
+def save_card(card: Dict[str, Any], path: Union[str, Path]) -> None:
+    """Validate and save a catalogue card to a JSON file."""
+    validate_card(card)
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(card, indent=2), encoding="utf-8")
+
+
+def pull(ref: Union[str, Path, Dict[str, Any]]) -> Any:
+    """Pull a catalogued microcircuit into an evolvable Project (remix loop).
+    
+    Loads card, instantiates Project, merges evolved genome into project.genome,
+    sets metadata, and enables:
+        proj = pull("cortical-alpha-microcircuit")
+        proj.genome["drugs"]["dose"] = 2.0
+    """
+    card = load_card(ref)
+    from ..project import schema
+    from ..project.io import Project
+    schema._enable_project_extensions()
+
+    proj_dict = json.loads(json.dumps(card["project"]))
+    proj_genome = proj_dict.setdefault("genome", {})
+    card_genome = card.get("genome", {})
+    for k, v in card_genome.items():
+        if isinstance(v, dict) and isinstance(proj_genome.get(k), dict):
+            proj_genome[k].update(v)
+        else:
+            proj_genome[k] = v
+    proj_dict["genome"] = proj_genome
+
+    # Ensure drugs sub-dict is accessible if present or referenced
+    if "drugs" not in proj_genome and "drug_dose" in proj_genome:
+        proj_genome["drugs"] = {"dose": proj_genome["drug_dose"]}
+
+    meta = proj_dict.setdefault("metadata", {})
+    meta["card"] = card["id"]
+    meta["card_version"] = card["version"]
+
+    if "targets" not in proj_dict and "targets" in card:
+        proj_dict["targets"] = card["targets"]
+    if "compute_cost" not in proj_dict and "compute_cost" in card:
+        proj_dict["compute_cost"] = card["compute_cost"]
+    if "provenance" not in proj_dict and "provenance" in card:
+        proj_dict["provenance"] = card["provenance"]
+
+    return Project(**proj_dict)
+

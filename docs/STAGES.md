@@ -383,6 +383,18 @@ example profile with cited entries is in `examples/profiles/example_receptors.js
   presynaptic cell lacks the receptor's transmitter set to 0 (`require_transmitter`). Run it in context `"immature"`
   before `refine_by_activity` and `"mature"` after it for a sign switch during development; gains multiply at every
   call, so give gains other than 1 in one compilation only.
+- **`apply_drug`**: applies a pharmacological drug dose to modulate receptor gains and synaptic weights in place.
+  Modulates receptor efficacy by scaling weights based on drug dose and effect mechanism (`antagonist`, `agonist`, `modulator`).
+  | Param | Default | Meaning |
+  |---|---|---|
+  | `profile` | `"default"` | pharmacology profile id, dict, or `Profile` instance |
+  | `drug` | `"drug"` | drug identifier (string or `Param`) |
+  | `dose` | `0.0` | drug concentration or dose level (`float` or `Param`); `0.0` is neutral |
+  | `effect` | `"antagonist"` | pharmacological mechanism (`"antagonist"`, `"agonist"`, `"modulator"`) |
+  | `receptor` | none | target receptor name or class in profile (if absent, affects drug target) |
+
+  Cost: $(4E, 2E)$ bytes and operations (linear in synapses $E$).
+
 - **`transporter_switch`** (C21): per-cell chloride reversal potential from maturation, the NKCC1 → KCC2 switch
   (Rivera et al. 1999, Nature; Ben-Ari 2002, Nat Rev Neurosci). E_Cl = `e_immature` + (`e_mature` − `e_immature`) ·
   sigmoid((age − `midpoint` + `activity_gain` · `activity`) / `width`). Age is `age` (a `Param`) or `now` minus the

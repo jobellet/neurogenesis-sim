@@ -1,5 +1,7 @@
 # Tutorial 11 — Desktop apps
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/neurogenesis-sim/blob/main/notebooks/tutorials/desktop-apps.ipynb)
+
 Native apps for macOS (SwiftUI + Metal) and for Windows and Linux (Avalonia, one C# code base). They need no Python
 installation: each bundles a Python runtime with the toolbox.
 
