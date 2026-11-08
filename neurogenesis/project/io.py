@@ -21,6 +21,9 @@ class Project:
     data_sources: Optional[Dict[str, Any]] = None      # 1.1.0: connectome datasets and filters (Phase I)
     pharmacology: Optional[Dict[str, Any]] = None      # 1.1.0: transmitter / receptor profile (Phase P)
     morphology: Optional[Dict[str, Any]] = None        # 1.1.0: arbor settings (Phase N)
+    targets: Optional[Any] = None                      # 1.2.0: objective targets (list or dict)
+    compute_cost: Optional[Dict[str, Any]] = None      # 1.2.0: declared compute cost
+    provenance: Optional[Dict[str, Any]] = None        # 1.2.0: authors, DOI, origin
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert the project to a dictionary, removing None values where appropriate."""

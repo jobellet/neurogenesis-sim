@@ -11,6 +11,7 @@ import {
 import { createSharedSimulationMemory, popCommand, safeLoad, safeStore, safeAdd, safeSub } from './memory';
 import { SpatialHashManager } from './spatialHash';
 import { DEFAULT_SEED, stepKernel } from './kernel';
+import { PopulationRhythm } from './rhythm';
 
 console.log('[Worker] Script executing...');
 let mem: SharedSimulationMemory | null = null;
@@ -21,6 +22,14 @@ let lastTickTime = performance.now();
 let tickAccumulator = 0;
 let lastFpsTime = performance.now();
 let tickCounterForFps = 0;
+const rhythm = new PopulationRhythm();
+
+function resetRhythm(): void {
+  rhythm.reset();
+  if (!mem) return;
+  safeStore(mem.control, ControlIndex.RHYTHM_PEAK_MHZ, 0);
+  safeStore(mem.control, ControlIndex.RHYTHM_CV_MILLI, 0);
+}
 
 function executeCommand(cmdType: number, arg1: number, arg2: number, arg3: number): void {
   if (!mem) return;
@@ -97,6 +106,10 @@ function stepSimulation(): void {
   safeAdd(mem.control, ControlIndex.SIM_TICK, 1);
   safeStore(mem.control, ControlIndex.SPIKE_COUNT, tickSpikeCount);
   safeAdd(mem.control, ControlIndex.TOTAL_SPIKES, tickSpikeCount);
+  if (rhythm.push(tickSpikeCount)) {
+    safeStore(mem.control, ControlIndex.RHYTHM_PEAK_MHZ, Math.round(rhythm.peakHz * 1000));
+    safeStore(mem.control, ControlIndex.RHYTHM_CV_MILLI, Math.round(rhythm.variability * 1000));
+  }
 
   tickCounterForFps++;
 }
@@ -175,6 +188,7 @@ self.onmessage = (e: MessageEvent) => {
       safeStore(mem.control, ControlIndex.SIM_TICK, 0);
       safeStore(mem.control, ControlIndex.TOTAL_SPIKES, 0);
       prngState = DEFAULT_SEED;
+      resetRhythm();
       self.postMessage({ type: 'INIT_DONE', numSynapses: synCount });
     } else {
       spatialHash.clearAll(mem);
@@ -200,6 +214,7 @@ self.onmessage = (e: MessageEvent) => {
       safeStore(mem.control, ControlIndex.SIM_TICK, 0);
       safeStore(mem.control, ControlIndex.SPIKE_COUNT, 0);
       safeStore(mem.control, ControlIndex.TOTAL_SPIKES, 0);
+      resetRhythm();
       self.postMessage({ type: 'CLEAR_DONE' });
     }
   } else if (data.type === 'SYNC_ALL_SYNAPSES') {

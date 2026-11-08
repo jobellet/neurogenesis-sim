@@ -49,7 +49,6 @@ export class Inspector {
   private synCountEl: HTMLElement | null = null;
   private syncIndexEl: HTMLElement | null = null;
   private playPauseBtn: HTMLButtonElement | null = null;
-  private recentSpikeCounts: number[] = new Array(30).fill(0);
 
   // Discovery Target & Live Fitness State
   public targetObjective: string = 'alpha_sync'; // 'alpha_sync' | 'gamma_critical' | 'theta_rhythm'
@@ -62,10 +61,10 @@ export class Inspector {
   public initialBaseWeights: Int16Array = new Int16Array(MAX_NEURONS);
   public initialWeights: Int16Array = new Int16Array(MAX_SYNAPSES);
   public initialConnRadius: Float32Array = new Float32Array(MAX_NEURONS);
+  private initialAdjWeights: Int16Array[] = [];
   public baselineCaptured = false;
 
   // History buffer for envelope frequency detection
-  private spikeEnvelopeHistory: number[] = new Array(150).fill(0);
   public currentFitnessScore = 0;
   public currentPeakHz = 0;
   public currentSyncIndex = 0;
@@ -1017,6 +1016,11 @@ export class Inspector {
     for (let k = 0; k < numSynapses; k++) {
       this.initialWeights[k] = this.mem.weights[k];
     }
+    this.initialAdjWeights = [];
+    for (let i = 0; i < numNeurons; i++) {
+      const wArr = this.spatialHash.adjWeights[i];
+      this.initialAdjWeights[i] = wArr ? wArr.slice() : new Int16Array(0);
+    }
     this.baselineCaptured = true;
   }
 
@@ -1065,9 +1069,10 @@ export class Inspector {
     // 4. Update spatialHash.adjWeights in-place
     for (let i = 0; i < numNeurons; i++) {
       const wArr = this.spatialHash.adjWeights[i];
-      if (wArr) {
+      const w0 = this.initialAdjWeights[i];
+      if (wArr && w0 && w0.length === wArr.length) {   // scale the baseline, never the already-scaled weights
         for (let k = 0; k < wArr.length; k++) {
-          const w = wArr[k];
+          const w = w0[k];
           if (w < 0) {
             wArr[k] = Math.max(-512, Math.min(0, Math.round(w * inhFactor)));
           } else if (w > 0) {
@@ -1124,35 +1129,6 @@ export class Inspector {
       peakHz: this.currentPeakHz,
       syncIndex: this.currentSyncIndex,
     };
-  }
-
-  private calculateEnvelopeFrequency(history: number[]): number {
-    const len = history.length;
-    if (len < 40) return 0;
-
-    let sum = 0;
-    for (let i = 0; i < len; i++) sum += history[i];
-    const mean = sum / len;
-    if (mean < 0.05) return 0;
-
-    let bestLag = 0;
-    let maxCorr = -Infinity;
-    const minLag = 10;
-    const maxLag = Math.min(125, Math.floor(len * 0.8));
-
-    for (let lag = minLag; lag <= maxLag; lag++) {
-      let corr = 0;
-      for (let t = 0; t < len - lag; t++) {
-        corr += (history[t] - mean) * (history[t + lag] - mean);
-      }
-      if (corr > maxCorr) {
-        maxCorr = corr;
-        bestLag = lag;
-      }
-    }
-
-    if (bestLag <= 0 || maxCorr <= 0.01) return 0;
-    return 1000.0 / bestLag;
   }
 
   private renderNeuronPanel(): void {
@@ -1591,25 +1567,11 @@ export class Inspector {
       this.synCountEl.textContent = safeLoad(this.mem.control, ControlIndex.NUM_SYNAPSES).toLocaleString();
     }
 
-    // Population Synchrony Index (R)
-    const tickSpikes = safeLoad(this.mem.control, ControlIndex.SPIKE_COUNT);
-    this.recentSpikeCounts.shift();
-    this.recentSpikeCounts.push(tickSpikes);
-
-    let sum = 0;
-    for (let i = 0; i < 30; i++) sum += this.recentSpikeCounts[i];
-    const mean = sum / 30.0;
-    let variance = 0;
-    for (let i = 0; i < 30; i++) {
-      const diff = this.recentSpikeCounts[i] - mean;
-      variance += diff * diff;
-    }
-    const std = Math.sqrt(variance / 30.0);
-    const syncIndex = Math.min(100, Math.round(100 * (std / (mean + 0.1))));
+    // Rhythm of the population at 1-ms resolution, computed by the simulation worker (sim/rhythm.ts): dominant
+    // frequency in Hz of simulated time and coefficient of variation of the 5-ms population count (shown in %).
+    const peakHzWorker = safeLoad(this.mem.control, ControlIndex.RHYTHM_PEAK_MHZ) / 1000;
+    const syncIndex = Math.min(100, Math.round(safeLoad(this.mem.control, ControlIndex.RHYTHM_CV_MILLI) / 10));
     this.currentSyncIndex = syncIndex;
-
-    this.spikeEnvelopeHistory.shift();
-    this.spikeEnvelopeHistory.push(tickSpikes);
 
     // Dynamic Target Fitness evaluation (frequency resonance + synchrony index R)
     let targetFreq = 10.0;
@@ -1626,7 +1588,7 @@ export class Inspector {
       sigmaFreq = 1.8;
     }
 
-    const peakHz = this.calculateEnvelopeFrequency(this.spikeEnvelopeHistory);
+    const peakHz = peakHzWorker;
     this.currentPeakHz = peakHz;
 
     let freqScore = 0.0;

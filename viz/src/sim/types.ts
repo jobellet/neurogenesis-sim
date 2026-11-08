@@ -42,6 +42,8 @@ export const enum ControlIndex {
   CMD_TAIL = 9,
   TOTAL_SPIKES = 10,
   WORKER_FPS = 11,
+  RHYTHM_PEAK_MHZ = 12,   // dominant population frequency in mHz of simulated time (sim/rhythm.ts), 0 = none
+  RHYTHM_CV_MILLI = 13,   // coefficient of variation of the 5-ms population count, x 1000 (sim/rhythm.ts)
 }
 
 export interface SharedSimulationMemory {

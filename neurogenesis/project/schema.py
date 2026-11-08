@@ -3,55 +3,13 @@ from typing import Any, Dict
 
 SCHEMA_VERSION = "1.2.0"
 
-class _OptionalSections(tuple):
-    def __radd__(self, other):
-        import sys
-        io_mod = sys.modules.get("neurogenesis.project.io")
-        if io_mod and hasattr(io_mod, "Project"):
-            proj_cls = getattr(io_mod, "Project")
-            fields = getattr(proj_cls, "__dataclass_fields__", {})
-            return other + tuple(x for x in self if x in fields)
-        return other + tuple(x for x in self if x in ("data_sources", "pharmacology", "morphology"))
+# Optional top-level sections: absent, None or a dict ("targets" may also be a list).
+# 1.1.0 (K1): data_sources, pharmacology, morphology; 1.2.0: targets, compute_cost, provenance.
+OPTIONAL_SECTIONS = ("data_sources", "pharmacology", "morphology", "targets", "compute_cost", "provenance")
 
-# Optional top-level sections added in 1.1.0 (K1) and 1.2.0 (Track 3)
-OPTIONAL_SECTIONS = _OptionalSections(("data_sources", "pharmacology", "morphology", "targets", "compute_cost", "provenance"))
-
-def _enable_project_extensions() -> None:
-    """Dynamically extend Project in io.py to support 1.2.0 sections."""
-    import sys
-    io_mod = sys.modules.get("neurogenesis.project.io")
-    if io_mod and hasattr(io_mod, "Project"):
-        proj_cls = getattr(io_mod, "Project")
-        if not hasattr(proj_cls, "_extended_120"):
-            orig_init = proj_cls.__init__
-            orig_to_dict = proj_cls.to_dict
-
-            def new_init(self, *args, targets=None, compute_cost=None, provenance=None, **kwargs):
-                orig_init(self, *args, **kwargs)
-                self.targets = targets
-                self.compute_cost = compute_cost
-                self.provenance = provenance
-
-            def new_to_dict(self):
-                d = orig_to_dict(self)
-                if getattr(self, "targets", None) is not None:
-                    d["targets"] = self.targets
-                if getattr(self, "compute_cost", None) is not None:
-                    d["compute_cost"] = self.compute_cost
-                if getattr(self, "provenance", None) is not None:
-                    d["provenance"] = self.provenance
-                return d
-
-            proj_cls.__init__ = new_init
-            proj_cls.to_dict = new_to_dict
-            proj_cls.targets = None
-            proj_cls.compute_cost = None
-            proj_cls.provenance = None
-            proj_cls._extended_120 = True
 
 def validate(data: Any) -> None:
     """Validate that the given dictionary conforms to the current Project schema."""
-    _enable_project_extensions()
     if not isinstance(data, dict):
         raise ValueError("Project data must be a dictionary")
     

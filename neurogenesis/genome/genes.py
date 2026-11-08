@@ -15,20 +15,26 @@ INTEGER_ROOTS = ("count", "excitability")
 
 def _split(genome, path, create: bool = False):
     """(parent dict, key, array indices) for a path: dict keys first, then integer indices into an array value.
-    If create is True, missing intermediate dict keys are created automatically.
-    """
-    node, parent, key = genome, None, None
-    for k, p in enumerate(path):
-        if isinstance(node, dict):
-            if create and p not in node:
-                if k < len(path) - 1 and not isinstance(path[k + 1], int):
-                    node[p] = {}
-            if p not in node and not create:
-                raise KeyError(p)
-            parent, key = node, p
-            node = node.get(p) if create else node[p]
-        else:
-            return parent, key, tuple(path[k:])
+    A missing key raises KeyError, unless create is True: then missing dict keys are created (intermediate keys as
+    empty dicts); array values are never created. The genome is left unchanged when a KeyError is raised."""
+    node, k = genome, 0
+    while k < len(path) and isinstance(node, dict) and path[k] in node:      # existing part of the path
+        node, k = node[path[k]], k + 1
+    if k < len(path) and isinstance(node, dict):                           # first missing key path[k]
+        if not create:
+            raise KeyError(f"gene path {tuple(path)!r}: no key {path[k]!r}")
+        if any(isinstance(p, (int, np.integer)) for p in path[k + 1:]):
+            raise KeyError(f"gene path {tuple(path)!r}: cannot create the array value {path[k]!r}")
+        for p in path[k:-1]:
+            node[p] = {}
+            node = node[p]
+        return node, path[-1], ()
+    parent, key = genome, None
+    node = genome
+    for j, p in enumerate(path):
+        if not isinstance(node, dict):
+            return parent, key, tuple(path[j:])
+        parent, key, node = node, p, node[p]
     return parent, key, ()
 
 
@@ -38,9 +44,10 @@ def get_gene(genome, path) -> float:
     return float(np.asarray(v, float)[idx]) if idx else float(v)
 
 
-def set_gene(genome, path, v):
-    """Set a gene in place (array values are replaced by modified copies). Auto-creates intermediate dicts."""
-    parent, key, idx = _split(genome, path, create=True)
+def set_gene(genome, path, v, create: bool = False):
+    """Set a gene in place (array values are replaced by modified copies). A path that does not exist raises KeyError,
+    so that a misspelled gene cannot become a silent dead gene; create=True adds missing dict keys instead."""
+    parent, key, idx = _split(genome, path, create=create)
     if idx:
         arr = np.array(parent[key], float)
         arr[idx] = v
@@ -49,14 +56,15 @@ def set_gene(genome, path, v):
         parent[key] = v
 
 
-def from_unit(genome, genes, u, integer_roots=INTEGER_ROOTS):
-    """Copy of genome with gene k set to low_k + clip(u_k, 0, 1) (high_k - low_k)."""
+def from_unit(genome, genes, u, integer_roots=INTEGER_ROOTS, create: bool = False):
+    """Copy of genome with gene k set to low_k + clip(u_k, 0, 1) (high_k - low_k). Every gene path must exist in the
+    genome (KeyError otherwise) unless create=True."""
     g = copy.deepcopy(genome)
     for (path, lo, hi), x in zip(genes, u):
         v = lo + float(np.clip(x, 0, 1)) * (hi - lo)
         if path[0] in integer_roots:
             v = int(round(v))
-        set_gene(g, path, v)
+        set_gene(g, path, v, create=create)
     return g
 
 

@@ -377,10 +377,10 @@ def test_missing_options_and_none_options():
 # ==============================================================================
 
 def test_genes_deep_path_auto_creation():
-    """set_gene auto-creates arbitrary nested dictionary structures."""
+    """set_gene(create=True) creates arbitrary nested dictionary structures."""
     genome = {}
     path = ("deeply", "nested", "hierarchy", "of", "parameters")
-    set_gene(genome, path, 3.14159)
+    set_gene(genome, path, 3.14159, create=True)
     assert genome["deeply"]["nested"]["hierarchy"]["of"]["parameters"] == 3.14159
     assert get_gene(genome, path) == 3.14159
 

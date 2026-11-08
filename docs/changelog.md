@@ -14,6 +14,19 @@
   (grow / simulate / measure).
 - `neurogenesis.spiking.numba_backend`: event-driven CPU kernel with the same `lif_int` spikes (optional extra `fast`).
 - `express` weight matrices accept Genes; `arbor_synapses` `max_delay` and `axon_velocity_by_type`.
+- Fixes to the discovery platform (PR #107):
+  - `set_gene` and `from_unit` again raise `KeyError` on a gene path missing from the genome (a misspelled gene no
+    longer becomes a silent dead gene); `create=True` adds missing keys.
+  - `collect_project_genes` and `collect_fits` include the `pharmacology` and `drugs` sections in `neurogenesis.params`
+    itself, instead of `neurogenesis.fitting` replacing them at import (their result depended on whether `fitting` had
+    been imported).
+  - The 1.2.0 Project sections (`targets`, `compute_cost`, `provenance`) are fields of `Project`, instead of being
+    patched in at validation time.
+  - The duplicate catalogue card `cortical_alpha_microcircuit.json` is removed.
+  - Viewer, live target score: the dominant frequency and the variability index are computed by the simulation worker
+    at 1-ms resolution, in simulated time (`viz/src/sim/rhythm.ts`). Before, they came from one tick's spike count
+    sampled once per display frame (about 20 simulated ms), with frequencies computed as if each sample were 1 ms.
+    The E/I and arbor sliders scale the baseline adjacency weights instead of compounding on already-scaled ones.
 
 ## Earlier
 - Integer LIF kernel identical in Python, JAX and the browser; neuron models `two_compartment` and `hh`; calibrated

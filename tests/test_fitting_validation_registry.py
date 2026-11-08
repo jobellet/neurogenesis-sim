@@ -387,12 +387,12 @@ def test_genes_auto_create_intermediate_keys():
 
     genome = {}
     # Set a 2-level path: ("drugs", "gaba_antagonist")
-    set_gene(genome, ("drugs", "gaba_antagonist"), 0.42)
+    set_gene(genome, ("drugs", "gaba_antagonist"), 0.42, create=True)
     assert genome["drugs"]["gaba_antagonist"] == 0.42
     assert get_gene(genome, ("drugs", "gaba_antagonist")) == 0.42
 
     # Set a 3-level path: ("receptors", "gaba", "gain")
-    set_gene(genome, ("receptors", "gaba", "gain"), 1.75)
+    set_gene(genome, ("receptors", "gaba", "gain"), 1.75, create=True)
     assert genome["receptors"]["gaba"]["gain"] == 1.75
     assert get_gene(genome, ("receptors", "gaba", "gain")) == 1.75
 
@@ -401,9 +401,27 @@ def test_genes_auto_create_intermediate_keys():
         (("drugs", "ampa_agonist"), 0.0, 1.0),
         (("schedule", "div_rate"), 0.1, 0.9),
     ]
-    g2 = from_unit({}, genes, [0.5, 0.5])
+    g2 = from_unit({}, genes, [0.5, 0.5], create=True)
     assert abs(g2["drugs"]["ampa_agonist"] - 0.5) < 1e-4
     assert abs(g2["schedule"]["div_rate"] - 0.5) < 1e-4
+
+
+def test_set_gene_rejects_missing_path_by_default():
+    """A misspelled gene must not become a silent dead gene: without create=True a missing path raises."""
+    import pytest
+    from neurogenesis.genome.genes import set_gene, from_unit
+    genome = {"a": {"b": 1.0}, "arr": {"w": np.zeros(3)}}
+    with pytest.raises(KeyError):
+        set_gene(genome, ("a", "c"), 2.0)
+    with pytest.raises(KeyError):
+        set_gene(genome, ("x", "y"), 2.0)
+    with pytest.raises(KeyError):
+        from_unit(genome, [(("a", "typo"), 0.0, 1.0)], [0.5])
+    with pytest.raises(KeyError):
+        set_gene(genome, ("new", "arr", 0), 1.0, create=True)
+    assert genome == {"a": {"b": 1.0}, "arr": genome["arr"]}
+    set_gene(genome, ("arr", "w", 1), 2.0)
+    assert genome["arr"]["w"][1] == 2.0
 
 
 def test_pharmacology_drug_modulation_and_apply_stage():

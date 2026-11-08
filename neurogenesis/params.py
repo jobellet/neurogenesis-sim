@@ -315,13 +315,25 @@ def collect_genes(stage_configs: List[Dict[str, Any]]) -> List[Tuple[Tuple, floa
     return _sorted_genes(genes)
 
 
+# Project sections besides the schedule and fields whose values may hold Genes and Fits.
+_EXTRA_PARAM_SECTIONS = ("pharmacology", "drugs")
+
+
+def _section_values(v: Any) -> List[Any]:
+    return list(v.values()) if isinstance(v, dict) else list(v) if isinstance(v, (list, tuple)) else [v]
+
+
 def collect_project_genes(project: Dict[str, Any]) -> List[Tuple[Tuple, float, float, bool]]:
-    """All genes of a Project: those of its schedule (as ``collect_genes``) and those inside its raw ``fields``
-    definitions (e.g. layer thicknesses given as Gene dicts). Same format and order as ``collect_genes``."""
+    """All genes of a Project: those of its schedule (as ``collect_genes``), those inside its raw ``fields``
+    definitions (e.g. layer thicknesses given as Gene dicts), and those inside its ``pharmacology`` and ``drugs``
+    sections. Same format and order as ``collect_genes``."""
     genes: Dict[Tuple, Tuple[Tuple, float, float, bool]] = {}
     for config in project.get("schedule", []):
         _walk_genes(list(config.get("params", {}).values()), genes)
     _walk_genes(list(project.get("fields", {}).values()), genes)
+    for section in _EXTRA_PARAM_SECTIONS:
+        if project.get(section) is not None:
+            _walk_genes(_section_values(project[section]), genes)
     return _sorted_genes(genes)
 
 
@@ -344,10 +356,13 @@ def _walk_fits(value: Any, fits: Dict[str, Tuple[str, float, float, float]]) -> 
 
 
 def collect_fits(project: Dict[str, Any]) -> List[Tuple[str, float, float, float]]:
-    """All Fit params of a Project (schedule and field definitions) as (target, init, lo, hi), sorted by target.
+    """All Fit params of a Project (schedule, field definitions, pharmacology and drugs sections) as (target, init, lo, hi), sorted by target.
     Fits sharing a target share one fitted value (bounds and init of the first use in schedule order)."""
     fits: Dict[str, Tuple[str, float, float, float]] = {}
     for config in project.get("schedule", []):
         _walk_fits(list(config.get("params", {}).values()), fits)
     _walk_fits(list(project.get("fields", {}).values()), fits)
+    for section in _EXTRA_PARAM_SECTIONS:
+        if project.get(section) is not None:
+            _walk_fits(_section_values(project[section]), fits)
     return [fits[k] for k in sorted(fits)]

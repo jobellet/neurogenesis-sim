@@ -294,9 +294,7 @@ def pull(ref: Union[str, Path, Dict[str, Any]]) -> Any:
         proj.genome["drugs"]["dose"] = 2.0
     """
     card = load_card(ref)
-    from ..project import schema
     from ..project.io import Project
-    schema._enable_project_extensions()
 
     proj_dict = json.loads(json.dumps(card["project"]))
     proj_genome = proj_dict.setdefault("genome", {})
