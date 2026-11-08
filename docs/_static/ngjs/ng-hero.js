@@ -9,6 +9,7 @@
 
   const STAGE_COLOR = { neurogenesis: "#4ade80", fate: "#facc15", migration: "#38bdf8", axons: "#f472b6",
     refinement: "#c084fc", activity: "#fb923c" };
+  const PREWARM = 5; // generations evolved before the first paint
   const TAG = { neurogenesis: "cell_cycle_clock", fate: "proliferate", migration: "migrate", axons: "grow_axons",
     refinement: "competitive_elimination", activity: "lif_int" };
   const DUR = { neurogenesis: 7, fate: 4.5, migration: 7.5, axons: 7.5, refinement: 7, activity: 8 };
@@ -17,54 +18,78 @@
   const INFO = {
     neurogenesis: {
       title: "Neurogenesis: progenitors divide, then leave the cell cycle",
-      text: "Radial glial progenitors divide at the ventricular surface while their nuclei move up and down with the cell " +
-        "cycle (interkinetic nuclear migration). In every cycle a fraction Q of the daughters leaves the cycle and " +
-        "becomes a neuron; Q rises with each cycle. Fewer exits early means more divisions, more neurons, born later.",
+      text: "Radial glial progenitors divide at the ventricular surface; their nuclei move up and down with the cell " +
+        "cycle (interkinetic nuclear migration). At every cycle a progenitor leaves the cycle with a probability Q that " +
+        "rises from cycle to cycle; its last division then gives two postmitotic daughters, which become neurons. " +
+        "Fewer early exits mean more divisions: more neurons, born later.",
       refs: "Sauer 1935, J Comp Neurol · Takahashi, Nowakowski & Caviness 1996, J Neurosci",
     },
     fate: {
       title: "Fate: GABAergic interneurons come from the ventral telencephalon",
-      text: "Pyramidal neurons are glutamatergic and born in the cortical ventricular zone. Inhibitory interneurons are " +
-        "born far away, in the medial ganglionic eminence (MGE); the number of its divisions sets how many there are.",
+      text: "Pyramidal neurons are glutamatergic and born in the cortical ventricular zone. Most cortical interneurons " +
+        "come from the medial ganglionic eminence (MGE), others from the caudal ganglionic eminence (CGE); the model " +
+        "has one source, the MGE, and the number of its divisions sets how many interneurons there are.",
       refs: "Anderson et al. 1997, Science · Wonders & Anderson 2006, Nat Rev Neurosci",
     },
     migration: {
       title: "Migration: radial climbing, inside-out layers, tangential streams",
-      text: "Newborn pyramidal neurons pause as multipolar cells, then climb their radial glial fibre in saltatory jumps; " +
-        "a birth-date gain makes later-born neurons settle more superficially (inside-out). Interneurons travel " +
-        "tangentially from the MGE, disperse, and enter the cortical plate next to pyramidal cells.",
+      text: "Each pyramidal neuron moves radially for 20 steps at the radial speed plus the birth-date gain × (birth " +
+        "cycle − 3.5); a positive gain makes later-born neurons settle more superficially " +
+        "(inside-out, as in the real cortex). Interneurons travel tangentially from the MGE, disperse, then enter the " +
+        "cortical plate at the depth of nearby pyramidal cells. The drawing adds the multipolar pause and saltatory " +
+        "jumps of real migrating neurons.",
       refs: "Rakic 1972, J Comp Neurol · Angevine & Sidman 1961, Nature · Marín & Rubenstein 2001, Nat Rev Neurosci · " +
         "Lodato et al. 2011, Neuron",
     },
     axons: {
       title: "Axon guidance: thalamic axons find their place in layer 4",
-      text: "Each thalamic axon (coloured by its position in the thalamus) runs in the intermediate zone, waits in the " +
-        "subplate, then invades layer 4 at a target set by graded receptor expression: x = sigmoid(4B(x_thalamus − ½)). " +
-        "B = 0 sends every axon to the centre; a matched gradient lays out an ordered map. σ sets the arbor size.",
+      text: "Each thalamic axon (coloured by its position in the thalamus) targets the point x = sigmoid(4B(x_thalamus − ½)) " +
+        "in layer 4, set by graded receptor expression, and contacts cells around it within a spread σ. B = 0 sends " +
+        "every axon to the centre; a positive B lays out an ordered map. The route drawn (intermediate zone, a wait in the " +
+        "subplate, then layer 4) is the one real thalamocortical axons take.",
       refs: "Sperry 1963, PNAS · Ghosh & Shatz 1992, J Neurosci · López-Bendito & Molnár 2003, Nat Rev Neurosci",
     },
     refinement: {
       title: "Refinement: spontaneous waves, then competition between inputs",
-      text: "Before any sensory input, waves of spontaneous activity sweep the thalamus. On every cortical cell, inputs " +
-        "whose spikes rarely precede the cell's spikes lose against the best input and are eliminated (grey).",
+      text: "Before any sensory input, waves of spontaneous activity sweep the thalamus (before eye opening, retinal " +
+        "waves drive the visual thalamus). On every cortical cell that fired, an input whose spikes were followed by " +
+        "the cell's spikes (within 5 ms) less often than a fraction, the competition gene, of the cell's best input " +
+        "is eliminated (grey).",
       refs: "Katz & Shatz 1996, Science · Willshaw 1981, Proc R Soc Lond B · Balice-Gordon & Lichtman 1994, Nature",
     },
     activity: {
       title: "Activity: where was the thalamus stimulated?",
-      text: "The grown network runs on the integer lif_int kernel (1 tick = 1 ms), the same spikes as the Python " +
-        "reference. Seven flashes, one every 40 ms; after each, the spike-weighted mean position of the pyramidal " +
-        "cells is the decoded position (◆) against the true one (▼). Interneurons give feedforward inhibition.",
+      text: "The grown network runs on the integer lif_int kernel (1 tick = 1 ms); this JavaScript port gives the same " +
+        "spikes as the Python reference. Seven flashes, one every 40 ms; in a 20 ms window starting 10 ms after each " +
+        "flash, the spike-weighted mean position of the pyramidal cells is the decoded position (◆), against the true " +
+        "one (▼). " +
+        "Interneurons, driven by the thalamus and by pyramidal cells, inhibit nearby pyramidal cells.",
       refs: "Gabernet et al. 2005, Neuron · Attwell & Laughlin 2001, J Cereb Blood Flow Metab",
     },
   };
 
+  /** Founder -> champion rows of each stage: [label, phenotype key, format, definition]. */
   const METRICS = {
-    neurogenesis: [["Neurons", "neurons", 0], ["Mean birth cycle", "birth", 1], ["Radial glia left", "glia", 0]],
-    fate: [["Interneurons in cortex", "interneurons", 0], ["Left in the MGE", "inMGE", 0]],
-    migration: [["Pyramidal cells in L4", "inL4", "%"], ["Interneuron coverage", "coverage", "%"]],
-    axons: [["Map slope", "slope", 2], ["Thalamocortical synapses", "grownTC", 0]],
-    refinement: [["Synapses grown", "grownTC", 0], ["Synapses kept", "keptTC", 0]],
-    activity: [["Decoding error (RMSE)", "rmse", 3], ["Spikes per stimulus", "spikes", 0], ["Fitness", "fitness", 3]],
+    neurogenesis: [
+      ["Pyramidal neurons", "pyramidal", 0, "Neurons born in the cortical ventricular zone"],
+      ["Mean birth cycle", "birth", 1, "Mean cell cycle (1–6) at which the pyramidal neurons were born"],
+      ["Radial glia left", "glia", 0, "Progenitors still cycling after the 6 cycles (not neurons)"]],
+    fate: [
+      ["Interneurons in cortex", "interneurons", 0, "MGE-born interneurons that reached the cortex"],
+      ["Left in the MGE", "inMGE", 0, "Interneurons that did not reach the cortex (not in the network)"]],
+    migration: [
+      ["Pyramidal cells in L4", "inL4", "%", "Fraction of pyramidal neurons whose final depth is in layer 4"],
+      ["Interneuron coverage", "coverage", "%", "Fraction of the 10 tenths of the sheet that hold at least one interneuron"]],
+    axons: [
+      ["Map slope", "slope", 2, "Least-squares slope of axon target x on thalamic x: 0 = no map, 1 = one-to-one map"],
+      ["Thalamocortical synapses", "grownTC", 0, "Synapses formed by thalamic axons, before refinement"]],
+    refinement: [
+      ["Synapses grown", "grownTC", 0, "Thalamocortical synapses before competition"],
+      ["Synapses kept", "keptTC", 0, "Thalamocortical synapses left after competitive elimination"]],
+    activity: [
+      ["Decoding error (RMSE)", "rmse", 3, "Root-mean-square error of the decoded flash position, in sheet widths"],
+      ["Pyramidal spikes per flash", "spikes", 0, "Mean number of pyramidal spikes in the 20 ms readout window"],
+      ["Fitness", "fitness", 3, "accuracy × response × efficiency (see the formula below)"]],
   };
 
   // ----------------------------------------------------------------------------------------------------------------
@@ -326,7 +351,8 @@
       ctx.fillRect(g.x0, y0, g.x1 - g.x0, y1 - y0);
     }
     ctx.drawImage(texture(Math.round(g.x1 - g.x0), Math.round(g.bot - g.top)), g.x0, g.top);
-    ctx.font = Math.round(9 * Math.min(1.2, g.s)) + "px -apple-system, Segoe UI, Roboto, sans-serif";
+    const FONT = "px -apple-system, Segoe UI, Roboto, sans-serif";
+    ctx.font = Math.max(8, Math.round(9 * Math.min(1.2, g.s))) + FONT;
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
     for (let i = 0; i < Z.length; i++) {
@@ -362,13 +388,22 @@
     ctx.fillStyle = "rgba(125,211,252,0.05)";
     roundRect(ctx, g.x0, g.thY - g.thalH * 0.42, g.x1 - g.x0, g.thalH * 0.84, 6);
     ctx.fill();
+    // labels of the left margin: shrunk to fit the gutter at narrow widths, never below 6.5 px
     ctx.textAlign = "left";
-    ctx.fillStyle = "rgba(148,163,184,0.8)";
-    ctx.fillText("thalamus", P.x + 6, g.thY);
-    ctx.fillText("MGE", P.x + 6, Math.max(g.top + 8, g.Y(0.36)));
-    ctx.fillStyle = "rgba(148,163,184,0.5)";
-    if (g.zTop > 0.95) ctx.fillText("pia", P.x + 6, g.top);
-    ctx.fillText("ventricle", P.x + 6, g.bot + 2);
+    const margin = function (text, y, alpha) {
+      let f = Math.max(8, Math.min(10.5, 9 * g.s));
+      ctx.font = f + FONT;
+      while (f > 6.5 && ctx.measureText(text).width > g.gut - 9) {
+        f -= 0.5;
+        ctx.font = f + FONT;
+      }
+      ctx.fillStyle = "rgba(148,163,184," + alpha + ")";
+      ctx.fillText(text, P.x + 5, y);
+    };
+    margin("thalamus", g.thY, 0.8);
+    margin("MGE", Math.max(g.top + 8, g.Y(0.36)), 0.8);
+    if (g.zTop > 0.95) margin("pia", g.top, 0.5);
+    margin("ventricle", g.bot + 2, 0.5);
     ctx.restore();
   }
 
@@ -877,7 +912,12 @@
     // labels
     ctx.globalCompositeOperation = "source-over";
     ctx.globalAlpha = 1;
-    ctx.font = "600 " + Math.round(10.5 * Math.min(1.15, g.s)) + "px -apple-system, Segoe UI, Roboto, sans-serif";
+    let fs = Math.max(8.5, 10.5 * Math.min(1.15, g.s0));
+    ctx.font = "600 " + fs + "px -apple-system, Segoe UI, Roboto, sans-serif";
+    while (fs > 7 && ctx.measureText(label.left).width + ctx.measureText(label.right).width + 28 > g.P.w) {
+      fs -= 0.5;
+      ctx.font = "600 " + fs + "px -apple-system, Segoe UI, Roboto, sans-serif";
+    }
     ctx.textBaseline = "top";
     ctx.textAlign = "left";
     ctx.fillStyle = label.color;
@@ -916,13 +956,15 @@
     head.appendChild(el("div", "", '<h3 class="ngx-title">Evolve a cortical map, live in your browser</h3>' +
       '<p class="ngx-sub">Each individual is grown stage by stage by a JavaScript port of the toolbox and simulated ' +
       "with the integer <code>lif_int</code> kernel. Every generation, the best of the offspring becomes the parent. " +
-      "Left: the founder. Right: the current champion.</p>"));
+      '<span class="ngx-where">Left: the founder. Right: the current champion.</span></p>'));
     const ctrl = el("div", "ngx-controls");
     const bRun = el("button", "ngx-btn primary", "▶ Evolve");
     const bStep = el("button", "ngx-btn", "Step");
     const bReset = el("button", "ngx-btn", "Reset");
-    const bSeed = el("button", "ngx-btn", "Re-grow");
-    bSeed.title = "Grow both genomes again from another development seed";
+    const bSeed = el("button", "ngx-btn", "New seed");
+    bSeed.title = "Grow the founder and the champion again from another development seed";
+    bStep.title = "Run one generation";
+    bReset.title = "Back to the founder: generation 0, stage 1";
     [bRun, bStep, bReset, bSeed].forEach(function (b) {
       b.type = "button";
       ctrl.appendChild(b);
@@ -960,6 +1002,18 @@
     canvas.setAttribute("role", "img");
     canvas.setAttribute("aria-label", "Animated cortical slices of the founder and of the champion genome");
     wrap.appendChild(canvas);
+    const key = el("div", "ngx-key");
+    key.setAttribute("aria-label", "Colour key of the slices");
+    const turboStops = [0, 0.25, 0.5, 0.75, 1].map(function (x) { return turbo(x); }).join(", ");
+    key.innerHTML =
+      '<span><i class="tri" style="--k:' + COL.pyr + '"></i>pyramidal neuron</span>' +
+      '<span><i class="dot" style="--k:' + COL.inter + '"></i>interneuron</span>' +
+      '<span><i class="pill" style="--k:' + COL.glia + '"></i>radial glia (progenitor)</span>' +
+      '<span><i class="bar" style="background:linear-gradient(90deg, ' + turboStops + ')"></i>thalamic axon, coloured by ' +
+      "its position in the thalamus</span>" +
+      '<span><i class="bar" style="background:#64748b"></i>eliminated synapse</span>' +
+      '<span><i class="dot spike"></i>spike</span>';
+    wrap.appendChild(key);
     card.appendChild(wrap);
 
     const cap = el("div", "ngx-caption");
@@ -984,7 +1038,7 @@
       '<label title="Offspring per generation">λ <input type="range" min="4" max="16" step="1" value="10"><output>10</output></label>' +
       '<label title="Mutation size on the [0, 1] gene coding">σ <input type="range" min="0.02" max="0.25" step="0.01" value="0.1"><output>0.10</output></label>' +
       '<label title="(1 + λ): the parent competes with its offspring"><input type="checkbox"> keep parent</label>' +
-      '<label title="Pause between generations"><input type="checkbox" checked> slow</label>');
+      '<label title="Wait 0.9 s after each generation, to follow the offspring"><input type="checkbox" checked> pause between generations</label>');
     boxChart.appendChild(opts);
     const boxGen = el("div", "ngx-box");
     const genTitle = el("h5", "", "Offspring of this generation <em></em>");
@@ -1005,10 +1059,12 @@
     card.appendChild(evo);
 
     const foot = el("div", "ngx-foot");
-    foot.innerHTML = "<div><b>Fitness</b> = accuracy × response × efficiency: accuracy = exp(−RMSE / 0.08) of the " +
-      "decoded flash position, response = 1 − exp(−spikes / 5), efficiency = exp(−(neurons / 1000 + synapses / 2500 + " +
-      "spikes / 400)). All of it runs in this page; the functions are in <code>window.NGJS</code> " +
-      "(try <code>NGJS.CortexMapDemo.assess(NGJS.CortexMapDemo.FOUNDER, [1, 2, 3])</code> in the console). " +
+    foot.innerHTML = '<details><summary><b>Fitness</b> = accuracy × response × efficiency</summary><p>' +
+      "accuracy = exp(−RMSE / 0.08), RMSE = error of the decoded flash position (in sheet widths)<br>" +
+      "response = mean over flashes of 1 − exp(−pyramidal spikes / 5)<br>" +
+      "efficiency = exp(−(neurons / 1000 + thalamocortical synapses / 2500 + spikes per flash / 400))</p></details>" +
+      "<div>Everything runs in this page. The functions are in <code>window.NGJS</code>: try " +
+      "<code>NGJS.CortexMapDemo.assess(NGJS.CortexMapDemo.FOUNDER, [1, 2, 3])</code> in the console. " +
       '<a href="getting-started/playground.html">How the playground works →</a></div>';
     const det = el("details", "");
     det.innerHTML = "<summary>Champion genome (JSON)</summary><pre></pre>";
@@ -1046,9 +1102,14 @@
       state.stC = PanelState();
       state.pending = null;
     }
+    /** Back to the founder (generation 0) and to the start of the stage tour; evolution waits for Evolve or Step. */
     function reset() {
       state.running = false;
       state.manual = false;
+      state.stage = 0;
+      state.t = reduced ? DUR.neurogenesis : 0;
+      state.tour = !reduced;
+      state.speed = reduced ? 0 : 1;
       newEvolution();
       state.champ = null;
       state.pending = null;
@@ -1228,6 +1289,13 @@
     }
 
     // ---- captions and the founder -> champion table
+    /** One founder -> champion row; a value that selection has not changed (yet) is shown as "same". */
+    function row(label, f, c, title) {
+      const same = f === c;
+      return '<tr title="' + title.replace(/"/g, "&quot;") + '"><td>' + label + '</td><td class="v f">' + f +
+        '</td><td class="arrow">' + (same ? "=" : "→") + '</td><td class="v c' + (same ? " same" : "") + '">' +
+        (same ? "same" : c) + "</td></tr>";
+    }
     function updateStageText() {
       const st = STAGES[state.stage], info = INFO[st.key];
       card.style.setProperty("--c", STAGE_COLOR[st.key]);
@@ -1244,12 +1312,11 @@
       METRICS[st.key].forEach(function (m) {
         const f = state.founderVal ? state.founderVal.phenotype[m[1]] : null;
         const c = state.champVal ? state.champVal.phenotype[m[1]] : null;
-        html += "<tr><td>" + m[0] + '</td><td class="v f">' + fmt(f, m[2]) + '</td><td class="arrow">→</td><td class="v c">' +
-          fmt(c, m[2]) + "</td></tr>";
+        html += row(m[0], fmt(f, m[2]), fmt(c, m[2]), m[3]);
       });
       genesHere.forEach(function (gene) {
-        html += "<tr><td>gene: " + gene.label + '</td><td class="v f">' + fmtGene(gene, NG.getGene(D.FOUNDER, gene.path)) +
-          '</td><td class="arrow">→</td><td class="v c">' + fmtGene(gene, NG.getGene(state.champGenome, gene.path)) + "</td></tr>";
+        html += row("gene: " + gene.label, fmtGene(gene, NG.getGene(D.FOUNDER, gene.path)),
+          fmtGene(gene, NG.getGene(state.champGenome, gene.path)), gene.doc);
       });
       capDelta.innerHTML = html + "</table>";
       tabEls.forEach(function (b, i) {
@@ -1322,7 +1389,8 @@
       state.pending = r.genome;
       state.pendingGen = r.generation + 1;
       state.pendingFit = r.validation ? r.validation.fitness : r.bestFitness;
-      if (state.speed === 0) applyPending();
+      // A new champion is shown at the next stage boundary (no jump mid-animation), except the first one.
+      if (state.speed === 0 || state.champShownGen === 0) applyPending();
       renderKids(r);
       renderGenes();
       updateStageText();
@@ -1334,6 +1402,8 @@
     function resize() {
       const w = wrap.clientWidth - 24 > 0 ? wrap.clientWidth - (window.innerWidth < 760 ? 12 : 24) : 600;
       const stacked = w < 640;
+      head.querySelector(".ngx-where").textContent = stacked ? "Top: the founder. Bottom: the current champion."
+        : "Left: the founder. Right: the current champion.";
       const pw = stacked ? w : (w - 10) / 2, ph = Math.round(Math.min(430, Math.max(250, pw * (stacked ? 0.78 : 0.86))));
       const h = stacked ? 2 * ph + 10 : ph;
       const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -1384,7 +1454,8 @@
         const time = now / 1000;
         drawPanel(ctx, layout.F, state.founder, D, k2, p, time, state.stF,
           { left: "FOUNDER · generation 0", right: "fitness " + state.founderVal.fitness.toFixed(3), color: "#94a3b8" });
-        const cg = state.manual ? "EDITED BY HAND" : "CHAMPION · generation " + state.champShownGen;
+        const cg = state.manual ? "EDITED BY HAND" : state.champShownGen === 0 ? "CHAMPION SO FAR = FOUNDER · gen. 0"
+          : "CHAMPION · generation " + state.champShownGen;
         drawPanel(ctx, layout.C, state.champ, D, k2, p, time, state.stC,
           { left: cg, right: "fitness " + fmt(state.manual ? state.champVal && state.champVal.fitness
             : state.champShownFit === null ? state.founderVal.fitness : state.champShownFit, 3), color: "#4ade80" });
@@ -1407,6 +1478,10 @@
 
     newEvolution();
     reset();
+    // Run the first generations before the first paint, so that the two slices already differ. Deterministic: the
+    // evolution's random stream is seeded (island 0), so every visitor sees the same generation-PREWARM champion.
+    for (let k = 0; k < PREWARM; k++) onRecord(state.evo.step());
+    applyPending();
     resize();
     if (!reduced) {
       state.running = true;

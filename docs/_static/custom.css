@@ -574,6 +574,14 @@ img.gif-demo { border: 1px solid #ddd; }
   margin-right: 6px; box-shadow: 0 0 8px var(--c); }
 .ngx-stage-wrap { position: relative; padding: 0 12px; }
 .ngx-slice { display: block; width: 100%; height: auto; border-radius: 10px; background: #04070d; }
+.ngx-key { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 7px 4px 0; font-size: 0.72rem; color: #a3afc4; }
+.ngx-key span { display: inline-flex; align-items: center; gap: 6px; }
+.ngx-key i { display: inline-block; flex: none; }
+.ngx-key i.tri { width: 9px; height: 9px; background: var(--k); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.ngx-key i.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--k); box-shadow: 0 0 6px var(--k); }
+.ngx-key i.pill { width: 6px; height: 11px; border-radius: 3px; background: var(--k); box-shadow: 0 0 6px var(--k); }
+.ngx-key i.bar { width: 22px; height: 3px; border-radius: 2px; }
+.ngx-key i.spike { --k: #fff3c4; background: #ffffff; }
 .ngx-caption { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 14px; padding: 12px 18px 6px; }
 .ngx-caption h4 { margin: 0 0 4px 0 !important; font-size: 0.96rem; color: #fff; }
 .ngx-caption p { margin: 0 !important; font-size: 0.83rem; color: #c3cde0; }
@@ -589,6 +597,7 @@ img.gif-demo { border: 1px solid #ddd; }
 .ngx-delta td.v { text-align: right; font-variant-numeric: tabular-nums; }
 .ngx-delta td.v.f { color: #94a3b8; }
 .ngx-delta td.v.c { color: #fff; font-weight: 650; }
+.ngx-delta td.v.c.same { color: #7f8ba3; font-weight: 400; }
 .ngx-delta .arrow { color: #64748b; padding: 0 4px; text-align: center; }
 .ngx-evo { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 14px; padding: 8px 18px 14px; }
 .ngx-box { background: #0b1222; border: 1px solid #1d2840; border-radius: 10px; padding: 10px 12px; min-width: 0; }
@@ -623,7 +632,9 @@ img.gif-demo { border: 1px solid #ddd; }
 .ngx-foot { padding: 0 18px 14px; font-size: 0.78rem; color: #93a0b8; }
 .ngx-foot code { background: #0f1930 !important; color: #a5f3fc !important; border: 1px solid #1d2a44 !important;
   font-size: 0.74rem !important; padding: 1px 4px !important; }
-.ngx-foot details { margin-top: 6px; }
+.ngx-foot details { margin: 0 0 6px 0; }
+.ngx-foot details p { margin: 4px 0 0 14px !important; font-family: SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem; color: #c7d2fe; line-height: 1.6; }
 .ngx-foot summary { cursor: pointer; color: #cbd5e1; }
 .ngx-foot pre { background: #050912 !important; color: #c7d2fe !important; border: 1px solid #1d2a44 !important;
   border-radius: 8px; font-size: 0.72rem !important; line-height: 1.4 !important; padding: 8px 10px !important;
@@ -634,6 +645,8 @@ img.gif-demo { border: 1px solid #ddd; }
 .ngx-status b { color: #e2e8f0; font-variant-numeric: tabular-nums; }
 @media (max-width: 760px) {
   .ngx-caption, .ngx-evo { grid-template-columns: 1fr; }
+  .ngx-tab { min-width: 0; padding: 6px 9px; }
+  .ngx-tab > span { display: none; }
   .ngx-head { padding: 14px 12px 8px; }
   .ngx-tabs, .ngx-caption, .ngx-evo, .ngx-foot { padding-left: 12px; padding-right: 12px; }
   .ngx-stage-wrap { padding: 0 6px; }
