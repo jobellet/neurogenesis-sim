@@ -94,6 +94,9 @@ Measurements on grown networks and their activity (layout and rules for new meas
 
 .. automodule:: neurogenesis.analysis.criticality
    :members: summary, branching_mr, avalanches, powerlaw_fit, powerlaw_fit_xmin, crackling, branching_process
+
+.. automodule:: neurogenesis.analysis.geometry
+   :members: cvpca, participation_ratio, connectivity_dimensionality
 ```
 
 ## Interoperability

@@ -14,6 +14,7 @@
   (grow / simulate / measure).
 - `neurogenesis.spiking.numba_backend`: event-driven CPU kernel with the same `lif_int` spikes (optional extra `fast`).
 - `express` weight matrices accept Genes; `arbor_synapses` `max_delay` and `axon_velocity_by_type`.
+- `neurogenesis.analysis.geometry`: cross-validated PCA (`cvpca`), participation ratio, connectivity dimensionality.
 - Fixes to the discovery platform (PR #107):
   - `set_gene` and `from_unit` again raise `KeyError` on a gene path missing from the genome (a misspelled gene no
     longer becomes a silent dead gene); `create=True` adds missing keys.

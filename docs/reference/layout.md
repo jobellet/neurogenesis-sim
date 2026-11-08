@@ -20,6 +20,7 @@ One module per kind of measure:
 | `cells` | single-cell responses: frequency-current curve from rest (`fi_curve`) | neuron parameters |
 | `structure` | anatomy and wiring: mosaic regularity (`nearest_neighbour_regularity`), synapse lengths (`connection_lengths`), fraction of synapses inside groups such as clones (`within_group_fraction`), modularity Q of a partition (`modularity`, Leicht & Newman 2008) | positions, `pre` / `post` arrays, labels |
 | `criticality` | population dynamics: branching parameter by multistep regression (`branching_mr`, Wilting & Priesemann 2018), avalanches and their size / duration exponents (`avalanches`, `powerlaw_fit`, `powerlaw_fit_xmin`, Clauset et al. 2009), the crackling scaling relation (`crackling`), all at once (`summary`), and a driven branching process with known m for testing (`branching_process`) | spike counts per tick |
+| `geometry` | geometry of representations and connectivity: cross-validated PCA of two repeats (`cvpca`, Stringer et al. 2019: reliable variance per dimension, reliable fraction, dimension), participation ratio of a spectrum (`participation_ratio`), dimensionality of a weight matrix (`connectivity_dimensionality`) | responses (stimuli x neurons) in two repeats; `pre` / `post` / weights |
 
 The common names are importable from the package itself (`from neurogenesis.analysis import fi_curve, modularity`);
 older imports (`from neurogenesis.analysis import fi_curve, nearest_neighbour_regularity`) keep working.
