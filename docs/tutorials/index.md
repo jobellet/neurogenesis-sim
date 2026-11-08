@@ -36,8 +36,7 @@ fitting-validation
 connectome-data
 ```
 
-```{admonition} PLACEHOLDER
-:class: placeholder
-Jupyter notebook versions of every tutorial (rendered with myst-nb, runnable on Binder / Colab), and a video
-walkthrough of tutorials 1–4.
+```{admonition} Interactive Colab Notebooks
+Every tutorial is available as an interactive Google Colab notebook runnable without local installation. Click the **Open In Colab** badge at the top of any tutorial page to launch directly in your browser.
 ```
+

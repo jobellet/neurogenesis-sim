@@ -1,5 +1,7 @@
 # Tutorial 4 — Genes and evolution
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/neurogenesis-sim/blob/main/notebooks/tutorials/genomes-evolution.ipynb)
+
 ## Genes are paths into the genome
 ```python
 from neurogenesis.genome import get_gene, set_gene, guidance_genes, body_genes

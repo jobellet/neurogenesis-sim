@@ -36,8 +36,8 @@ EDGES = """pre_root_id,post_root_id,neuropil,syn_count
 def _manifest(tmp_path, url="http://127.0.0.1:1/"):
     files = []
     for name, text in (("neurons.csv", NEURONS), ("edges.csv", EDGES)):
-        (tmp_path / name).write_text(text)
-        files.append({"name": name, "sha256": hashlib.sha256(text.encode()).hexdigest(), "size": len(text)})
+        (tmp_path / name).write_bytes(text.encode("utf-8"))
+        files.append({"name": name, "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(), "size": len(text.encode("utf-8"))})
     m = {"id": "toy", "title": "toy connectome", "license": "CC-BY-4.0", "citation": "Test et al. 2026", "url": url,
          "files": files,
          "tables": {"neurons": {"file": "neurons.csv", "format": "csv", "columns": {
@@ -46,7 +46,7 @@ def _manifest(tmp_path, url="http://127.0.0.1:1/"):
              "edges": {"file": "edges.csv", "format": "csv", "columns": {"pre": "pre_root_id", "post": "post_root_id",
                                                                          "count": "syn_count"}}},
          "units": {"voxel_size": [0.1, 0.1, 0.1], "origin": [1.0, 0.0, 0.0], "mirror": [], "unit": "um"}}
-    (tmp_path / "toy.json").write_text(json.dumps(m))
+    (tmp_path / "toy.json").write_bytes(json.dumps(m).encode("utf-8"))
     return m
 
 
@@ -100,10 +100,10 @@ def test_fetch_verifies_resumes_and_keeps_good_files(tmp_path, server):
     target = tmp_path / "cache"
     part = target / "toy" / "edges.csv.part"
     part.parent.mkdir(parents=True)
-    part.write_text(EDGES[:20])                                             # an interrupted download
+    part.write_bytes(EDGES[:20].encode("utf-8"))                                             # an interrupted download
     logs = []
     d = fetch(m, target=target, log=logs.append)
-    assert (d / "edges.csv").read_text() == EDGES and (d / "neurons.csv").read_text() == NEURONS
+    assert (d / "edges.csv").read_bytes().decode("utf-8") == EDGES and (d / "neurons.csv").read_bytes().decode("utf-8") == NEURONS
     assert "CC-BY-4.0" in logs[0]
     logs.clear()
     fetch(m, target=target, log=logs.append)
@@ -120,14 +120,14 @@ def test_fetch_verifies_resumes_and_keeps_good_files(tmp_path, server):
 def test_cli_data_info_and_fetch(tmp_path, server):
     src, url = server
     _manifest(src, url)
-    env = {**os.environ, "NEUROGENESIS_DATA": str(tmp_path / "cache"), "JAX_PLATFORMS": "cpu"}
+    env = {**os.environ, "NEUROGENESIS_DATA": str(tmp_path / "cache"), "JAX_PLATFORMS": "cpu", "PYTHONIOENCODING": "utf-8"}
     r = subprocess.run([sys.executable, "-m", "neurogenesis", "data", "info", str(src / "toy.json")],
                        capture_output=True, text=True, env=env)
     assert r.returncode == 0 and "license: CC-BY-4.0" in r.stdout
     r = subprocess.run([sys.executable, "-m", "neurogenesis", "data", "fetch", str(src / "toy.json"), "--yes"],
                        capture_output=True, text=True, env=env)
     assert r.returncode == 0, r.stderr
-    assert (tmp_path / "cache" / "toy" / "edges.csv").read_text() == EDGES
+    assert (tmp_path / "cache" / "toy" / "edges.csv").read_bytes().decode("utf-8") == EDGES
 
 
 # I2 ---------------------------------------------------------------------------------------------------------------
@@ -211,3 +211,126 @@ def test_weight_maps_and_transmitter_signs(tmp_path):
     assert t.transmitter.tolist() == [1, 1, 2, 4]
     from neurogenesis.stages.freeze import freeze
     assert freeze(t, dale=True).num_synapses == 4
+
+
+# Track 3: Catalogue Cards & CLI Share Pipeline ----------------------------------------------------
+def _dummy_card():
+    project = {
+        "version": "1.2.0",
+        "geometry": {"box": {"type": "Box", "center": [0.5, 0.5, 0.5], "size": [1.0, 1.0, 1.0]}},
+        "fields": {},
+        "schedule": [{"name": "seed", "operator": "seed_cells", "params": {"N": 20, "geometry": "box"}}],
+        "genome": {"drug_dose": 1.0, "drugs": {"dose": 1.0}},
+        "plugins": [],
+        "metadata": {"name": "test-microcircuit"},
+    }
+    return {
+        "format": "neurogenesis-card/1",
+        "id": "test-microcircuit",
+        "version": "1.0.0",
+        "project": project,
+        "genome": {"drug_dose": 1.0, "drugs": {"dose": 1.0}},
+        "targets": [{"metric": "cell_count", "value": 20.0}],
+        "compute_cost": {"memory_bytes": 1024, "ops_per_tick": 200.0, "verdict": "fits"},
+        "provenance": {
+            "authors": [{"name": "Alice Scientist", "orcid": "0000-0002-1825-0097"}],
+            "doi": "10.1101/2026.01.01.123456",
+        },
+        "validation": {"seeds": [1000, 1001, 1002], "scores": [{"cell_count": 20.0}] * 3},
+    }
+
+
+def test_card_validation_and_rejection():
+    from neurogenesis.data.catalogue import CARD_FORMAT, CardError, validate_card
+
+    card = _dummy_card()
+    validate_card(card)  # must pass
+
+    # Bad format
+    bad = dict(card, format="invalid-card/1")
+    with pytest.raises(CardError, match="Card format"):
+        validate_card(bad)
+
+    # Missing required field
+    bad = dict(card)
+    del bad["compute_cost"]
+    with pytest.raises(CardError, match="missing required field"):
+        validate_card(bad)
+
+    # Bad ORCID
+    bad = json.loads(json.dumps(card))
+    bad["provenance"]["authors"][0]["orcid"] = "invalid-orcid"
+    with pytest.raises(CardError, match="ORCID"):
+        validate_card(bad)
+
+    # Bad DOI
+    bad = json.loads(json.dumps(card))
+    bad["provenance"]["doi"] = "invalid-doi"
+    with pytest.raises(CardError, match="DOI"):
+        validate_card(bad)
+
+    # Non-positive compute cost
+    bad = json.loads(json.dumps(card))
+    bad["compute_cost"]["memory_bytes"] = -1
+    with pytest.raises(CardError, match="memory_bytes"):
+        validate_card(bad)
+
+
+def test_card_save_load_pull(tmp_path):
+    from neurogenesis.data.catalogue import load_card, pull, save_card
+
+    card = _dummy_card()
+    path = tmp_path / "card.json"
+    save_card(card, path)
+    assert path.exists()
+
+    loaded = load_card(path)
+    assert loaded["id"] == card["id"]
+
+    proj = pull(path)
+    assert proj.version == "1.2.0"
+    assert proj.metadata.get("card") == "test-microcircuit"
+    # Remix loop: pharmacological perturbation
+    assert "drugs" in proj.genome
+    proj.genome["drugs"]["dose"] = 3.5
+    assert proj.genome["drugs"]["dose"] == 3.5
+
+
+def test_cli_share_command(tmp_path):
+    from neurogenesis.project.io import Project
+
+    p = Project(
+        geometry={"box": {"type": "Box", "center": [0.5, 0.5, 0.5], "size": [1.0, 1.0, 1.0]}},
+        schedule=[{"name": "seed", "operator": "seed_cells", "params": {"N": 20, "geometry": "box"}}],
+        genome={"drug_dose": 1.0, "drugs": {"dose": 1.0}},
+    )
+    p_file = tmp_path / "project.json"
+    p.save(p_file)
+    out_card = tmp_path / "shared.card.json"
+
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8", "JAX_PLATFORMS": "cpu"}
+    cmd = [
+        sys.executable, "-m", "neurogenesis", "share",
+        "--project", str(p_file),
+        "--author", "Test Researcher",
+        "--orcid", "0000-0002-1825-0097",
+        "--doi", "10.1101/2026.01.01.123456",
+        "--name", "test-shared-card",
+        "--out", str(out_card),
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    assert r.returncode == 0, r.stderr
+    assert out_card.exists()
+
+    card_data = json.loads(out_card.read_text(encoding="utf-8"))
+    assert card_data["format"] == "neurogenesis-card/1"
+    assert card_data["id"] == "test-shared-card"
+    assert card_data["compute_cost"]["memory_bytes"] > 0
+    assert card_data["validation"]["seeds"] == [1000, 1001, 1002]
+
+    # Test rejection with invalid ORCID
+    bad_cmd = list(cmd)
+    bad_cmd[cmd.index("--orcid") + 1] = "bad-orcid"
+    r_bad = subprocess.run(bad_cmd, capture_output=True, text=True, env=env)
+    assert r_bad.returncode != 0
+    assert "Invalid ORCID" in r_bad.stderr

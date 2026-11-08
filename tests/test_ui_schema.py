@@ -177,10 +177,73 @@ def test_cli_ui_schema(capsys):
     import sys
     from unittest.mock import patch
     from neurogenesis.cli import main
-    
+
     with patch.object(sys, 'argv', ['neurogenesis', 'ui-schema']):
         main()
-    
+
     captured = capsys.readouterr()
     doc = json.loads(captured.out)
     validate(doc)
+
+
+def test_export_ui_schema_includes_targets():
+    from neurogenesis.project.ui_schema import export_ui_schema
+    doc = export_ui_schema()
+    validate(doc)
+
+    assert "targets" in doc
+    targets = {t["name"]: t for t in doc["targets"]}
+    assert "cell_count" in targets
+    assert "modularity" in targets
+    assert "nearest_neighbour_regularity" in targets
+    assert "within_group_fraction" in targets
+    assert "pinwheel_density" in targets
+    assert "field_correlation" in targets
+
+    mod = targets["modularity"]
+    assert mod["title"] == "Network Modularity Q"
+    assert mod["requires_spiking"] is False
+    assert "options" in mod
+
+
+def test_export_ui_schema_multi_domain_schedule_genes():
+    from neurogenesis.project.ui_schema import export_ui_schema
+    project = {
+        "schedule": [
+            {
+                "operator": "seed_cells",
+                "name": "seed",
+                "params": {
+                    "count": {"type": "Gene", "path": ["count", "map"], "lo": 10, "hi": 2000, "integer": True}
+                }
+            }
+        ],
+        "fields": {
+            "morphogen": {
+                "type": "AnalyticField",
+                "expr": "x * gain",
+                "gain": {"type": "Gene", "path": ["fields", "gain"], "lo": 0.5, "hi": 2.0}
+            }
+        },
+        "drugs": {
+            "bicuculline": {
+                "dose": {"type": "Gene", "path": ["drugs", "bicuculline"], "lo": 0.0, "hi": 1.0},
+                "effect": "antagonist"
+            }
+        }
+    }
+    doc = export_ui_schema(project=project)
+    validate(doc)
+
+    genes = doc["schedule_genes"]
+    paths = [g["path"] for g in genes]
+    assert ["count", "map"] in paths
+    assert ["fields", "gain"] in paths
+    assert ["drugs", "bicuculline"] in paths
+
+    for g in genes:
+        assert len(g["used_by"]) >= 1
+        for u in g["used_by"]:
+            assert "stage" in u and isinstance(u["stage"], str)
+            assert "param" in u and isinstance(u["param"], str)
+

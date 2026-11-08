@@ -1,5 +1,7 @@
 # Testing developmental hypotheses
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/neurogenesis-sim/blob/main/notebooks/use-cases/developmental-hypotheses.ipynb)
+
 Because development is explicit and seeded, one can ask "what if" questions and test them across many developmental
 seeds:
 

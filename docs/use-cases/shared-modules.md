@@ -1,5 +1,7 @@
 # Building circuits from shared modules
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/neurogenesis-sim/blob/main/notebooks/use-cases/shared-modules.ipynb)
+
 **Idea.** One group designs or evolves a circuit — for example an early sensory stage whose output cells respond to
 increments and decrements of their input (ON / OFF) — validates it, and publishes it as a module. Another group
 loads it and connects it to its own circuit, without re-evolving it.

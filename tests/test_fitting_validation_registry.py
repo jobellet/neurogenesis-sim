@@ -87,7 +87,7 @@ def test_cli_fit(tmp_path):
     r = subprocess.run([sys.executable, "-m", "neurogenesis", "fit", "--project", str(tmp_path / "p.json"),
                         "--targets", str(tmp_path / "t.json"), "--seeds", "0", "--iterations", "3",
                         "--out", str(tmp_path / "g.json")], capture_output=True, text=True,
-                       env={**os.environ, "JAX_PLATFORMS": "cpu"})
+                       env={**os.environ, "JAX_PLATFORMS": "cpu", "PYTHONIOENCODING": "utf-8"})
     assert r.returncode == 0, r.stderr
     assert "p_div" in json.loads((tmp_path / "g.json").read_text())[FIT_KEY]
 
@@ -213,7 +213,7 @@ def test_install_list_get_and_compatibility(tmp_path):
 
 def test_cli_install_and_list(tmp_path):
     _module().save(tmp_path / "m.json")
-    env = {**os.environ, "NEUROGENESIS_MODULES": str(tmp_path / "cat"), "JAX_PLATFORMS": "cpu"}
+    env = {**os.environ, "NEUROGENESIS_MODULES": str(tmp_path / "cat"), "JAX_PLATFORMS": "cpu", "PYTHONIOENCODING": "utf-8"}
     r = subprocess.run([sys.executable, "-m", "neurogenesis", "install", str(tmp_path / "m.json")], capture_output=True, text=True, env=env)
     assert r.returncode == 0, r.stderr
     r = subprocess.run([sys.executable, "-m", "neurogenesis", "modules"], capture_output=True, text=True, env=env)
@@ -260,3 +260,291 @@ def test_fit_warns_about_unidentifiable_params_and_can_be_silenced():
         warnings.simplefilter("error")
         fit(_project_with_unused_fit(), targets, seeds=(0, 1), iterations=2, check_identifiability=False)
         fit(_project(), targets, seeds=(0, 1), iterations=2)       # one param that matters: no warning
+
+
+# Track 1: Universal Target & Readout API Tests ------------------------------------------------------------------------
+
+def test_register_target_and_metadata():
+    from neurogenesis.data.targets import register_target, get_target, TARGETS, TargetSpec
+
+    @register_target(
+        name="custom_score",
+        title="Custom Score",
+        description="A test objective.",
+        unit="pts",
+        default_scale=2.5,
+        requires_spiking=False,
+        options_schema={"weight": {"type": "float"}}
+    )
+    def _score(tissue, options=None):
+        return 123.45
+
+    assert "custom_score" in TARGETS
+    spec = get_target("custom_score")
+    assert isinstance(spec, TargetSpec)
+    assert spec.name == "custom_score"
+    assert spec.title == "Custom Score"
+    assert spec.unit == "pts"
+    assert spec.default_scale == 2.5
+    assert spec.requires_spiking is False
+    assert spec.options_schema == {"weight": {"type": "float"}}
+
+    # Verify compatibility with METRICS and target_loss
+    t = Tissue.empty()
+    assert spec(t) == 123.45
+    assert METRICS["custom_score"](t, {}) == 123.45
+    loss, vals = target_loss(t, [{"target": "custom_score", "value": 123.45, "scale": 1.0}])
+    assert loss == 0.0 and vals == [123.45]
+
+
+def test_builtin_structural_targets():
+    from neurogenesis.data.targets import get_target
+    t = Tissue.empty()
+    # 4 cells, types [0, 0, 1, 1], positions
+    t.add_cells(4, positions=np.array([[0.0, 0.0, 0.0], [0.1, 0.0, 0.0], [0.0, 1.0, 0.0], [0.1, 1.0, 0.0]]),
+                cell_type=np.array([0, 0, 1, 1]))
+    # Internal connections: 0->1, 2->3 (within type), and one across 1->2
+    t.connectivity = SparseConnectivity(
+        np.array([0, 2, 1], np.int32),
+        np.array([1, 3, 2], np.int32),
+        np.array([10, 10, 5], np.int32),
+        np.array([1, 1, 1], np.int32)
+    )
+
+    # 1. modularity
+    mod_spec = get_target("modularity")
+    q = mod_spec(t, {"partition": "cell_type"})
+    assert isinstance(q, float) and q > 0.0
+
+    # 2. nearest_neighbour_regularity
+    nn_spec = get_target("nearest_neighbour_regularity")
+    reg = nn_spec(t)
+    assert isinstance(reg, float) and reg > 0.0
+
+    # 3. within_group_fraction
+    wg_spec = get_target("within_group_fraction")
+    frac = wg_spec(t, {"partition": "cell_type"})
+    # 2 within (0->1, 2->3), 1 across (1->2) -> 2/3
+    assert abs(frac - 2.0 / 3.0) < 1e-4
+
+    # 4. connection_lengths
+    cl_spec = get_target("connection_lengths")
+    mean_len = cl_spec(t)
+    assert isinstance(mean_len, float) and mean_len > 0.0
+
+
+def test_builtin_spatial_map_targets():
+    from neurogenesis.data.targets import get_target
+    from neurogenesis.fields.maps import PinwheelField
+    from neurogenesis.fields.core import AnalyticField
+
+    t = Tissue.empty()
+    t.add_cells(4, positions=np.array([[0.1, 0.1, 0.0], [0.8, 0.1, 0.0], [0.1, 0.8, 0.0], [0.8, 0.8, 0.0]]),
+                cell_type=np.array([0, 1, 0, 1]))
+
+    # 1. pinwheel_density with PinwheelField
+    pw_field = PinwheelField(singularities=[[0.5, 0.5]], charges=[0.5])
+    pd_spec = get_target("pinwheel_density")
+    density = pd_spec(t, {"field": pw_field, "bounds": ([0.0, 0.0], [1.0, 1.0])})
+    assert density == 1.0  # 1 pinwheel / 1.0 area
+
+    # 2. field_correlation with an AnalyticField
+    x_field = AnalyticField("x")
+    fc_spec = get_target("field_correlation")
+    # cell_type matches x positions (0 at x=0.1, 1 at x=0.8)
+    corr = fc_spec(t, {"field": x_field, "property": "cell_type"})
+    assert corr > 0.99  # perfect positive correlation
+
+
+def test_fast_non_spiking_assay():
+    import time
+    from neurogenesis.validation import run_assay
+
+    # Assay specifying non-spiking target modularity
+    assay = {
+        "name": "structure_assay",
+        "target": "modularity",
+        "seeds": [1000, 1001],
+        "options": {"partition": "cell_type"},
+        "gate": {"min": -1.0, "max": 1.0},
+        "pass_fraction": 1.0
+    }
+    m = _module()
+    t0 = time.perf_counter()
+    res = run_assay(m, assay)
+    elapsed = time.perf_counter() - t0
+
+    assert res["name"] == "structure_assay"
+    assert len(res["seeds"]) == 2
+    assert len(res["values"]) == 2
+    assert res["ok"] is True
+    # Fast non-spiking assay must evaluate in under 200ms without spiking kernel simulation
+    assert elapsed < 0.5, f"Non-spiking assay took too long: {elapsed:.3f}s"
+
+
+def test_genes_auto_create_intermediate_keys():
+    from neurogenesis.genome.genes import set_gene, get_gene, from_unit
+
+    genome = {}
+    # Set a 2-level path: ("drugs", "gaba_antagonist")
+    set_gene(genome, ("drugs", "gaba_antagonist"), 0.42)
+    assert genome["drugs"]["gaba_antagonist"] == 0.42
+    assert get_gene(genome, ("drugs", "gaba_antagonist")) == 0.42
+
+    # Set a 3-level path: ("receptors", "gaba", "gain")
+    set_gene(genome, ("receptors", "gaba", "gain"), 1.75)
+    assert genome["receptors"]["gaba"]["gain"] == 1.75
+    assert get_gene(genome, ("receptors", "gaba", "gain")) == 1.75
+
+    # Test from_unit with auto-created paths
+    genes = [
+        (("drugs", "ampa_agonist"), 0.0, 1.0),
+        (("schedule", "div_rate"), 0.1, 0.9),
+    ]
+    g2 = from_unit({}, genes, [0.5, 0.5])
+    assert abs(g2["drugs"]["ampa_agonist"] - 0.5) < 1e-4
+    assert abs(g2["schedule"]["div_rate"] - 0.5) < 1e-4
+
+
+def test_pharmacology_drug_modulation_and_apply_stage():
+    from neurogenesis.pharmacology import Profile, Receptor, compile_weights, apply_drug, ApplyDrug
+    from neurogenesis.tissue import Tissue, SparseConnectivity
+
+    # Profile with classic receptor and GABA receptor
+    prof = Profile(
+        id="test_prof",
+        transmitters=["GABA"],
+        receptors=[
+            Receptor(name="classic", transmitter=None, sign="pre", gain=1.0),
+            Receptor(name="GABA_A", transmitter="GABA", sign=-1, gain=1.0)
+        ]
+    )
+    t = Tissue.empty()
+    t.add_cells(3, positions=np.zeros((3, 3)))
+    t.transmitter = np.array([prof.bit("GABA"), prof.bit("GABA"), 0], np.int8)
+    # Synapse 0: classic (weight 100), Synapse 1: GABA_A (weight -100)
+    t.connectivity = SparseConnectivity(
+        np.array([0, 1], np.int32),
+        np.array([1, 2], np.int32),
+        np.array([100, -100], np.int32),
+        np.array([1, 1], np.int32),
+        receptor_class=np.array([0, 1], np.uint8)
+    )
+
+    # 1. Drug antagonist on GABA_A: 50% block (dose=0.5)
+    drugs = {"bicuculline": {"receptor": "GABA_A", "dose": 0.5, "effect": "antagonist"}}
+    compile_weights(t, prof, drugs=drugs)
+    # Synapse 0 remains 100, Synapse 1 scaled to -50
+    assert t.connectivity.weight[0] == 100
+    assert t.connectivity.weight[1] == -50
+
+    # 2. Test apply_drug helper
+    apply_drug(t, prof, drug="gaba_agonist", dose=0.2, effect="agonist", receptor="GABA_A")
+    # GABA_A gain modulated by (1 + 0.2) = 1.2 on 50 -> 60
+    assert t.connectivity.weight[1] == -60
+
+    # 3. Test ApplyDrug stage neutral parameter
+    stage = ApplyDrug(drug="gaba_antagonist", dose=0.0, effect="antagonist", receptor="GABA_A")
+    cost_bytes, cost_ops = stage.cost(100, 10, {})
+    assert cost_bytes > 0 and cost_ops > 0
+
+
+def test_unified_parameter_discovery_and_joint_fitting():
+    from neurogenesis.fitting import collect_fits, collect_project_genes, fit
+    from neurogenesis.params import Fit, Gene
+
+    project = {
+        "version": "1.0.0",
+        "geometry": BOX,
+        "schedule": [
+            {"name": "seed", "operator": "seed_cells", "params": {"N": 50, "geometry": "box"}},
+            {"name": "div", "operator": "proliferate",
+             "params": {"prob": Fit("p_div", init=0.1, lo=0.0, hi=1.0)}}
+        ],
+        "fields": {
+            "grad": {"type": "AnalyticField", "expr": "x * gain",
+                     "gain": Gene(["fields", "gain"], lo=0.5, hi=2.0)}
+        },
+        "drugs": {
+            "bicuculline": {
+                "dose": Fit("drug_dose", init=0.2, lo=0.0, hi=1.0),
+                "effect": "antagonist"
+            },
+            "agonist": {
+                "dose": Gene(["drugs", "agonist_dose"], lo=0.0, hi=0.5)
+            }
+        }
+    }
+
+    # 1. Discover all Fit params across schedule, fields, and drugs
+    fits = collect_fits(project)
+    fit_names = [f[0] for f in fits]
+    assert "p_div" in fit_names
+    assert "drug_dose" in fit_names
+
+    # 2. Discover all Gene params across schedule, fields, and drugs
+    genes = collect_project_genes(project)
+    gene_paths = [g[0] for g in genes]
+    assert ("fields", "gain") in gene_paths
+    assert ("drugs", "agonist_dose") in gene_paths
+
+    # 3. Fit multi-domain project targeting cell_count
+    res = fit(project, [{"metric": "cell_count", "value": 100, "scale": 10}],
+              seeds=(0,), iterations=4, check_identifiability=False)
+    assert "p_div" in res.values
+    assert "drug_dose" in res.values
+
+
+def test_apply_drug_stage_in_schedule():
+    """Regression test: ApplyDrug stage execution inside project schedule via run_schedule."""
+    project = {
+        "version": "1.0.0",
+        "geometry": BOX,
+        "schedule": [
+            {"name": "seed", "operator": "seed_cells", "params": {"N": 10, "geometry": "box"}},
+            {"name": "drug", "operator": "apply_drug", "params": {"drug": "bicuculline", "dose": 0.5, "effect": "antagonist"}}
+        ]
+    }
+    tissue = run_schedule(project, {}, 0)
+    assert len(tissue.alive) == 10
+
+
+def test_compile_weights_none_guards():
+    """Regression test: compile_weights does not crash when genome contains None pharmacology/drugs."""
+    from neurogenesis.pharmacology import DEFAULT, Profile, Receptor, compile_weights
+
+    prof = Profile(
+        id="test_prof",
+        transmitters=["glutamate", "gaba"],
+        receptors=[
+            Receptor("AMPA", transmitter="glutamate", sign=1, gain=1.0),
+            Receptor("GABA_A", transmitter="gaba", sign=-1, gain=1.0)
+        ]
+    )
+    t = Tissue.empty()
+    t.add_cells(2, positions=np.zeros((2, 3)))
+    t.transmitter = np.array([prof.bit("gaba"), 0], np.uint8)
+    t.connectivity = SparseConnectivity(
+        np.array([0], np.int32),
+        np.array([1], np.int32),
+        np.array([-100], np.int32),
+        np.array([1], np.int32),
+        receptor_class=np.array([1], np.uint8)
+    )
+
+    # 1. genome with pharmacology: None
+    res1 = compile_weights(t, prof, genome={"pharmacology": None})
+    assert res1["changed"] == 0
+    assert t.connectivity.weight[0] == -100
+
+    # 2. genome with drugs: None and nested pharmacology.drugs: None
+    res2 = compile_weights(t, prof, genome={"drugs": None, "pharmacology": {"drugs": None}})
+    assert res2["changed"] == 0
+    assert t.connectivity.weight[0] == -100
+
+    # 3. empty tissue with pharmacology: None
+    t_empty = Tissue.empty()
+    res3 = compile_weights(t_empty, DEFAULT, genome={"pharmacology": None})
+    assert res3 == {"changed": 0, "silenced": 0}
+
+

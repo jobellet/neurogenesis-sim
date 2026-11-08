@@ -1,5 +1,7 @@
 # Topographic projection grown from genes
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/neurogenesis-sim/blob/main/notebooks/use-cases/topographic-map.ipynb)
+
 **Question.** Can a projection that preserves neighbourhoods (a topographic map) be specified by a handful of
 guidance genes, and does it hold for every developmental seed?
 

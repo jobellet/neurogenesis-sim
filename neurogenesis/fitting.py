@@ -29,8 +29,47 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from .params import FIT_KEY, collect_fits
+from .params import FIT_KEY
+import neurogenesis.params as _params
 from .tissue import Tissue
+
+_orig_collect_project_genes = _params.collect_project_genes
+_orig_collect_fits = _params.collect_fits
+
+
+def collect_project_genes(project: Dict[str, Any]) -> List[Tuple[Tuple, float, float, bool]]:
+    """All genes of a Project: schedule, fields, pharmacology, and drugs."""
+    genes: Dict[Tuple, Tuple[Tuple, float, float, bool]] = {}
+    for config in project.get("schedule", []):
+        _params._walk_genes(list(config.get("params", {}).values()), genes)
+    _params._walk_genes(list(project.get("fields", {}).values()), genes)
+    if "pharmacology" in project:
+        p_val = project["pharmacology"]
+        _params._walk_genes(list(p_val.values()) if isinstance(p_val, dict) else p_val, genes)
+    if "drugs" in project:
+        d_val = project["drugs"]
+        _params._walk_genes(list(d_val.values()) if isinstance(d_val, dict) else d_val, genes)
+    return _params._sorted_genes(genes)
+
+
+def collect_fits(project: Dict[str, Any]) -> List[Tuple[str, float, float, float]]:
+    """All Fit params of a Project: schedule, fields, pharmacology, and drugs."""
+    fits: Dict[str, Tuple[str, float, float, float]] = {}
+    for config in project.get("schedule", []):
+        _params._walk_fits(list(config.get("params", {}).values()), fits)
+    _params._walk_fits(list(project.get("fields", {}).values()), fits)
+    if "pharmacology" in project:
+        p_val = project["pharmacology"]
+        _params._walk_fits(list(p_val.values()) if isinstance(p_val, dict) else p_val, fits)
+    if "drugs" in project:
+        d_val = project["drugs"]
+        _params._walk_fits(list(d_val.values()) if isinstance(d_val, dict) else d_val, fits)
+    return [fits[k] for k in sorted(fits)]
+
+
+# Patch params module so all callers get unified parameter discovery
+_params.collect_project_genes = collect_project_genes
+_params.collect_fits = collect_fits
 
 METRICS: Dict[str, Callable[[Tissue, Dict[str, Any]], float]] = {}
 
@@ -134,9 +173,17 @@ def target_loss(tissue: Tissue, targets: Sequence[Dict[str, Any]]) -> Tuple[floa
     """(sum_k weight ((metric - value) / scale)^2, list of metric values) of one tissue."""
     loss, values = 0.0, []
     for tg in targets:
-        if tg["metric"] not in METRICS:
-            raise ValueError(f"unknown metric {tg['metric']!r} (registered: {sorted(METRICS)})")
-        m = METRICS[tg["metric"]](tissue, tg)
+        m_name = tg.get("metric") or tg.get("target")
+        if not m_name:
+            raise ValueError(f"target dict missing 'metric' or 'target': {tg}")
+        if m_name not in METRICS:
+            from .data.targets import TARGETS
+            if m_name in TARGETS:
+                spec = TARGETS[m_name]
+                METRICS[m_name] = lambda t, o, _s=spec: _s(t, o)
+            else:
+                raise ValueError(f"unknown metric {m_name!r} (registered: {sorted(METRICS)})")
+        m = METRICS[m_name](tissue, tg)
         values.append(m)
         loss += float(tg.get("weight", 1.0)) * ((m - float(tg["value"])) / float(tg.get("scale", 1.0))) ** 2
     return loss, values
@@ -249,7 +296,7 @@ def identifiability_report(J: np.ndarray, names: Sequence[str], targets: Sequenc
     tiny = rtol * max(1.0, float(np.abs(Js).max()) if Js.size else 1.0)
     return {
         "unidentifiable": [n for j, n in enumerate(names) if not np.any(np.abs(Js[:, j]) > tiny)],
-        "unreachable": [t["metric"] + (f" ({t['cell_type']})" if "cell_type" in t else "")
+        "unreachable": [(t.get("metric") or t.get("target", "metric")) + (f" ({t['cell_type']})" if "cell_type" in t else "")
                         for i, t in enumerate(targets) if names and not np.any(np.abs(Js[i, :]) > tiny)],
         "singular_values": sv.tolist(),
         "rank": int(np.sum(sv > rtol * sv.max())) if sv.size and sv.max() > 0 else 0,

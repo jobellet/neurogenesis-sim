@@ -1,5 +1,7 @@
 # Tutorial 13 — Import a connectome
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/neurogenesis-sim/blob/main/notebooks/tutorials/connectome-data.ipynb)
+
 The data layer (`neurogenesis.data`, Phase I) reads public connectome datasets described by a **manifest**, without
 naming any dataset in the code.
 

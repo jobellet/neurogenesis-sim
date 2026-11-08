@@ -132,6 +132,15 @@ def test_evolved_development_example(tmp_path):
     assert stats["cells_type1"] > 0 and stats["synapses"] > 0
 
 
+def test_cross_scale_discovery_example(tmp_path):
+    """Flagship Track 2: receptor expression and pharmacology evolve to match LFP alpha resonance."""
+    stats = _run_example("cross_scale_discovery.py", tmp_path)
+    assert stats["final_best"] > stats["first_best"] + 0.2
+    assert "drug_dose" in stats["best_genome"] and "g_ampa" in stats["best_genome"]
+    assert (tmp_path / "project.json").exists()
+    assert (tmp_path / "network.json").exists()
+
+
 def test_retinothalamic_step_by_step_cli(tmp_path):
     """Retina -> relay CLI stage-slicing: steps 0->1 and 1->2 advance correctly through --from-stage and --until-stage."""
     import subprocess

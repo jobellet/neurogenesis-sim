@@ -1,5 +1,7 @@
 # Tutorial 3 — Neuron models and cost
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/neurogenesis-sim/blob/main/notebooks/tutorials/neuron-models-cost.ipynb)
+
 ## Switching models on the same network
 Every grown network runs with every registered model:
 ```python

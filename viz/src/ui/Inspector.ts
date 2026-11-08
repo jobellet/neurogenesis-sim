@@ -12,6 +12,8 @@ import {
   ToolMode,
   SharedSimulationMemory,
   SerializedNetwork,
+  MAX_NEURONS,
+  MAX_SYNAPSES,
 } from '../sim/types';
 import { safeLoad, safeStore, pushCommand } from '../sim/memory';
 import { SpatialHashManager } from '../sim/spatialHash';
@@ -48,6 +50,33 @@ export class Inspector {
   private syncIndexEl: HTMLElement | null = null;
   private playPauseBtn: HTMLButtonElement | null = null;
   private recentSpikeCounts: number[] = new Array(30).fill(0);
+
+  // Discovery Target & Live Fitness State
+  public targetObjective: string = 'alpha_sync'; // 'alpha_sync' | 'gamma_critical' | 'theta_rhythm'
+  public geneEIRatio: number = 1.0;
+  public geneSigmaScale: number = 1.0;
+  public drugGabaDose: number = 0.0;
+  public drugAmpaGain: number = 1.0;
+
+  // Baseline copies of simulation memory arrays for non-destructive live scaling
+  public initialBaseWeights: Int16Array = new Int16Array(MAX_NEURONS);
+  public initialWeights: Int16Array = new Int16Array(MAX_SYNAPSES);
+  public initialConnRadius: Float32Array = new Float32Array(MAX_NEURONS);
+  public baselineCaptured = false;
+
+  // History buffer for envelope frequency detection
+  private spikeEnvelopeHistory: number[] = new Array(150).fill(0);
+  public currentFitnessScore = 0;
+  public currentPeakHz = 0;
+  public currentSyncIndex = 0;
+
+  // Discovery DOM Elements
+  private discoverySectionEl: HTMLElement | null = null;
+  private neuronDetailsSectionEl: HTMLElement | null = null;
+  private fitnessScoreTextEl: HTMLElement | null = null;
+  private fitnessMeterEl: HTMLElement | null = null;
+  private fitnessFreqTextEl: HTMLElement | null = null;
+  private fitnessSyncTextEl: HTMLElement | null = null;
 
   // Active Tool Mode
   public currentTool: ToolMode = 'SELECT';
@@ -88,6 +117,15 @@ export class Inspector {
     this.neuronPanelEl = document.createElement('div');
     this.neuronPanelEl.className = 'snn-inspector-panel';
 
+    this.discoverySectionEl = document.createElement('div');
+    this.discoverySectionEl.className = 'inspector-section discovery-section';
+
+    this.neuronDetailsSectionEl = document.createElement('div');
+    this.neuronDetailsSectionEl.className = 'inspector-neuron-details';
+
+    this.neuronPanelEl.appendChild(this.discoverySectionEl);
+    this.neuronPanelEl.appendChild(this.neuronDetailsSectionEl);
+
     this.modalContainerEl = document.createElement('div');
     this.modalContainerEl.className = 'snn-modal-container';
     this.modalContainerEl.style.display = 'none';
@@ -100,6 +138,7 @@ export class Inspector {
 
     this.renderToolbar();
     this.updateHintBanner();
+    this.renderDiscoveryPanel();
     this.renderNeuronPanel();
   }
 
@@ -840,42 +879,322 @@ export class Inspector {
     });
   }
 
+  public renderDiscoveryPanel(): void {
+    if (!this.discoverySectionEl) return;
+
+    this.discoverySectionEl.innerHTML = `
+      <div class="panel-header discovery-header">
+        <span class="panel-title" style="color: var(--accent-cyan); display: flex; align-items: center; gap: 6px;">
+          <span>🎯</span> DISCOVERY TARGET & FITNESS
+        </span>
+        <span id="badge-fitness-pill" class="badge badge-gold">FITNESS: <strong id="val-fitness-score-badge">0.00</strong></span>
+      </div>
+
+      <!-- Target Selector -->
+      <div class="control-row" style="margin-top: 4px;">
+        <label style="font-size: 11px;">Target Objective:</label>
+        <select id="select-discovery-target" class="select-styled" style="width: 100%;">
+          <option value="alpha_sync" ${this.targetObjective === 'alpha_sync' ? 'selected' : ''}>Alpha Synchrony (10 Hz Peak & R ≥ 60%)</option>
+          <option value="gamma_critical" ${this.targetObjective === 'gamma_critical' ? 'selected' : ''}>Gamma Criticality (40 Hz Peak & R ≥ 45%)</option>
+          <option value="theta_rhythm" ${this.targetObjective === 'theta_rhythm' ? 'selected' : ''}>Theta Rhythm (6 Hz Peak & R ≥ 50%)</option>
+        </select>
+      </div>
+
+      <!-- Live Fitness Meter HUD -->
+      <div class="meter-group" style="background: rgba(0,0,0,0.4); padding: 8px; border-radius: 6px; border: 1px solid rgba(0,240,255,0.18); margin-top: 6px;">
+        <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 4px;">
+          <span>Fitness Score: <strong id="val-fitness-score" style="color: var(--accent-gold); font-size: 13px;">0.00</strong></span>
+          <span>Freq: <strong id="val-fitness-freq" style="color: var(--accent-cyan);">0.0 Hz</strong> · Sync: <strong id="val-fitness-sync" style="color: var(--accent-gold);">0%</strong></span>
+        </div>
+        <div class="meter-bar" style="height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden;">
+          <div id="meter-fitness-fill" class="meter-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, #00f0ff, #ffd700); transition: width 0.08s ease;"></div>
+        </div>
+      </div>
+
+      <!-- Genomic Parameters -->
+      <div style="margin-top: 8px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px;">
+        <div class="section-label" style="font-size: 10px; color: var(--accent-green); margin-bottom: 4px;">GENOMIC PARAMETERS</div>
+
+        <div class="control-row">
+          <div style="display: flex; justify-content: space-between; font-size: 11px;">
+            <label>Gene E/I Ratio:</label>
+            <strong id="val-gene-ei" style="color: var(--accent-green);">${this.geneEIRatio.toFixed(2)}x</strong>
+          </div>
+          <input type="range" id="slider-gene-ei" min="0.1" max="3.0" step="0.05" value="${this.geneEIRatio}" />
+        </div>
+
+        <div class="control-row">
+          <div style="display: flex; justify-content: space-between; font-size: 11px;">
+            <label>Arbor Radius σ:</label>
+            <strong id="val-gene-sigma" style="color: var(--accent-green);">${this.geneSigmaScale.toFixed(2)}x</strong>
+          </div>
+          <input type="range" id="slider-gene-sigma" min="0.2" max="2.5" step="0.05" value="${this.geneSigmaScale}" />
+        </div>
+      </div>
+
+      <!-- Pharmacological Perturbations -->
+      <div style="margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px;">
+        <div class="section-label" style="font-size: 10px; color: var(--accent-magenta); margin-bottom: 4px;">PHARMACOLOGICAL PERTURBATIONS</div>
+
+        <div class="control-row">
+          <div style="display: flex; justify-content: space-between; font-size: 11px;">
+            <label>Drug GABA-A Modulator Dose:</label>
+            <strong id="val-drug-gaba" style="color: var(--accent-magenta);">${this.drugGabaDose >= 0 ? '+' : ''}${this.drugGabaDose.toFixed(2)}</strong>
+          </div>
+          <input type="range" id="slider-drug-gaba" min="-1.0" max="1.5" step="0.05" value="${this.drugGabaDose}" />
+        </div>
+
+        <div class="control-row">
+          <div style="display: flex; justify-content: space-between; font-size: 11px;">
+            <label>Drug AMPA/NMDA Gain:</label>
+            <strong id="val-drug-ampa" style="color: var(--accent-magenta);">${this.drugAmpaGain.toFixed(2)}x</strong>
+          </div>
+          <input type="range" id="slider-drug-ampa" min="0.2" max="2.0" step="0.05" value="${this.drugAmpaGain}" />
+        </div>
+      </div>
+    `;
+
+    this.fitnessScoreTextEl = this.discoverySectionEl.querySelector('#val-fitness-score');
+    this.fitnessMeterEl = this.discoverySectionEl.querySelector('#meter-fitness-fill');
+    this.fitnessFreqTextEl = this.discoverySectionEl.querySelector('#val-fitness-freq');
+    this.fitnessSyncTextEl = this.discoverySectionEl.querySelector('#val-fitness-sync');
+
+    const targetSelect = this.discoverySectionEl.querySelector('#select-discovery-target') as HTMLSelectElement;
+    targetSelect?.addEventListener('change', () => {
+      this.targetObjective = targetSelect.value;
+    });
+
+    const sliderEI = this.discoverySectionEl.querySelector('#slider-gene-ei') as HTMLInputElement;
+    sliderEI?.addEventListener('input', (e) => {
+      this.geneEIRatio = parseFloat((e.target as HTMLInputElement).value);
+      const valEl = this.discoverySectionEl?.querySelector('#val-gene-ei');
+      if (valEl) valEl.textContent = `${this.geneEIRatio.toFixed(2)}x`;
+      this.applyLiveModulations();
+    });
+
+    const sliderSigma = this.discoverySectionEl.querySelector('#slider-gene-sigma') as HTMLInputElement;
+    sliderSigma?.addEventListener('input', (e) => {
+      this.geneSigmaScale = parseFloat((e.target as HTMLInputElement).value);
+      const valEl = this.discoverySectionEl?.querySelector('#val-gene-sigma');
+      if (valEl) valEl.textContent = `${this.geneSigmaScale.toFixed(2)}x`;
+      this.applyLiveModulations();
+    });
+
+    const sliderGaba = this.discoverySectionEl.querySelector('#slider-drug-gaba') as HTMLInputElement;
+    sliderGaba?.addEventListener('input', (e) => {
+      this.drugGabaDose = parseFloat((e.target as HTMLInputElement).value);
+      const valEl = this.discoverySectionEl?.querySelector('#val-drug-gaba');
+      if (valEl) valEl.textContent = `${this.drugGabaDose >= 0 ? '+' : ''}${this.drugGabaDose.toFixed(2)}`;
+      this.applyLiveModulations();
+    });
+
+    const sliderAmpa = this.discoverySectionEl.querySelector('#slider-drug-ampa') as HTMLInputElement;
+    sliderAmpa?.addEventListener('input', (e) => {
+      this.drugAmpaGain = parseFloat((e.target as HTMLInputElement).value);
+      const valEl = this.discoverySectionEl?.querySelector('#val-drug-ampa');
+      if (valEl) valEl.textContent = `${this.drugAmpaGain.toFixed(2)}x`;
+      this.applyLiveModulations();
+    });
+  }
+
+  public captureBaseline(): void {
+    const numNeurons = safeLoad(this.mem.control, ControlIndex.NUM_NEURONS);
+    const numSynapses = safeLoad(this.mem.control, ControlIndex.NUM_SYNAPSES);
+    if (numNeurons <= 0) return;
+
+    if (this.initialBaseWeights.length < numNeurons) {
+      this.initialBaseWeights = new Int16Array(MAX_NEURONS);
+      this.initialConnRadius = new Float32Array(MAX_NEURONS);
+    }
+    if (this.initialWeights.length < numSynapses) {
+      this.initialWeights = new Int16Array(Math.max(MAX_SYNAPSES, numSynapses));
+    }
+
+    for (let i = 0; i < numNeurons; i++) {
+      this.initialBaseWeights[i] = this.mem.baseWeight[i];
+      this.initialConnRadius[i] = this.mem.connRadius[i];
+    }
+    for (let k = 0; k < numSynapses; k++) {
+      this.initialWeights[k] = this.mem.weights[k];
+    }
+    this.baselineCaptured = true;
+  }
+
+  public applyLiveModulations(): void {
+    const numNeurons = safeLoad(this.mem.control, ControlIndex.NUM_NEURONS);
+    const numSynapses = safeLoad(this.mem.control, ControlIndex.NUM_SYNAPSES);
+    if (numNeurons <= 0) return;
+
+    if (!this.baselineCaptured) {
+      this.captureBaseline();
+    }
+
+    const eiRatio = this.geneEIRatio;
+    const sigmaScale = this.geneSigmaScale;
+    const gabaDose = this.drugGabaDose;
+    const ampaGain = this.drugAmpaGain;
+
+    const inhFactor = Math.max(0.0, eiRatio * (1.0 + gabaDose));
+    const excFactor = Math.max(0.05, ampaGain);
+
+    // 1. Mutate mem.baseWeight in-place
+    for (let i = 0; i < numNeurons; i++) {
+      const orig = this.initialBaseWeights[i];
+      if (orig < 0) {
+        this.mem.baseWeight[i] = Math.max(-512, Math.min(0, Math.round(orig * inhFactor)));
+      } else if (orig > 0) {
+        this.mem.baseWeight[i] = Math.max(0, Math.min(512, Math.round(orig * excFactor)));
+      }
+    }
+
+    // 2. Mutate mem.weights in-place
+    for (let k = 0; k < numSynapses; k++) {
+      const origW = this.initialWeights[k];
+      if (origW < 0) {
+        this.mem.weights[k] = Math.max(-512, Math.min(0, Math.round(origW * inhFactor)));
+      } else if (origW > 0) {
+        this.mem.weights[k] = Math.max(0, Math.min(512, Math.round(origW * excFactor)));
+      }
+    }
+
+    // 3. Mutate mem.connRadius in-place
+    for (let i = 0; i < numNeurons; i++) {
+      this.mem.connRadius[i] = Math.max(2.0, Math.min(120.0, this.initialConnRadius[i] * sigmaScale));
+    }
+
+    // 4. Update spatialHash.adjWeights in-place
+    for (let i = 0; i < numNeurons; i++) {
+      const wArr = this.spatialHash.adjWeights[i];
+      if (wArr) {
+        for (let k = 0; k < wArr.length; k++) {
+          const w = wArr[k];
+          if (w < 0) {
+            wArr[k] = Math.max(-512, Math.min(0, Math.round(w * inhFactor)));
+          } else if (w > 0) {
+            wArr[k] = Math.max(0, Math.min(512, Math.round(w * excFactor)));
+          }
+        }
+      }
+    }
+
+    if (this.onNeuronParamsUpdated) {
+      this.onNeuronParamsUpdated();
+    }
+  }
+
+  public setGeneEIRatio(val: number): void {
+    this.geneEIRatio = Math.max(0.1, Math.min(3.0, val));
+    const el = this.discoverySectionEl?.querySelector('#slider-gene-ei') as HTMLInputElement;
+    if (el) el.value = this.geneEIRatio.toString();
+    const valEl = this.discoverySectionEl?.querySelector('#val-gene-ei');
+    if (valEl) valEl.textContent = `${this.geneEIRatio.toFixed(2)}x`;
+    this.applyLiveModulations();
+  }
+
+  public setGeneSigmaScale(val: number): void {
+    this.geneSigmaScale = Math.max(0.2, Math.min(2.5, val));
+    const el = this.discoverySectionEl?.querySelector('#slider-gene-sigma') as HTMLInputElement;
+    if (el) el.value = this.geneSigmaScale.toString();
+    const valEl = this.discoverySectionEl?.querySelector('#val-gene-sigma');
+    if (valEl) valEl.textContent = `${this.geneSigmaScale.toFixed(2)}x`;
+    this.applyLiveModulations();
+  }
+
+  public setDrugGabaDose(val: number): void {
+    this.drugGabaDose = Math.max(-1.0, Math.min(1.5, val));
+    const el = this.discoverySectionEl?.querySelector('#slider-drug-gaba') as HTMLInputElement;
+    if (el) el.value = this.drugGabaDose.toString();
+    const valEl = this.discoverySectionEl?.querySelector('#val-drug-gaba');
+    if (valEl) valEl.textContent = `${this.drugGabaDose >= 0 ? '+' : ''}${this.drugGabaDose.toFixed(2)}`;
+    this.applyLiveModulations();
+  }
+
+  public setDrugAmpaGain(val: number): void {
+    this.drugAmpaGain = Math.max(0.2, Math.min(2.0, val));
+    const el = this.discoverySectionEl?.querySelector('#slider-drug-ampa') as HTMLInputElement;
+    if (el) el.value = this.drugAmpaGain.toString();
+    const valEl = this.discoverySectionEl?.querySelector('#val-drug-ampa');
+    if (valEl) valEl.textContent = `${this.drugAmpaGain.toFixed(2)}x`;
+    this.applyLiveModulations();
+  }
+
+  public getTargetFitness(): { fitness: number; peakHz: number; syncIndex: number } {
+    return {
+      fitness: this.currentFitnessScore,
+      peakHz: this.currentPeakHz,
+      syncIndex: this.currentSyncIndex,
+    };
+  }
+
+  private calculateEnvelopeFrequency(history: number[]): number {
+    const len = history.length;
+    if (len < 40) return 0;
+
+    let sum = 0;
+    for (let i = 0; i < len; i++) sum += history[i];
+    const mean = sum / len;
+    if (mean < 0.05) return 0;
+
+    let bestLag = 0;
+    let maxCorr = -Infinity;
+    const minLag = 10;
+    const maxLag = Math.min(125, Math.floor(len * 0.8));
+
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      let corr = 0;
+      for (let t = 0; t < len - lag; t++) {
+        corr += (history[t] - mean) * (history[t + lag] - mean);
+      }
+      if (corr > maxCorr) {
+        maxCorr = corr;
+        bestLag = lag;
+      }
+    }
+
+    if (bestLag <= 0 || maxCorr <= 0.01) return 0;
+    return 1000.0 / bestLag;
+  }
+
   private renderNeuronPanel(): void {
     if (this.selectedNeuronId === null || this.selectedNeuronId < 0) {
       const numNeurons = safeLoad(this.mem.control, ControlIndex.NUM_NEURONS);
       if (numNeurons === 0) {
-        this.neuronPanelEl.innerHTML = `
-          <div class="panel-header">
-            <span class="panel-title">NEURON INSPECTOR</span>
-            <span class="badge badge-inactive">BLANK CANVAS</span>
-          </div>
-          <div class="panel-empty-state">
-            <div class="empty-icon" style="color: var(--accent-green);">🌱</div>
-            <p><strong style="color: var(--accent-green);">Blank Canvas (0 Neurons)</strong></p>
-            <p style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Click anywhere on the holographic grid to place <strong>Neuron #0</strong>, then place <strong>Neuron #1</strong> to wire them!</p>
-            <div class="empty-instructions" style="margin-top: 14px;">
-              <div><kbd>➕ Place Tool</kbd> Click on grid to spawn neurons</div>
-              <div><kbd>🔗 Wire Tool</kbd> Drag from Neuron #0 to #1 to connect</div>
-              <div><kbd>⚙️ Setup</kbd> Launch standard or custom population</div>
+        if (this.neuronDetailsSectionEl) {
+          this.neuronDetailsSectionEl.innerHTML = `
+            <div class="panel-header">
+              <span class="panel-title">NEURON INSPECTOR</span>
+              <span class="badge badge-inactive">BLANK CANVAS</span>
             </div>
-          </div>
-        `;
+            <div class="panel-empty-state">
+              <div class="empty-icon" style="color: var(--accent-green);">🌱</div>
+              <p><strong style="color: var(--accent-green);">Blank Canvas (0 Neurons)</strong></p>
+              <p style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Click anywhere on the holographic grid to place <strong>Neuron #0</strong>, then place <strong>Neuron #1</strong> to wire them!</p>
+              <div class="empty-instructions" style="margin-top: 14px;">
+                <div><kbd>➕ Place Tool</kbd> Click on grid to spawn neurons</div>
+                <div><kbd>🔗 Wire Tool</kbd> Drag from Neuron #0 to #1 to connect</div>
+                <div><kbd>⚙️ Setup</kbd> Launch standard or custom population</div>
+              </div>
+            </div>
+          `;
+        }
       } else {
-        this.neuronPanelEl.innerHTML = `
-          <div class="panel-header">
-            <span class="panel-title">NEURON INSPECTOR</span>
-            <span class="badge badge-inactive">NO SELECTION</span>
-          </div>
-          <div class="panel-empty-state">
-            <div class="empty-icon">⬡</div>
-            <p><strong>Click a neuron</strong> in 3D to inspect, live-tune biophysics, or manage synapses.</p>
-            <div class="empty-instructions">
-              <div><kbd>Wire Tool</kbd> Drag from one neuron to another to connect</div>
-              <div><kbd>Shift</kbd> + <kbd>Click</kbd> Spawn neuron on grid</div>
-              <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> <kbd>Q</kbd><kbd>E</kbd> Fly camera</div>
+        if (this.neuronDetailsSectionEl) {
+          this.neuronDetailsSectionEl.innerHTML = `
+            <div class="panel-header">
+              <span class="panel-title">NEURON INSPECTOR</span>
+              <span class="badge badge-inactive">NO SELECTION</span>
             </div>
-          </div>
-        `;
+            <div class="panel-empty-state">
+              <div class="empty-icon">⬡</div>
+              <p><strong>Click a neuron</strong> in 3D to inspect, live-tune biophysics, or manage synapses.</p>
+              <div class="empty-instructions">
+                <div><kbd>Wire Tool</kbd> Drag from one neuron to another to connect</div>
+                <div><kbd>Shift</kbd> + <kbd>Click</kbd> Spawn neuron on grid</div>
+                <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> <kbd>Q</kbd><kbd>E</kbd> Fly camera</div>
+              </div>
+            </div>
+          `;
+        }
       }
       this.voltMeterFill = null;
       this.voltMeterText = null;
@@ -942,17 +1261,18 @@ export class Inspector {
       }
     }
 
-    this.neuronPanelEl.innerHTML = `
-      <div class="panel-header">
-        <div>
-          <span class="panel-title">NEURON #${id}</span>
-          ${modeBadge}
+    if (this.neuronDetailsSectionEl) {
+      this.neuronDetailsSectionEl.innerHTML = `
+        <div class="panel-header">
+          <div>
+            <span class="panel-title">NEURON #${id}</span>
+            ${modeBadge}
+          </div>
+          <div class="panel-header-actions">
+            <button id="btn-delete-neuron" class="btn btn-danger btn-sm" title="Delete this neuron">DELETE</button>
+            <button id="btn-close-inspector" class="btn-icon" title="Deselect">✕</button>
+          </div>
         </div>
-        <div class="panel-header-actions">
-          <button id="btn-delete-neuron" class="btn btn-danger btn-sm" title="Delete this neuron">DELETE</button>
-          <button id="btn-close-inspector" class="btn-icon" title="Deselect">✕</button>
-        </div>
-      </div>
 
       <!-- Real-Time Oscilloscope Voltage Waveform -->
       <div class="inspector-section">
@@ -1070,6 +1390,7 @@ export class Inspector {
         </div>
       </div>
     `;
+    }
 
     // Cache oscilloscope
     this.oscCanvas = this.neuronPanelEl.querySelector('#osc-canvas');
@@ -1285,6 +1606,54 @@ export class Inspector {
     }
     const std = Math.sqrt(variance / 30.0);
     const syncIndex = Math.min(100, Math.round(100 * (std / (mean + 0.1))));
+    this.currentSyncIndex = syncIndex;
+
+    this.spikeEnvelopeHistory.shift();
+    this.spikeEnvelopeHistory.push(tickSpikes);
+
+    // Dynamic Target Fitness evaluation (frequency resonance + synchrony index R)
+    let targetFreq = 10.0;
+    let targetSync = 60.0;
+    let sigmaFreq = 2.5;
+
+    if (this.targetObjective === 'gamma_critical') {
+      targetFreq = 40.0;
+      targetSync = 45.0;
+      sigmaFreq = 6.0;
+    } else if (this.targetObjective === 'theta_rhythm') {
+      targetFreq = 6.0;
+      targetSync = 50.0;
+      sigmaFreq = 1.8;
+    }
+
+    const peakHz = this.calculateEnvelopeFrequency(this.spikeEnvelopeHistory);
+    this.currentPeakHz = peakHz;
+
+    let freqScore = 0.0;
+    if (peakHz > 0) {
+      freqScore = Math.exp(-Math.pow(peakHz - targetFreq, 2) / (2 * Math.pow(sigmaFreq, 2)));
+    }
+    const syncScore = Math.min(1.0, syncIndex / targetSync);
+    const fitnessRaw = Math.max(0.0, Math.min(1.0, 0.5 * freqScore + 0.5 * syncScore));
+    this.currentFitnessScore = parseFloat(fitnessRaw.toFixed(3));
+    const fitnessPercent = Math.round(fitnessRaw * 100);
+
+    if (this.fitnessMeterEl) {
+      this.fitnessMeterEl.style.width = `${fitnessPercent}%`;
+    }
+    if (this.fitnessScoreTextEl) {
+      this.fitnessScoreTextEl.textContent = this.currentFitnessScore.toFixed(2);
+    }
+    const badgeScore = this.discoverySectionEl?.querySelector('#val-fitness-score-badge');
+    if (badgeScore) {
+      badgeScore.textContent = this.currentFitnessScore.toFixed(2);
+    }
+    if (this.fitnessFreqTextEl) {
+      this.fitnessFreqTextEl.textContent = `${peakHz.toFixed(1)} Hz`;
+    }
+    if (this.fitnessSyncTextEl) {
+      this.fitnessSyncTextEl.textContent = `${syncIndex}%`;
+    }
 
     if (this.syncIndexEl) {
       this.syncIndexEl.textContent = `${syncIndex}%`;

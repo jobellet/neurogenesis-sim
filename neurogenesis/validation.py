@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Sequence
 
 import numpy as np
 
+from .data.targets import TARGETS, TargetSpec, get_target, register_target
 from .development.grow import grow, knockout, region_of, tonic_current
 from .evolution.robust import HELD_OUT
 
@@ -54,15 +55,38 @@ def _gate(x: float, gate: Dict[str, Any]) -> bool:
 
 def run_assay(module, assay: Dict[str, Any]) -> Dict[str, Any]:
     """Runs one assay on a module. Returns dict(name, values per seed, passed per seed, pass_fraction, ok)."""
-    from .spiking.batch import simulate_counts
     genome = module.genome
     ko = assay.get("knockout")
     if ko:
         genome = knockout(genome, regions=ko.get("regions", ()), projections=[tuple(p) for p in ko.get("projections", ())])
     seeds = [int(s) for s in assay.get("seeds", HELD_OUT[:5])]
+
+    readout = assay.get("readout", {})
+    # Check if this assay specifies an objective target
+    target_name = assay.get("target") or readout.get("target") or (readout.get("measure") if readout.get("measure") in TARGETS else None)
+
+    if target_name and target_name in TARGETS and not TARGETS[target_name].requires_spiking:
+        target_spec = TARGETS[target_name]
+        opts = {**assay, **readout, **(readout.get("options") or {}), **(assay.get("options") or {})}
+        if "region" in readout and "region" not in opts:
+            opts["region"] = readout["region"]
+        values = []
+        for s in seeds:
+            net = grow(module.plan, genome, s)
+            from .tissue import Tissue
+            tissue = Tissue.from_network(net) if hasattr(Tissue, "from_network") and not isinstance(net, Tissue) else net
+            val = target_spec(tissue, opts)
+            values.append(float(val))
+        gate = assay.get("gate", {})
+        passed = [_gate(v, gate) for v in values]
+        frac = float(np.mean(passed))
+        return dict(name=assay.get("name", "assay"), seeds=seeds, values=[round(v, 4) for v in values], passed=passed,
+                    pass_fraction=frac, ok=frac >= float(assay.get("pass_fraction", 1.0)))
+
+    # Spiking assay requiring simulate_counts
+    from .spiking.batch import simulate_counts
     ticks, blank = int(assay.get("ticks", 100)), int(assay.get("blank", 0))
     stimuli: List[Dict[str, float]] = assay.get("stimuli") or [{}]
-    readout = assay["readout"]
     measure = readout.get("measure", "rate")
     if measure not in MEASURES:
         raise ValueError(f"unknown readout measure {measure!r} (use {MEASURES})")
@@ -77,7 +101,7 @@ def run_assay(module, assay: Dict[str, Any]) -> Dict[str, Any]:
                     ext[k, region_of(net, module.plan, region)] += int(round(current))
         nets.append(net)
         exts.append(ext)
-        outs.append(region_of(net, module.plan, readout["region"]) if readout["region"] in module.plan.ids else np.zeros(0, int))
+        outs.append(region_of(net, module.plan, readout["region"]) if readout.get("region") in module.plan.ids else np.zeros(0, int))
     counts = simulate_counts(nets, exts, ticks=ticks, blank=blank, model=module.neuron_model)
     values = []
     for i, idx in enumerate(outs):

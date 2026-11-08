@@ -1,5 +1,7 @@
 # A layered sheet from progenitors (semi-supervised)
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/neurogenesis-sim/blob/main/notebooks/use-cases/layered-sheet.ipynb)
+
 **Idea.** Draw what is known by hand — the sheet, its layer boundaries — and let development do the rest:
 progenitors advance through cell cycles and exit (`cell_cycle_clock`), progressively restrict their laminar competence
 (`temporal_competence`), differentiate from their competence at cycle exit (`differentiate`), migrate to the target

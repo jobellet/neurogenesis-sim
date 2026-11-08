@@ -1,7 +1,43 @@
 # neurogenesis-sim
 
-**Grow spiking neural networks the way nervous systems are built — by hand, by genes, or both — and simulate them
-cheaply.**
+**A collaborative discovery platform to grow, perturb, and evolve spiking neural circuits.**
+
+```python
+from neurogenesis.data import register_target
+from neurogenesis.development import BodyPlan, Region, grow
+from neurogenesis.fitting import evolve_circuit
+from neurogenesis.modules import share
+
+# 1. Define Target: evolvable objective with non-spiking or dynamic readout
+@register_target(name="alpha_sync")
+def target_alpha_sync(activity):
+    return score_alpha_oscillation(activity, target_freq=10.0, e_i_ratio=4.0)
+
+# 2. Grow & Perturb: biological schedule with gene and drug parameters
+plan = BodyPlan(name="cortex", regions=[Region("sheet", size=(40, 40, 5))])
+net = grow(plan, founding_genome, pharmacology={"GABA_antagonist": 0.2})
+
+# 3. Evolve & Share: optimize genome + pharmacology, export catalogue card
+evolved_genome, best_score = evolve_circuit(plan, target="alpha_sync", generations=20)
+share(plan, evolved_genome, target="alpha_sync", author="Bellet et al.", doi="10.1101/...")
+```
+
+<div class="circuit-preview-grid" style="display: flex; gap: 20px; margin: 24px 0; flex-wrap: wrap;">
+  <div style="flex: 1; min-width: 280px; border: 1px solid #e1e4e8; border-radius: 8px; padding: 14px; background: #fafbfc;">
+    <h4 style="margin-top: 0; color: #d73a49; font-weight: 600;">Baseline / Disordered Circuit</h4>
+    <img src="_static/media/viewer_raster.png" alt="Baseline asynchronous circuit" style="width: 100%; border-radius: 4px; border: 1px solid #e1e4e8;" />
+    <p style="font-size: 0.9em; color: #586069; margin-top: 10px; margin-bottom: 0;">
+      <strong>Pre-optimization:</strong> Asynchronous irregular firing; unaligned synaptic projections.
+    </p>
+  </div>
+  <div style="flex: 1; min-width: 280px; border: 1px solid #e1e4e8; border-radius: 8px; padding: 14px; background: #fafbfc;">
+    <h4 style="margin-top: 0; color: #28a745; font-weight: 600;">Evolved Synchronous Circuit</h4>
+    <img src="_static/media/topographic_map_growth.gif" alt="Evolved topographic synchronous circuit" style="width: 100%; border-radius: 4px; border: 1px solid #e1e4e8;" />
+    <p style="font-size: 0.9em; color: #586069; margin-top: 10px; margin-bottom: 0;">
+      <strong>Post-optimization:</strong> Emergence of 10 Hz synchronous oscillations and balanced E/I ratio ($R \ge 65\%$).
+    </p>
+  </div>
+</div>
 
 neurogenesis-sim is a general toolbox for building circuits through development. You describe where tissue is (2D or
 3D shapes) and what is already known about it (layers, areas, maps, cell positions). You then choose a sequence of
@@ -9,14 +45,6 @@ developmental stages (cell division, migration, differentiation, axon growth, pr
 ...). For every parameter of every stage you decide whether it is set **by hand**, read from a **hand-drawn field**,
 controlled by **genes** (and then evolved), or **fitted to data**. The result is a spiking network that can be
 simulated, measured, evolved and shared as a module.
-
-```{figure} _static/media/topographic_map_growth.gif
-:alt: A sensor sheet growing a topographic projection onto a map
-:width: 80%
-:class: gif-demo
-
-A sensor sheet → map circuit grown from a genome (see {doc}`use-cases/topographic-map`).
-```
 
 | Workflow | What you specify | What development does |
 |---|---|---|
@@ -59,6 +87,13 @@ stages are young and their API may still change (see
 getting-started/installation
 getting-started/quickstart
 getting-started/concepts
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: Discovery Catalogue
+
+catalogue
 ```
 
 ```{toctree}

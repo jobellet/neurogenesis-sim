@@ -1,5 +1,7 @@
 # Tutorial 12 — Fit to data, validate, share
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/neurogenesis-sim/blob/main/notebooks/tutorials/fitting-validation.ipynb)
+
 This tutorial covers three tools that work on top of a Project or a module:
 - **fitting** `Fit` params to measured targets (`neurogenesis.fitting`, task E2);
 - **semi-supervised evolution**: genes evolved while `Fit` params are refitted, and Pareto fronts

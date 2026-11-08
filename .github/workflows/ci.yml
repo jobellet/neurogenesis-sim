@@ -32,6 +32,7 @@ jobs:
       viewer: ${{ steps.filter.outputs.viewer }}
       nglif: ${{ steps.filter.outputs.nglif }}
       mac-app: ${{ steps.filter.outputs.mac-app }}
+      catalogue: ${{ steps.filter.outputs.catalogue }}
     steps:
       - uses: actions/checkout@v5
       - uses: dorny/paths-filter@v4
@@ -43,10 +44,15 @@ jobs:
               - 'scripts/benchmark_performance.py'
               - 'tests/**'
               - 'examples/**'        # run by tests/test_examples.py
+              - 'catalogue/**'       # catalogue cards
               - 'README.md'          # checked by tests/test_readme_status.py
               - 'docs/**'            # the roadmap and stage reference are checked by tests
               - 'pyproject.toml'
               - 'viz/src/sim/**'
+              - '.github/workflows/ci.yml'
+            catalogue:
+              - 'catalogue/**'
+              - 'tests/test_catalogue_cards.py'
               - '.github/workflows/ci.yml'
             viewer:
               - 'viz/**'
@@ -95,6 +101,10 @@ jobs:
         env:
           JAX_PLATFORMS: cpu
         run: pytest -q -ra
+      - name: Validate catalogue cards (fixed-seed check)
+        env:
+          JAX_PLATFORMS: cpu
+        run: pytest -v tests/test_catalogue_cards.py
       - name: Fail if any test was skipped
         env:
           JAX_PLATFORMS: cpu
