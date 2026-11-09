@@ -20,17 +20,60 @@ class PartnerSelectStage:
     (from `grow_axons`, `arbor_synapses` or `connect_by_hand`); synapses with a channel outside the matrix are kept.
     Neutral default: no `compat` = no-op. The identity_expression rule of `grow_axons` is the special case of an
     identity matrix. One uniform draw per synapse from the stage's stream; O(E).
+
+    Transmitter-receptor match (P2; default off): with `match_receptors` true and a pharmacology `profile`, a synapse
+    is also removed when the postsynaptic cell expresses (level > `min_level`, default 0, in
+    `Tissue.receptor_expression`, see `express_receptors`) no receptor that binds a transmitter the presynaptic cell
+    releases (`Tissue.transmitter`); transmitter-free receptors (the classic one) count only with `allow_classic`.
+    Without `compat`, only the match filters. Cost O(E R) with R receptors.
     """
 
     @classmethod
     def cost(cls, N: int, E: int, params: Dict[str, Any]) -> Tuple[int, int]:
+        if params.get("match_receptors"):
+            R = 8
+            return E * (24 + 3 * R * 8) + N * 4, E * (8 + 4 * R) + N
         return E * 24 + N * 4, E * 8 + N
 
     def run(self, tissue: Tissue, params: Dict[str, Any], genome: Dict[str, Any], fields: Dict[str, Any],
             rng: np.random.Generator) -> Tissue:
         conn = tissue.connectivity
-        if params.get("compat") is None or conn is None or len(conn.pre) == 0:
+        match = bool(resolve(params.get("match_receptors", False), genome, fields))
+        if (params.get("compat") is None and not match) or conn is None or len(conn.pre) == 0:
             return tissue
+        p = np.ones(len(conn.pre))
+        if params.get("compat") is not None:
+            p = self._compat_probability(tissue, params, genome, fields)
+        if match:
+            p = np.where(self._receptor_match(tissue, params, genome, fields), p, 0.0)
+        keep = rng.random(len(conn.pre)) < p
+        if not keep.all():
+            tissue.connectivity = conn.take(keep)
+        return tissue
+
+    @staticmethod
+    def _receptor_match(tissue: Tissue, params: Dict[str, Any], genome: Dict[str, Any], fields: Dict[str, Any]) -> np.ndarray:
+        """Per synapse: the post cell expresses a receptor for a transmitter the pre cell releases."""
+        from neurogenesis.pharmacology import load_profile
+        if params.get("profile") is None:
+            raise ValueError("partner_select: match_receptors needs a pharmacology `profile`")
+        profile = load_profile(resolve(params["profile"], genome, fields))
+        R = len(profile.receptors)
+        rex = tissue.receptor_expression
+        if rex.shape[1] != R:
+            raise ValueError(f"partner_select: receptor_expression has {rex.shape[1]} columns, profile {profile.id!r} "
+                             f"has {R} receptors (run express_receptors first)")
+        conn = tissue.connectivity
+        allow_classic = bool(resolve(params.get("allow_classic", False), genome, fields))
+        min_level = float(resolve(params.get("min_level", 0.0), genome, fields))
+        need = np.asarray([profile.bit(r.transmitter) if r.transmitter else 0 for r in profile.receptors], np.int64)
+        released = tissue.transmitter.astype(np.int64)[conn.pre] & 0x7F
+        binds = np.where(need[None, :] == 0, allow_classic, (released[:, None] & need[None, :]) != 0)
+        return np.any(binds & (rex[conn.post] > min_level), axis=1)
+
+    @staticmethod
+    def _compat_probability(tissue: Tissue, params: Dict[str, Any], genome: Dict[str, Any], fields: Dict[str, Any]) -> np.ndarray:
+        conn = tissue.connectivity
         compat = np.clip(np.asarray(resolve(params["compat"], genome, fields), dtype=np.float64), 0.0, 1.0)
         if compat.ndim != 2:
             raise ValueError("partner_select: compat must be a (pre channels x post channels) matrix")
@@ -52,10 +95,7 @@ class PartnerSelectStage:
         inside = (ci >= 0) & (ci < compat.shape[0]) & (cj >= 0) & (cj < compat.shape[1])
         p = np.ones(len(conn.pre))
         p[inside] = compat[ci[inside], cj[inside]]
-        keep = rng.random(len(conn.pre)) < p
-        if not keep.all():
-            tissue.connectivity = conn.take(keep)
-        return tissue
+        return p
 
 
 @register_stage("bilinear_select")

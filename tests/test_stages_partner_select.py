@@ -60,3 +60,53 @@ def test_cost_linear():
     b1, o1 = PartnerSelectStage.cost(100, 1000, {})
     b2, o2 = PartnerSelectStage.cost(200, 2000, {})
     assert b2 == 2 * b1 and o2 == 2 * o1
+
+
+# transmitter-receptor match (P2) -----------------------------------------------------------------------------------
+def _matched_tissue():
+    from pathlib import Path
+    from neurogenesis.pharmacology import load_profile
+    path = str(Path(__file__).resolve().parents[1] / "examples" / "profiles" / "example_receptors.json")
+    prof = load_profile(path)
+    t = Tissue.empty()
+    t.add_cells(4, positions=np.zeros((4, 3)))
+    t.transmitter = np.array([prof.bit("glutamate"), prof.bit("gaba"), 0, 0], np.int8)
+    rex = np.zeros((4, len(prof.receptors)), np.float32)
+    rex[2, prof.receptor_index("ionotropic_glutamate")] = 1.0
+    rex[3, prof.receptor_index("gaba_a")] = 1.0
+    rex[3, prof.receptor_index("classic")] = 1.0
+    t.receptor_expression = rex
+    pre, post = np.meshgrid(np.arange(4), np.arange(4), indexing="ij")
+    keep = pre != post
+    pre, post = pre[keep].astype(np.int32), post[keep].astype(np.int32)
+    t.connectivity = SparseConnectivity(pre, post, np.full(len(pre), 5, np.int32), np.ones(len(pre), np.int32))
+    return t, path
+
+
+def test_receptor_match_keeps_only_compatible_pairs():
+    t, path = _matched_tissue()
+    out = _run(t, {"match_receptors": True, "profile": path})
+    c = out.connectivity
+    assert sorted(zip(c.pre.tolist(), c.post.tolist())) == [(0, 2), (1, 3)]
+
+
+def test_receptor_match_allow_classic_min_level_and_compat():
+    t, path = _matched_tissue()
+    out = _run(copy.deepcopy(t), {"match_receptors": True, "profile": path, "allow_classic": True})
+    assert sorted(set(out.connectivity.post.tolist())) == [2, 3]
+    assert sum(out.connectivity.post == 3) == 3                  # classic receptor: every presynaptic cell
+    out = _run(copy.deepcopy(t), {"match_receptors": True, "profile": path, "min_level": 1.0})
+    assert len(out.connectivity.pre) == 0
+    t.cell_type = np.array([0, 1, 1, 1], np.int32)                 # 0 -> 2 is now type 0 -> 1: blocked
+    out = _run(copy.deepcopy(t), {"match_receptors": True, "profile": path, "compat": [[1, 0], [0, 1]]})
+    assert list(zip(out.connectivity.pre.tolist(), out.connectivity.post.tolist())) == [(1, 3)]
+
+
+def test_receptor_match_needs_profile_and_expression():
+    import pytest
+    t, path = _matched_tissue()
+    with pytest.raises(ValueError):
+        _run(copy.deepcopy(t), {"match_receptors": True})
+    t.receptor_expression = np.zeros((4, 2), np.float32)
+    with pytest.raises(ValueError):
+        _run(t, {"match_receptors": True, "profile": path})
