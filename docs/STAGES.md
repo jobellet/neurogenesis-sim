@@ -276,7 +276,10 @@ Differs from `prune` (absolute weight or coactivity thresholds).
 `cell_type` (default), the argmax of its expression (`channels: "expression"`) or an explicit per-cell list; channels
 outside the matrix are kept. Filters synapses from `grow_axons`, `arbor_synapses` or `connect_by_hand`; an identity
 matrix reproduces the `identity_expression` rule. Neutral: no `compat` = no-op. Cost O(E). Transmitter–receptor
-matching (P2) is not implemented.
+match (P2, off by default): with `match_receptors: true` and a pharmacology `profile`, a synapse is also removed when
+the postsynaptic cell expresses (level > `min_level`, default 0, from `express_receptors`) no receptor binding a
+transmitter the presynaptic cell releases; transmitter-free receptors count only with `allow_classic`. Without
+`compat`, only the match filters. Cost O(E R).
 
 **`bilinear_select` (C25, `neurogenesis/stages/partner.py`).** Keeps a candidate synapse i → j with probability
 sigmoid(`gain` · x_iᵀ A Bᵀ x_j + `bias`), x the cells' expression vectors: the low-rank bilinear model of the genetic
@@ -361,6 +364,7 @@ compartment changes); `read_swc` / `write_swc` for SWC files (`scale` converts u
 | `stop_field`, `boundary` | none | a step into `stop_field` > 0 or out of the geometry stops the tip |
 | `cells`, `soma_radius`, `max_nodes` | all, 0, 10⁶ | `{region, cell_type}` selector; radius of new nodes; bound on new nodes |
 | `maturation_gain`, `maturation_switch`, `maturation` | 0, none, 0 | coupling to chloride maturation (C21): `step_length` and `branch_prob` are multiplied by max(0, 1 − gain · k), with k in [0, 1] computed as in `transporter_switch` from `maturation_switch` (a dict of its `age`, `clock`, `now`, `midpoint`, `width`, `activity`, `activity_gain`) or given as `maturation` (per cell or scalar); depolarising GABA promotes dendritic growth and the KCC2 switch slows it (Cancedda et al. 2007, J Neurosci; Ge et al. 2006, Nature). Gain 0 = off |
+| `record_history` | false | keep `tissue._arbor_history` (arbors before retraction, birth step and retraction of each node) for barcode time series (`analysis.morphology.temporal_barcodes`); one extra copy of the arbors |
 
 **`arbor_synapses` (N3).** Synapses from geometric proximity (Peters' rule): axonal nodes (`pre_compartments`,
 default axon and neurite) within `contact_distance` of dendritic nodes (`post_compartments`, default dendrite, neurite,

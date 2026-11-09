@@ -256,7 +256,7 @@ sources, listed below the table.
 | C23 | `critical_period_gate` | Critical-period closure: maturation of inhibitory (e.g. parvalbumin-expressing) cells and perineuronal nets stabilise synapses and stop large-scale plasticity. | Sets a per-cell or per-synapse `plastic` mask from a maturation criterion (`Param`s: a cell type's maturity, stage index, a field); `refine_by_activity`, `prune`, `scale` and later structural stages skip masked synapses. | K6, C10, C11 |
 | C24 | `tissue_expand` | Tissue grows: proliferation pushes existing cells, layers and tracts outward instead of crowding a fixed box (as in growth simulators such as Cx3D and NeuroDevSim). | Moves cells by a displacement field (radial, anisotropic or a vector `Field`) or by local volume pressure from cell density (cell list), and updates region boxes and geometries. Synapses keep their delays unless asked to recompute them from the new distances (a `Param`). | B1–B5, D1 |
 | C25 | `bilinear_select` | The genetic code of connectivity: which cell types connect is predicted by a low-rank interaction of their gene-expression profiles (the connectome model of Kovács, Barabási & Barabási 2020, PNAS; bilinear pre / post form, Barabási & Barabási 2020, Neuron). | Filters candidate synapses with probability sigmoid(gain · x_iᵀ A Bᵀ x_j + bias) from the cells' expression vectors (A, B: `Param` matrices of rank k); knockouts by zeroing expression columns. Generalises C18 from one-hot channels to graded profiles. | C6, C18 |
-| C26 | `adult_neurogenesis` | Neurogenesis continues in adult niches (e.g. the subventricular and subgranular zones): quiescent stem cells activate, progenitors divide, and young neurons migrate and integrate with a transient window of depolarising GABA (Ge et al. 2006, Nature). | Alternates simulation and development: between simulation blocks, adds cells from a niche (proliferate / migrate / grow_arbors / transporter_switch on the new cells only) and recompiles the network. The kernels keep a fixed topology within a block. | C21, C11, K6 |
+| C26 | `develop_during_simulation` (driver, not a stage) | Neurogenesis continues in adult niches (e.g. the subventricular and subgranular zones): quiescent stem cells activate, progenitors divide, and young neurons migrate and integrate with a transient window of depolarising GABA (Ge et al. 2006, Nature). | Alternates simulation blocks and stages on one tissue: between blocks, stages (proliferate in a niche, migrate, grow_arbors, connect, transporter_switch, apoptosis) change the tissue, the network is recompiled, and every surviving neuron keeps its kernel state through its `cell_id`. The kernels keep a fixed topology within a block. | C21, C11 |
 
 **Contract changes needed (each a dedicated PR with versioned docs, as K1–K4):**
 - **K5. Electrical synapses in the kernels.** A per-neuron coupling current `g · (v_j − v_i)` over a symmetric coupling
@@ -285,8 +285,9 @@ sources, listed below the table.
 | C17 | done: `choice_point` in `neurogenesis/stages/fasciculation.py`, receptor switch in geometry/field & waypoint routing |
 | C19 | partial: `contacts` and weight scaling done; `post_node` placement waits for N2/N3 |
 | C24 | done: `tissue_expand` in `neurogenesis/stages/expansion.py`, dilation by `1 + kappa * N_new / N_total` about a centre along chosen axes; optional delay recompute |
-| C18, C20 | not done |
-| C26 | not done (deferred: needs a develop / simulate loop that keeps neuron indices stable across recompiles) |
+| C18 | done: `partner_select` in `neurogenesis/stages/partner.py`, compatibility table of recognition channels and, optionally, transmitter–receptor match (`match_receptors` with a P2 profile) |
+| C20 | not done |
+| C26 | done: `neurogenesis.development.lifelong.develop_during_simulation`, kernel state carried by `cell_id` across recompiles (no stages between blocks = one long run, bit for bit); one random stream per stage and block |
 
 **Order and priorities.** C14 → C15 first (they make birth-order-dependent layering emerge in G2.3, instead of being
 imposed); C21, C22, C23 next (they use existing P3 / P4 and C11); C18 and C24 independent; C16, C17, C19 after N2 / N3;
@@ -685,8 +686,9 @@ Grow realistic arbor morphologies and calculate conduction delays based on neuri
 - Scalar morphometrics per cell (MorphoPy feature set; Laturnus et al. 2020), Sholl profiles, topological morphology
   descriptor barcodes (TMD; Kanari et al. 2018) and a persistence-image distance, on `ArborStore`, so `Fit` params and
   evolution can target arbor shape and not only cell and synapse counts.
-- **Status:** done: `neurogenesis.analysis.morphology`, fit metrics `arbor` and `barcode_distance`. Not done: temporal
-  barcodes (one barcode per growth step, TTMD; Kanari et al. 2025, bioRxiv), which need snapshots inside `grow_arbors`.
+- **Status:** done: `neurogenesis.analysis.morphology`, fit metrics `arbor` and `barcode_distance`; barcode time series
+  during growth (`grow_arbors` `record_history`, `temporal_barcodes`, `barcode_series_distance`; in the spirit of the
+  temporal TMD, Kanari et al. 2025, bioRxiv). Not done: matching bars between steps (vineyards).
 
 **N7. Learned morphology generators (plugin).**
 - Generative models of arbors trained on reconstructions (e.g. MorphVAE, MorphGrower, implicit occupancy fields such
@@ -771,9 +773,10 @@ statistics (rates, CV, correlations, PSTHs) for `Fit` Params (E2) and validation
 connectome analysis: distance-dependent connection probability, degree and weight distributions, reciprocity, motif
 and directed-simplex counts (Reimann et al. 2019 Nat Commun; Connectome-Manipulator, Pokorny et al. 2025), computed
 on grown networks and on imported connectomes alike.
-- **Status:** partial: `neurogenesis.analysis.connectome` (degrees and their skewness, reciprocity, connection
-  probability by distance and by common neighbours, directed simplex counts, `summary`), registered as fit metrics
-  (E2). Not done: weight distributions, 3-cell motif census, use in I5 and E4.
+- **Status:** done: `neurogenesis.analysis.connectome` (degrees and their skewness, weight distributions with log-normal
+  parameters, reciprocity, connection probability by distance and by common neighbours, the 16-class triad census,
+  directed simplex counts, `summary`), registered as fit metrics (E2) and so usable as I5 targets and as structural
+  validation assays (E4: any non-spiking fit metric can be an assay `target`).
 
 **J11. Public benchmarks.** Two reference problems with data, targets, scripts and a results table: the fly optic-lobe
 motion circuit (I6, male CNS and FlyWire connectomes) and a mouse visual-cortex subset (MICrONS). Results are

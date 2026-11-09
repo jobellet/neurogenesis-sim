@@ -12,6 +12,9 @@ Generated from the docstrings of the installed package.
 
 .. automodule:: neurogenesis.development.legacy_compiler
    :members: compile_plan_to_schedule, compile_plan_to_project
+
+.. automodule:: neurogenesis.development.lifelong
+   :members: develop_during_simulation
 ```
 
 ## Projects, Params and stages
