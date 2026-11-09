@@ -56,6 +56,13 @@ class GrowArbors:
     the soma. Randomness only from the stage stream; `max_nodes` bounds the number of new nodes (a safety bound).
     Branching growth models of dendrites: van Pelt & Uylings 2002, Network: Comput Neural Syst. No `steps` (or
     steps <= 0) is the no-op.
+
+    Optional coupling to chloride maturation (C21): depolarising GABA in immature neurons promotes dendritic growth,
+    and the switch to hyperpolarising GABA (NKCC1 -> KCC2) slows it (Cancedda et al. 2007, J Neurosci 27:5224; Ge et
+    al. 2006, Nature 439:589). With `maturation_gain` g (default 0 = off) each cell's `step_length` and `branch_prob`
+    are multiplied by max(0, 1 - g k), with k in [0, 1] its maturation: computed as in `transporter_switch` from
+    `maturation_switch` (a dict with that stage's `age`, `clock`, `now`, `midpoint`, `width`, `activity`,
+    `activity_gain`), or given directly as `maturation` (a `Param`, per cell or scalar).
     """
 
     @classmethod
@@ -79,6 +86,15 @@ class GrowArbors:
         step_len, branch_p, branch_a = val("step_length", 1.0), val("branch_prob", 0.0), val("branch_angle", 0.5)
         noise, stop_p, retract_p = val("angle_noise", 0.2), val("stop_prob", 0.0), val("retraction_prob", 0.0)
         attraction = val("attraction", 0.0)
+        mat_gain = val("maturation_gain", 0.0)
+        if np.any(mat_gain != 0):
+            if params.get("maturation_switch") is not None:
+                from neurogenesis.stages.pharmacology import chloride_maturation
+                mat = chloride_maturation(tissue, dict(params["maturation_switch"]), genome, fields)[cells]
+            else:
+                mat = val("maturation", 0.0)
+            scale = np.clip(1.0 - mat_gain * np.clip(mat, 0.0, 1.0), 0.0, None)
+            step_len, branch_p = step_len * scale, branch_p * scale
         comp = compartment_id(resolve(params.get("compartment", "dendrite"), genome, fields))
         max_nodes = int(resolve(params.get("max_nodes", 1_000_000), genome, fields))
         soma_r = float(resolve(params.get("soma_radius", 0.0), genome, fields))

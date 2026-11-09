@@ -173,6 +173,34 @@ class PharmacologyStage:
         return tissue
 
 
+def chloride_maturation(tissue: Tissue, params: Dict[str, Any], genome: Dict[str, Any], fields: Dict[str, Any]) -> np.ndarray:
+    """Per-cell fraction (N,) in [0, 1] of the NKCC1 -> KCC2 switch done, as in `transporter_switch`:
+    sigmoid((age - midpoint + activity_gain * activity) / width), with `age`, `clock`, `now`, `midpoint` (0), `width`
+    (1), `activity` (0) and `activity_gain` (0) read from `params` (see `TransporterSwitch`). Draws no random numbers."""
+    N = len(tissue.alive)
+
+    def per_cell(key, default):
+        v = params.get(key)
+        v = default if v is None else resolve(v, genome, fields, positions=tissue.positions)
+        return np.broadcast_to(np.asarray(v, np.float64), (N,))
+
+    if params.get("age") is not None:
+        age = per_cell("age", 0.0)
+    else:
+        clock_name = str(resolve(params.get("clock", "birth_time"), genome, fields))
+        if clock_name not in ("birth_time", "birth_stage", "generation"):
+            raise ValueError(f"transporter_switch: unknown clock {clock_name!r}")
+        clock = getattr(tissue, clock_name).astype(np.float64)
+        now = float(resolve(params["now"], genome, fields)) if params.get("now") is not None else \
+            float(clock[tissue.alive].max()) if tissue.alive.any() else 0.0
+        age = now - clock
+    width = per_cell("width", 1.0)
+    if np.any(width <= 0):
+        raise ValueError("transporter_switch: width must be > 0")
+    x = (age - per_cell("midpoint", 0.0) + per_cell("activity_gain", 0.0) * per_cell("activity", 0.0)) / width
+    return 0.5 * (1.0 + np.tanh(0.5 * x))                          # sigmoid, without overflow
+
+
 @register_stage("transporter_switch")
 class TransporterSwitch:
     """Per-cell chloride transporter switch (C21): GABA / glycine depolarise immature cells and hyperpolarise mature
@@ -206,26 +234,13 @@ class TransporterSwitch:
         if any(params.get(k) is None for k in ("receptors", "e_immature", "e_mature")) or N == 0 or len(c.pre) == 0:
             return tissue
 
+        frac = chloride_maturation(tissue, params, genome, fields)
+
         def per_cell(key, default):
             v = params.get(key)
             v = default if v is None else resolve(v, genome, fields, positions=tissue.positions)
             return np.broadcast_to(np.asarray(v, np.float64), (N,))
 
-        if params.get("age") is not None:
-            age = per_cell("age", 0.0)
-        else:
-            clock_name = str(resolve(params.get("clock", "birth_time"), genome, fields))
-            if clock_name not in ("birth_time", "birth_stage", "generation"):
-                raise ValueError(f"transporter_switch: unknown clock {clock_name!r}")
-            clock = getattr(tissue, clock_name).astype(np.float64)
-            now = float(resolve(params["now"], genome, fields)) if params.get("now") is not None else \
-                float(clock[tissue.alive].max()) if tissue.alive.any() else 0.0
-            age = now - clock
-        width = per_cell("width", 1.0)
-        if np.any(width <= 0):
-            raise ValueError("transporter_switch: width must be > 0")
-        x = (age - per_cell("midpoint", 0.0) + per_cell("activity_gain", 0.0) * per_cell("activity", 0.0)) / width
-        frac = 0.5 * (1.0 + np.tanh(0.5 * x))                       # sigmoid, without overflow
         e_imm, e_mat = per_cell("e_immature", 0.0), per_cell("e_mature", 0.0)
         e_cl = (e_imm + (e_mat - e_imm) * frac).astype(np.float32)
 

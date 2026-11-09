@@ -278,6 +278,14 @@ outside the matrix are kept. Filters synapses from `grow_axons`, `arbor_synapses
 matrix reproduces the `identity_expression` rule. Neutral: no `compat` = no-op. Cost O(E). Transmitter–receptor
 matching (P2) is not implemented.
 
+**`bilinear_select` (C25, `neurogenesis/stages/partner.py`).** Keeps a candidate synapse i → j with probability
+sigmoid(`gain` · x_iᵀ A Bᵀ x_j + `bias`), x the cells' expression vectors: the low-rank bilinear model of the genetic
+code of connectivity (Kovács, Barabási & Barabási 2020, PNAS; Barabási & Barabási 2020, Neuron). `A` (K × k) and `B`
+(K × k) are `Param` matrices; `pre_channels` / `post_channels` (names or indices) restrict x to some expression
+columns; A = B gives a symmetric rule (e.g. gap-junction partners). A gene knocked out by `express(knockout=[...])`
+loses its term. Defaults: `gain` 1, `bias` 0. Neutral: no `A` or `B` = no-op. Cost O(N K k + E k). `partner_select`
+is the special case of one-hot channels.
+
 **`fasciculate` (C16, `neurogenesis/stages/fasciculation.py`).** Follower axons bundle along pioneer tracts through
 homophilic adhesion (L1, NCAM, Fasciclin II). For morphological arbors, active neurite growth cone nodes steer towards
 nearby pioneer branch tangents within `radius`, weighted by `adhesion_matrix` [pre_type, post_type]; defasciculation
@@ -352,6 +360,7 @@ compartment changes); `read_swc` / `write_swc` for SWC files (`scale` converts u
 | `attractor_field`, `attraction` | none, 0.0 | tips turn up the gradient of this scalar field (negative: down) |
 | `stop_field`, `boundary` | none | a step into `stop_field` > 0 or out of the geometry stops the tip |
 | `cells`, `soma_radius`, `max_nodes` | all, 0, 10⁶ | `{region, cell_type}` selector; radius of new nodes; bound on new nodes |
+| `maturation_gain`, `maturation_switch`, `maturation` | 0, none, 0 | coupling to chloride maturation (C21): `step_length` and `branch_prob` are multiplied by max(0, 1 − gain · k), with k in [0, 1] computed as in `transporter_switch` from `maturation_switch` (a dict of its `age`, `clock`, `now`, `midpoint`, `width`, `activity`, `activity_gain`) or given as `maturation` (per cell or scalar); depolarising GABA promotes dendritic growth and the KCC2 switch slows it (Cancedda et al. 2007, J Neurosci; Ge et al. 2006, Nature). Gain 0 = off |
 
 **`arbor_synapses` (N3).** Synapses from geometric proximity (Peters' rule): axonal nodes (`pre_compartments`,
 default axon and neurite) within `contact_distance` of dendritic nodes (`post_compartments`, default dendrite, neurite,

@@ -185,3 +185,24 @@ def test_arbor_synapses_in_a_grown_tissue():
     assert counts.max() <= 2
     from neurogenesis.stages.freeze import validate
     assert validate(t) == []
+
+
+# C21 coupling: chloride maturation slows arbor growth ---------------------------------------------------------------
+def test_grow_arbors_maturation_gain_zero_is_noop():
+    p = {"steps": 10, "n_neurites": 2, "branch_prob": 0.2}
+    a = _run("grow_arbors", _cells(), p, seed=5).morphology
+    b = _run("grow_arbors", _cells(), dict(p, maturation=1.0, maturation_gain=0.0), seed=5).morphology
+    np.testing.assert_array_equal(a.xyz, b.xyz)
+
+
+def test_grow_arbors_mature_cells_grow_less():
+    from neurogenesis.analysis.morphology import morphometrics
+    t = Tissue.empty()
+    t.add_cells(40, positions=np.random.default_rng(0).uniform(0, 10, (40, 3)),
+                birth_time=np.r_[np.zeros(20), np.full(20, 10.0)].astype(np.float32))     # first 20 born early: mature
+    p = {"steps": 12, "n_neurites": 2, "branch_prob": 0.25, "stop_prob": 0.0, "maturation_gain": 1.0,
+         "maturation_switch": {"midpoint": 5.0, "width": 0.5}}
+    m = morphometrics(_run("grow_arbors", t, p, seed=1).morphology, cells=np.arange(40))
+    assert m["total_length"][:20].mean() < 0.05 * m["total_length"][20:].mean()
+    full = _run("grow_arbors", _cells(), {"steps": 5, "maturation": 1.0, "maturation_gain": 1.0}).morphology
+    assert np.allclose(full.segment_lengths(), 0.0)                 # fully mature: no elongation

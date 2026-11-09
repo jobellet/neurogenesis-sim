@@ -14,7 +14,8 @@ The loss of a candidate is the mean over development seeds of sum_k weight_k ((m
 several seeds per evaluation make the fit robust to developmental noise. The default optimiser is a CMA-ES (Hansen &
 Ostermeier 2001, Evol Comput) on the [0, 1]-coded Fit values: gradient free, robust to stochastic development, and
 deterministic for a given `seed`. Metrics are registered with `@register_metric`; built in: cell_count, density,
-layer_thickness, synapse_count, mean_in_degree, connection_probability, firing_rate.
+layer_thickness, synapse_count, mean_in_degree, connection_probability, firing_rate, and the J10 / N6 measures
+reciprocity, degree_skewness, simplex_count, arbor (a morphometric) and barcode_distance (TMD).
 
 Before searching, `fit` measures the Jacobian of the metrics with respect to the Fit values (`jacobian`) and warns about
 a Fit param that moves no target metric (it cannot be fitted from these targets: unused by the model, masked by a clip,
@@ -128,6 +129,75 @@ def _firing_rate(t: Tissue, o: Dict[str, Any]) -> float:
     spikes = simulate_tissue(t, ticks, int(o.get("sim_seed", 0)), ext)
     idx = select(t, o)
     return float(spikes[:, idx].sum() * 1000.0 / (ticks * max(1, len(idx))))
+
+
+def _subgraph(t: Tissue, o: Dict[str, Any]):
+    """(pre, post, n) of the connections among the selected cells, renumbered 0..n-1."""
+    idx = select(t, o)
+    lut = np.full(len(t.alive), -1, np.int64)
+    lut[idx] = np.arange(len(idx))
+    c = t.connectivity
+    if c is None or len(c.pre) == 0:
+        return np.zeros(0, np.int64), np.zeros(0, np.int64), len(idx)
+    a, b = lut[c.pre], lut[c.post]
+    m = (a >= 0) & (b >= 0)
+    return a[m], b[m], len(idx)
+
+
+@register_metric("reciprocity")
+def _reciprocity(t: Tissue, o: Dict[str, Any]) -> float:
+    """Reciprocity among the selected cells (`analysis.connectome.reciprocity`); option `measure`: r (default),
+    fraction or overrepresentation."""
+    from .analysis.connectome import reciprocity
+    return float(reciprocity(*_subgraph(t, o))[o.get("measure", "r")])
+
+
+@register_metric("degree_skewness")
+def _degree_skewness(t: Tissue, o: Dict[str, Any]) -> float:
+    """Skewness of the in- (`direction`: "in", default) or out-degree ("out") among the selected cells."""
+    from .analysis.connectome import degree_stats
+    return float(degree_stats(*_subgraph(t, o))[o.get("direction", "in") + "_skew"])
+
+
+@register_metric("simplex_count")
+def _simplex_count(t: Tissue, o: Dict[str, Any]) -> float:
+    """Number of directed simplices of dimension `dim` (default 2) among the selected cells
+    (`analysis.connectome.directed_simplices`); `log` (default False) gives log10(1 + count)."""
+    from .analysis.connectome import directed_simplices
+    dim = int(o.get("dim", 2))
+    v = float(directed_simplices(*_subgraph(t, o), max_dim=dim)[dim])
+    return float(np.log10(1.0 + v)) if o.get("log", False) else v
+
+
+@register_metric("arbor")
+def _arbor(t: Tissue, o: Dict[str, Any]) -> float:
+    """Mean over the selected cells with arbors of a morphometric (`measure`, a key of
+    `analysis.morphology.morphometrics`, default total_length); 0 without arbors."""
+    from .analysis.morphology import morphometrics
+    m = t.morphology
+    if m is None or m.n_nodes == 0:
+        return 0.0
+    cells = np.intersect1d(select(t, o), np.unique(m.cell))
+    if len(cells) == 0:
+        return 0.0
+    v = np.asarray(morphometrics(m, cells)[o.get("measure", "total_length")], float)
+    v = v[np.isfinite(v)]
+    return float(v.mean()) if len(v) else 0.0
+
+
+@register_metric("barcode_distance")
+def _barcode_distance(t: Tissue, o: Dict[str, Any]) -> float:
+    """Persistence-image distance between the pooled TMD barcode of the selected cells' arbors and a reference
+    barcode `bars` ([[birth, death], ...]); `feature` radial (default) or path. Use with value 0."""
+    from .analysis.morphology import barcode_distance, tmd_barcodes
+    m = t.morphology
+    ref = np.asarray(o["bars"], float).reshape(-1, 2)
+    if m is None or m.n_nodes == 0:
+        return barcode_distance(np.zeros((0, 2)), ref)
+    cells = np.intersect1d(select(t, o), np.unique(m.cell))
+    bars = tmd_barcodes(m, o.get("feature", "radial"), cells)
+    pooled = np.concatenate([bars[int(c)] for c in cells]) if len(cells) else np.zeros((0, 2))
+    return barcode_distance(pooled, ref)
 
 
 def target_loss(tissue: Tissue, targets: Sequence[Dict[str, Any]]) -> Tuple[float, List[float]]:
