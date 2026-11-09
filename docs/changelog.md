@@ -15,6 +15,10 @@
 - `neurogenesis.spiking.numba_backend`: event-driven CPU kernel with the same `lif_int` spikes (optional extra `fast`).
 - `express` weight matrices accept Genes; `arbor_synapses` `max_delay` and `axon_velocity_by_type`.
 - `neurogenesis.analysis.geometry`: cross-validated PCA (`cvpca`), participation ratio, connectivity dimensionality.
+- `neurogenesis.evolution.strategies.evolve_es`: evolution strategies on [0, 1] gene vectors, beside the island model
+  (Salimans et al. 2017): one centre, antithetic variants evaluated on the same seeds, centred-rank or z-score shaping,
+  SGD or Adam steps, frozen genes; the centre is evaluated every generation. Same `evaluate(genomes, seeds)` as
+  `islands.evolve` (`tests/test_evolution_strategies.py`).
 - Front page (J12, part): a browser playground that grows and evolves a toy cortical map with a JavaScript port of the
   toolbox (`docs/_static/ngjs/ng-core.js`: the `lif_int` kernel with spikes identical to Python, gene coding,
   `seeds_of`, `coactivity`, competitive elimination, 2D stages) and animates the founder and the champion through six

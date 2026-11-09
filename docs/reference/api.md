@@ -52,6 +52,9 @@ Generated from the docstrings of the installed package.
 .. automodule:: neurogenesis.evolution
    :members: evolve, choose, audit, robust_value, seeds_of
 
+.. automodule:: neurogenesis.evolution.strategies
+   :members: evolve_es, shape, centred_ranks, zscores, antithetic, gradient, Adam
+
 .. automodule:: neurogenesis.modules
    :members: Module, compose
 ```
