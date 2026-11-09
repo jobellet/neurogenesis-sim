@@ -87,7 +87,7 @@ GUI (viz/): geometry and field editor, schedule editor, step-by-step development
 |---|---|---|
 | Spiking | integer LIF kernel, bit-identical in Python, JAX and the browser; `two_compartment` and `hh` models; batched runs; cost estimator with machine calibration; STDP, Hebbian and three-factor plasticity (E1) | per-region choice of model |
 | Development | `BodyPlan` (regions, projections), one fixed growth order (placement → sign → differentiation → identity → axons), rule registry in 5 phases (placement, shift, target, probability, weight), knockouts, tonic currents; geometry, fields, `Tissue`, stage schedule (A1–A5, B1–B5, C1–C13, D2, D3; see `docs/STAGES.md`) | chunked growth (D4), and the parts of C8, D1 and D2 marked partial below |
-| Genome / evolution | gene paths, [0, 1] coding, gene groups, JSON; island model, evolution strategies (`evolve_es`), robust fitness, audits; `Param` sources (A3); fitting of `Fit` params (E2), inner-loop fitting and Pareto evolution (E3) | gradient-based fitting |
+| Genome / evolution | gene paths, [0, 1] coding, gene groups, JSON; island model, evolution strategies (`evolve_es`), quality diversity (`evolve_qd`, E5), robust fitness, audits; `Param` sources (A3); fitting of `Fit` params (E2), inner-loop fitting and Pareto evolution (E3); surrogate gradients of the kernel with respect to weights (E2, part) | gradients through developmental stages |
 | Modules | save / load, composition, plugins, neuron model recorded; versions, local registry (G1); validation assays (E4) | a shared online catalogue |
 | GUI | 3D viewer and per-neuron editing of a finished network | geometry and field editor, schedule editor, development preview, Project import / export |
 | CI | GitHub Actions: tests on Python 3.10 and 3.12, browser-kernel equivalence, viewer build, cost command line, fixed CPU performance benchmarks (report only, regressions above 30% flagged) | coverage |
@@ -255,6 +255,8 @@ sources, listed below the table.
 | C22 | `competitive_elimination` | Synapse elimination is competitive: an input is removed when competing inputs onto the same target are active and it is not (neuromuscular junction, climbing fibres), not by disuse alone. | From the activity recorded in `refine_by_activity`: for each target, inputs whose activity (or correlation with the target) falls below a fraction of their strongest competitor lose weight or are removed. O(E) grouped by target. Differs from `prune` (absolute weight or coactivity). | C11 |
 | C23 | `critical_period_gate` | Critical-period closure: maturation of inhibitory (e.g. parvalbumin-expressing) cells and perineuronal nets stabilise synapses and stop large-scale plasticity. | Sets a per-cell or per-synapse `plastic` mask from a maturation criterion (`Param`s: a cell type's maturity, stage index, a field); `refine_by_activity`, `prune`, `scale` and later structural stages skip masked synapses. | K6, C10, C11 |
 | C24 | `tissue_expand` | Tissue grows: proliferation pushes existing cells, layers and tracts outward instead of crowding a fixed box (as in growth simulators such as Cx3D and NeuroDevSim). | Moves cells by a displacement field (radial, anisotropic or a vector `Field`) or by local volume pressure from cell density (cell list), and updates region boxes and geometries. Synapses keep their delays unless asked to recompute them from the new distances (a `Param`). | B1–B5, D1 |
+| C25 | `bilinear_select` | The genetic code of connectivity: which cell types connect is predicted by a low-rank interaction of their gene-expression profiles (the connectome model of Kovács, Barabási & Barabási 2020, PNAS; bilinear pre / post form, Barabási & Barabási 2020, Neuron). | Filters candidate synapses with probability sigmoid(gain · x_iᵀ A Bᵀ x_j + bias) from the cells' expression vectors (A, B: `Param` matrices of rank k); knockouts by zeroing expression columns. Generalises C18 from one-hot channels to graded profiles. | C6, C18 |
+| C26 | `adult_neurogenesis` | Neurogenesis continues in adult niches (e.g. the subventricular and subgranular zones): quiescent stem cells activate, progenitors divide, and young neurons migrate and integrate with a transient window of depolarising GABA (Ge et al. 2006, Nature). | Alternates simulation and development: between simulation blocks, adds cells from a niche (proliferate / migrate / grow_arbors / transporter_switch on the new cells only) and recompiles the network. The kernels keep a fixed topology within a block. | C21, C11, K6 |
 
 **Contract changes needed (each a dedicated PR with versioned docs, as K1–K4):**
 - **K5. Electrical synapses in the kernels.** A per-neuron coupling current `g · (v_j − v_i)` over a symmetric coupling
@@ -275,7 +277,8 @@ sources, listed below the table.
 |---|---|
 | C14 | done: `cell_cycle_clock` (#68), Q(generation) as a power law or table, cycle-length table, `Tissue.cycling` (K6 part, #67) |
 | C15 | done: `temporal_competence` (#69), one-way competence channels advanced by generation or a field, fixed at cycle exit |
-| C21 | done: `transporter_switch` (#74), per-cell chloride reversal potential from maturation (NKCC1 → KCC2 switch) |
+| C21 | done: `transporter_switch` (#74), per-cell chloride reversal potential from maturation (NKCC1 → KCC2 switch); the same maturation (`chloride_maturation`) can slow arbor growth (`grow_arbors` `maturation_gain`, off by default) |
+| C25 | done: `bilinear_select` in `neurogenesis/stages/partner.py`, low-rank bilinear rule on expression vectors, pre / post channel subsets, symmetric rule with A = B |
 | C22 | done: `competitive_elimination` in `neurogenesis/stages/competition.py`, coactivity with the target versus a `fraction` of the strongest competitor, weaken by `delta` or remove; silent targets and non-plastic synapses unchanged; raster from `spikes` or `refine_by_activity` with `record` |
 | C23 | done: `critical_period_gate`, sets the K6 `plastic` mask (#73): opens on inhibitory maturity from a source cell type (or a maturity `Param`, or explicitly), closes after a number of gate calls, a maturity threshold or explicitly; `reopen`; mouse / cat ages in `examples/profiles/critical_period_gate.json` |
 | C16 | done: `fasciculate` in `neurogenesis/stages/fasciculation.py`, arbor tangent steering via `CellList` & adhesion matrix |
@@ -283,6 +286,7 @@ sources, listed below the table.
 | C19 | partial: `contacts` and weight scaling done; `post_node` placement waits for N2/N3 |
 | C24 | done: `tissue_expand` in `neurogenesis/stages/expansion.py`, dilation by `1 + kappa * N_new / N_total` about a centre along chosen axes; optional delay recompute |
 | C18, C20 | not done |
+| C26 | not done (deferred: needs a develop / simulate loop that keeps neuron indices stable across recompiles) |
 
 **Order and priorities.** C14 → C15 first (they make birth-order-dependent layering emerge in G2.3, instead of being
 imposed); C21, C22, C23 next (they use existing P3 / P4 and C11); C18 and C24 independent; C16, C17, C19 after N2 / N3;
@@ -463,7 +467,10 @@ field or fit can replace; values are about the cited species and ages, and resul
 - Multiple development seeds per evaluation (robustness).
 - **Dependencies:** A3, A4.
 - **Status:** done: `neurogenesis.fitting` (fitted values in `genome["__fit__"]`, metric registry, CMA-ES, multi-seed
-  loss, `python -m neurogenesis fit`). Not done: JAX gradients, receptive-field metrics (add them as registered metrics).
+  loss, `python -m neurogenesis fit`); J10 / N6 metrics registered (`reciprocity`, `degree_skewness`, `simplex_count`,
+  `arbor`, `barcode_distance`); surrogate gradients of `lif_int` spikes with respect to weights and inputs
+  (`neurogenesis.spiking.surrogate.run_differentiable`: exact forward spikes, straight-through backward). Not done:
+  gradients through developmental stages, receptive-field metrics (add them as registered metrics).
 
 **E3. Semi-supervised workflows.**
 - Evolution of `Gene` params with `Fit` params refitted in an inner loop, or fixed.
@@ -471,6 +478,14 @@ field or fit can replace; values are about the cited species and ages, and resul
 - **Dependencies:** E2.
 - **Status:** done: `neurogenesis.evolution.semi_supervised` (`inner_fit_evaluator` with refit or fixed `Fit` params,
   `evolve_pareto`, `pareto_front`).
+
+**E5. Quality-diversity search.**
+- An archive over behaviour descriptors (e.g. wiring length, E / I balance, largest directed simplex) that keeps the best
+  genome per cell instead of one optimum, so that stepping stones on deceptive fitness landscapes are kept.
+- MAP-Elites (Mouret & Clune 2015), CMA-ME (Fontaine et al. 2020) and CMA-MAE with threshold annealing (Fontaine &
+  Nikolaidis 2023); same `evaluate(genomes, seeds)` contract and seed scheme as the island model; deterministic.
+- **Status:** done: `neurogenesis.evolution.quality_diversity` (`evolve_qd`, `Archive`, `CMAEmitter`), in NumPy (no new
+  dependency).
 
 **E4. Validation harness.**
 - A declarative assay description (stimuli, readout, metric, gate), stored in modules and rerun by `neurogenesis validate module.json`.
@@ -666,6 +681,19 @@ Grow realistic arbor morphologies and calculate conduction delays based on neuri
 - Multi-compartment or passive dendritic filtering approximation in spiking simulation to capture distal vs proximal synaptic efficacy based on `dendritic_distance`.
 - **Status:** done: `neurogenesis.dendritic` (`apply_dendritic_attenuation`, `dendritic_attenuate` stage, distal compartment routing for `two_compartment`).
 
+**N6. Morphometry and topological descriptors of arbors.**
+- Scalar morphometrics per cell (MorphoPy feature set; Laturnus et al. 2020), Sholl profiles, topological morphology
+  descriptor barcodes (TMD; Kanari et al. 2018) and a persistence-image distance, on `ArborStore`, so `Fit` params and
+  evolution can target arbor shape and not only cell and synapse counts.
+- **Status:** done: `neurogenesis.analysis.morphology`, fit metrics `arbor` and `barcode_distance`. Not done: temporal
+  barcodes (one barcode per growth step, TTMD; Kanari et al. 2025, bioRxiv), which need snapshots inside `grow_arbors`.
+
+**N7. Learned morphology generators (plugin).**
+- Generative models of arbors trained on reconstructions (e.g. MorphVAE, MorphGrower, implicit occupancy fields such
+  as MorphOcc) as an optional stage in a separate module repository: they need PyTorch and pretrained weights, which the
+  core does not depend on.
+- **Status:** not done (deferred: heavy dependency, needs the maintainer's approval).
+
 ### Phase J: interoperability, shared metrics, benchmarks and outreach
 
 Goal: make neurogenesis-sim the development front end of the computational-neuroscience ecosystem. Networks grown here
@@ -743,6 +771,9 @@ statistics (rates, CV, correlations, PSTHs) for `Fit` Params (E2) and validation
 connectome analysis: distance-dependent connection probability, degree and weight distributions, reciprocity, motif
 and directed-simplex counts (Reimann et al. 2019 Nat Commun; Connectome-Manipulator, Pokorny et al. 2025), computed
 on grown networks and on imported connectomes alike.
+- **Status:** partial: `neurogenesis.analysis.connectome` (degrees and their skewness, reciprocity, connection
+  probability by distance and by common neighbours, directed simplex counts, `summary`), registered as fit metrics
+  (E2). Not done: weight distributions, 3-cell motif census, use in I5 and E4.
 
 **J11. Public benchmarks.** Two reference problems with data, targets, scripts and a results table: the fly optic-lobe
 motion circuit (I6, male CNS and FlyWire connectomes) and a mouse visual-cortex subset (MICrONS). Results are

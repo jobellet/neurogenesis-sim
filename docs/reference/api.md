@@ -55,6 +55,9 @@ Generated from the docstrings of the installed package.
 .. automodule:: neurogenesis.evolution.strategies
    :members: evolve_es, shape, centred_ranks, zscores, antithetic, gradient, Adam
 
+.. automodule:: neurogenesis.evolution.quality_diversity
+   :members: evolve_qd, Archive, CMAEmitter
+
 .. automodule:: neurogenesis.modules
    :members: Module, compose
 ```
@@ -75,6 +78,9 @@ Generated from the docstrings of the installed package.
 
 .. automodule:: neurogenesis.spiking.plasticity
    :members: STDPRule, HebbianRule, ThreeFactorRule
+
+.. automodule:: neurogenesis.spiking.surrogate
+   :members: run_differentiable
 ```
 
 ## Cost
@@ -100,6 +106,12 @@ Measurements on grown networks and their activity (layout and rules for new meas
 
 .. automodule:: neurogenesis.analysis.geometry
    :members: cvpca, participation_ratio, connectivity_dimensionality
+
+.. automodule:: neurogenesis.analysis.connectome
+   :members:
+
+.. automodule:: neurogenesis.analysis.morphology
+   :members:
 ```
 
 ## Interoperability
