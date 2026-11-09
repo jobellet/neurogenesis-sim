@@ -14,10 +14,14 @@ Each seed grows one individual (`development.grow`, with the module genome and i
 stimuli in sequence with the batched JAX kernel (`spiking.batch.simulate_counts`); the metric is computed per seed and
 gated. Defaults: ticks 100, blank 0, seeds 1000-1004 (never used in evolution, see `evolution.robust`), metric mean.
 Knockout assays compare a module with a region or projection removed (`development.grow.knockout`).
+
+Structural assays: with `"target"` (or a readout `measure`) naming a registered target (`data.targets`) or any
+fitting metric that needs no simulation (e.g. `reciprocity`, `simplex_count`, `triad_count`, `weight_stat`,
+`arbor`), the value is that measure of each seed's grown tissue, with `options` passed to it, and is gated as above.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 
@@ -53,6 +57,17 @@ def _gate(x: float, gate: Dict[str, Any]) -> bool:
     return bool(ok)
 
 
+def _structural_target(name) -> Optional[TargetSpec]:
+    """The target spec of a structural (non-spiking) target or fitting metric `name`, else None."""
+    if not name or name in MEASURES:
+        return None
+    try:
+        spec = get_target(name)
+    except KeyError:
+        return None
+    return None if spec.requires_spiking else spec
+
+
 def run_assay(module, assay: Dict[str, Any]) -> Dict[str, Any]:
     """Runs one assay on a module. Returns dict(name, values per seed, passed per seed, pass_fraction, ok)."""
     genome = module.genome
@@ -62,11 +77,11 @@ def run_assay(module, assay: Dict[str, Any]) -> Dict[str, Any]:
     seeds = [int(s) for s in assay.get("seeds", HELD_OUT[:5])]
 
     readout = assay.get("readout", {})
-    # Check if this assay specifies an objective target
-    target_name = assay.get("target") or readout.get("target") or (readout.get("measure") if readout.get("measure") in TARGETS else None)
+    # Check if this assay specifies an objective target (a registered target or any fitting metric)
+    target_name = assay.get("target") or readout.get("target") or readout.get("measure")
+    target_spec = _structural_target(target_name)
 
-    if target_name and target_name in TARGETS and not TARGETS[target_name].requires_spiking:
-        target_spec = TARGETS[target_name]
+    if target_spec is not None:
         opts = {**assay, **readout, **(readout.get("options") or {}), **(assay.get("options") or {})}
         if "region" in readout and "region" not in opts:
             opts["region"] = readout["region"]

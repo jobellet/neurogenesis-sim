@@ -566,3 +566,16 @@ def test_compile_weights_none_guards():
     assert res3 == {"changed": 0, "silenced": 0}
 
 
+
+
+def test_validation_structural_assay_with_connectome_metrics():
+    from neurogenesis.validation import run_assay
+    simplices = {"name": "simplices", "target": "simplex_count", "options": {"dim": 1}, "seeds": [1000, 1001],
+                 "gate": {"min": 1.0}}
+    r = run_assay(_module(), simplices)
+    assert r["ok"] and all(v >= 1.0 for v in r["values"])          # 1-simplices = connections of the grown network
+    ko = dict(simplices, name="ko", knockout={"projections": [["sheet", "map"]]}, gate={"max": r["values"][0] - 1})
+    assert run_assay(_module(), ko)["ok"]                          # removing the projection removes connections
+    recip = {"name": "recip", "target": "reciprocity", "options": {"measure": "fraction"}, "seeds": [1000],
+             "gate": {"max": 1.0}}
+    assert run_assay(_module(), recip)["ok"]

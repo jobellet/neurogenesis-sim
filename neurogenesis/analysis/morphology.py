@@ -9,7 +9,8 @@ cell's tree is rooted at its root node (normally the soma, `parent = -1`). Defin
   tortuosity is path length / Euclidean distance (>= 1).
 Scalar morphometrics follow the feature set of MorphoPy (Laturnus et al. 2020, J Open Source Softw 5:2339); the
 topological morphology descriptor (TMD) is that of Kanari et al. 2018, Neuroinformatics 16:3-13, and barcodes are
-compared through persistence images (Adams et al. 2017, J Mach Learn Res 18:1-35).
+compared through persistence images (Adams et al. 2017, J Mach Learn Res 18:1-35). Barcode time series during growth
+(`temporal_barcodes`) use the history recorded by `grow_arbors` with `record_history`.
 
 Vectorised over all nodes (pointer jumping, O(M log depth)) or tree levels (O(M) per level); nothing loops over nodes in
 Python. Nothing here changes the store.
@@ -280,3 +281,42 @@ def barcode_distance(a, b, resolution: int = 20, bandwidth: Optional[float] = No
     hi = max(float(a.max()) if len(a) else 0.0, float(b.max()) if len(b) else 0.0)
     ext = (0.0, hi if hi > 0 else 1.0)
     return float(np.abs(persistence_image(a, ext, resolution, bandwidth) - persistence_image(b, ext, resolution, bandwidth)).sum())
+
+
+def snapshot(store: ArborStore, birth, death, step: int) -> ArborStore:
+    """The arbors as they were after growth step `step`: nodes with birth <= step < death (a parent is always born
+    before its children and only terminals die, so every snapshot is a valid store)."""
+    birth, death = np.asarray(birth), np.asarray(death)
+    return store.take((birth <= step) & (death > step))
+
+
+def temporal_barcodes(history: Dict, feature: str = "radial", cells: Optional[Sequence[int]] = None,
+                      every: int = 1) -> Dict[int, list]:
+    """TMD barcode of each cell after every `every`-th growth step, from the `_arbor_history` recorded by `grow_arbors`
+    (`record_history`): {cell: [barcode at step 0, every, 2 every, ..., then after retraction]}. A time series of
+    persistence barcodes in the spirit of the temporal TMD (Kanari et al. 2025, bioRxiv), here without matching bars
+    between steps. Cost O(M) per tree level and step."""
+    store, birth, death, steps = history["store"], history["birth"], history["death"], int(history["steps"])
+    cells = np.unique(store.cell) if cells is None else np.asarray(cells, np.int64).ravel()
+    times = list(range(0, steps + 1, max(1, int(every))))
+    if times[-1] != steps:
+        times.append(steps)
+    times.append(steps + 1)                              # after retraction
+    out: Dict[int, list] = {int(c): [] for c in cells}
+    for t in times:
+        bars = tmd_barcodes(snapshot(store, birth, death, t), feature, cells)
+        for c in cells:
+            out[int(c)].append(bars[int(c)])
+    return out
+
+
+def barcode_series_distance(a: Sequence, b: Sequence, resolution: int = 20) -> float:
+    """Mean `barcode_distance` between two barcode time series, step by step (the shorter series is padded with its
+    last barcode). 0 for identical series."""
+    if len(a) == 0 and len(b) == 0:
+        return 0.0
+    if len(a) == 0 or len(b) == 0:
+        raise ValueError("barcode_series_distance: one series is empty")
+    T = max(len(a), len(b))
+    pad = lambda s: list(s) + [s[-1]] * (T - len(s))
+    return float(np.mean([barcode_distance(x, y, resolution) for x, y in zip(pad(a), pad(b))]))

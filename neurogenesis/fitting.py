@@ -15,7 +15,8 @@ several seeds per evaluation make the fit robust to developmental noise. The def
 Ostermeier 2001, Evol Comput) on the [0, 1]-coded Fit values: gradient free, robust to stochastic development, and
 deterministic for a given `seed`. Metrics are registered with `@register_metric`; built in: cell_count, density,
 layer_thickness, synapse_count, mean_in_degree, connection_probability, firing_rate, and the J10 / N6 measures
-reciprocity, degree_skewness, simplex_count, arbor (a morphometric) and barcode_distance (TMD).
+reciprocity, degree_skewness, simplex_count, triad_count, weight_stat, arbor (a morphometric) and
+barcode_distance (TMD).
 
 Before searching, `fit` measures the Jacobian of the metrics with respect to the Fit values (`jacobian`) and warns about
 a Fit param that moves no target metric (it cannot be fitted from these targets: unused by the model, masked by a clip,
@@ -167,6 +168,29 @@ def _simplex_count(t: Tissue, o: Dict[str, Any]) -> float:
     dim = int(o.get("dim", 2))
     v = float(directed_simplices(*_subgraph(t, o), max_dim=dim)[dim])
     return float(np.log10(1.0 + v)) if o.get("log", False) else v
+
+
+@register_metric("triad_count")
+def _triad_count(t: Tissue, o: Dict[str, Any]) -> float:
+    """Number of triples of the selected cells in triad class `triad` (default "030T", the feed-forward loop;
+    `analysis.connectome.triad_census`)."""
+    from .analysis.connectome import triad_census
+    return float(triad_census(*_subgraph(t, o))[o.get("triad", "030T")])
+
+
+@register_metric("weight_stat")
+def _weight_stat(t: Tissue, o: Dict[str, Any]) -> float:
+    """A statistic (`measure`, default log_sigma) of the weights of the synapses among the selected cells, for `sign`
+    exc (default), inh or all (`analysis.connectome.weight_stats`)."""
+    from .analysis.connectome import weight_stats
+    idx = select(t, o)
+    c = t.connectivity
+    if c is None or len(c.pre) == 0:
+        return float("nan")
+    sel = np.zeros(len(t.alive), bool)
+    sel[idx] = True
+    m = sel[c.pre] & sel[c.post]
+    return float(weight_stats(c.weight[m])[o.get("sign", "exc")][o.get("measure", "log_sigma")])
 
 
 @register_metric("arbor")

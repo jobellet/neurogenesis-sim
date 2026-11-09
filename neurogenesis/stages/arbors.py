@@ -63,6 +63,11 @@ class GrowArbors:
     are multiplied by max(0, 1 - g k), with k in [0, 1] its maturation: computed as in `transporter_switch` from
     `maturation_switch` (a dict with that stage's `age`, `clock`, `now`, `midpoint`, `width`, `activity`,
     `activity_gain`), or given directly as `maturation` (a `Param`, per cell or scalar).
+
+    With `record_history` (default False) the tissue keeps `_arbor_history` = {store: the arbors before retraction,
+    birth: growth step of each node (0 = present before this stage), death: steps + 1 for retracted terminals, else
+    steps + 2, steps}, for barcode time series (`analysis.morphology.temporal_barcodes`); it refers to the cell indices
+    of this stage (valid until the tissue is compacted). Recording costs one extra copy of the arbors.
     """
 
     @classmethod
@@ -72,7 +77,8 @@ class GrowArbors:
         b = float(worst_case(params.get("branch_prob"), 0.0))
         tips = N * n * sum((1 + b) ** k for k in range(max(steps, 0)))
         nodes = int(min(tips, float(worst_case(params.get("max_nodes"), 1_000_000))) + N)
-        return int(nodes * NODE_BYTES * 4 + N * 64), int(nodes * 80 + N * 20)
+        extra = nodes * (NODE_BYTES + 8) if worst_case(params.get("record_history"), False) else 0
+        return int(nodes * NODE_BYTES * 4 + N * 64 + extra), int(nodes * 80 + N * 20)
 
     def run(self, tissue: Tissue, params: Dict[str, Any], genome: Dict[str, Any], fields: Dict[str, Any],
             rng: np.random.Generator) -> Tissue:
@@ -119,6 +125,7 @@ class GrowArbors:
         parent = [np.full(len(need), -1, np.int64)]
         cell_of = [need.astype(np.int64)]
         compart = [np.full(len(need), SOMA, np.int64)]
+        born = [np.zeros(base + len(need), np.int32)]             # growth step of each node (0: before)
         soma_node[need] = base + np.arange(len(need))
         count = base + len(need)
 
@@ -132,7 +139,7 @@ class GrowArbors:
             dv = np.asarray(resolve(d0, genome, fields, positions=pos), dtype=np.float64)
             tip_dir = _unit(np.broadcast_to(dv, (len(cells), 3))[tip_cell_local].copy())
         h = 1e-3
-        for _ in range(steps):
+        for step in range(steps):
             if len(tip_node) == 0 or count - base >= max_nodes:
                 break
             c = tip_cell_local
@@ -157,6 +164,7 @@ class GrowArbors:
             parent.append(tip_node)
             cell_of.append(cells[c])
             compart.append(np.full(len(c), comp, np.int64))
+            born.append(np.full(len(c), step + 1, np.int32))
             count += len(c)
             br = rng.random(len(c)) < branch_p[c]
             br_dir = _rotate(tip_dir[br], branch_a[c[br]], rng)
@@ -170,6 +178,10 @@ class GrowArbors:
                             np.concatenate([store.radius, np.full(count - base, soma_r, np.float32)]),
                             np.concatenate([store.parent] + parent), np.concatenate([store.compartment] + compart),
                             np.concatenate([store.cell] + cell_of), dict(store.labels))
+        record = bool(resolve(params.get("record_history", False), genome, fields))
+        if record:
+            history_store = merged
+            died = np.full(merged.n_nodes, steps + 2, np.int32)
         if np.any(retract_p > 0):
             nc = merged.children_count()
             idx = np.arange(merged.n_nodes)
@@ -178,7 +190,11 @@ class GrowArbors:
             terminal = (idx >= base) & (nc == 0) & (merged.compartment == comp)
             rp = np.where(local[merged.cell] >= 0, retract_p[np.maximum(local[merged.cell], 0)], 0.0)
             drop = terminal & (rng.random(merged.n_nodes) < rp)
+            if record:
+                died[drop] = steps + 1
             merged = merged.take(~drop)
+        if record:
+            tissue._arbor_history = dict(store=history_store, birth=np.concatenate(born), death=died, steps=steps)
         tissue.morphology = merged
         return tissue
 

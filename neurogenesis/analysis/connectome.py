@@ -1,15 +1,16 @@
-"""Statistical connectome measures (J10): degrees, reciprocity, distance- and common-neighbour-dependent connection
-probability, directed simplices (NumPy).
+"""Statistical connectome measures (J10): degrees, weights, reciprocity, distance- and common-neighbour-dependent
+connection probability, triad motifs, directed simplices (NumPy).
 
 The same functions run on grown networks and on imported connectomes. Connectivity is given as arrays of presynaptic
 and postsynaptic cell indices (`Tissue.connectivity.pre / post`, `SNNNetwork.synapse_arrays`) and the number of cells
 `n`; multiple synapses between the same ordered pair count as one connection and self-connections are ignored, so every
 measure is on the binary directed graph A (A_ij = 1 if i connects to j). Vocabulary of statistical connectome analysis:
 Song et al. 2005, PLoS Biol (reciprocity, motifs); Perin et al. 2011, PNAS (common neighbours); Reimann et al. 2017,
-Front Comput Neurosci and 2019, Nat Commun (directed simplices); Connectome-Manipulator, Pokorny et al. 2025.
+Front Comput Neurosci and 2019, Nat Commun (directed simplices); Holland & Leinhardt 1976, Sociol Methodol (triad
+census); Connectome-Manipulator, Pokorny et al. 2025.
 
 Costs: O(N + E) for degrees and reciprocity; O(pairs within d_max) for distance bins (cell list); O(sum_k deg_k^2) for
-common neighbours; directed simplices grow with the number of simplices found (bounded by `max_simplices`).
+common neighbours and the triad census; directed simplices grow with the number of simplices found (bounded by `max_simplices`).
 """
 from __future__ import annotations
 
@@ -201,6 +202,100 @@ def directed_simplices(pre, post, n: Optional[int] = None, max_dim: int = 7,
         counts[dim] = len(S)
         if len(S) == 0:
             break
+    return counts
+
+
+def weight_stats(weight, pre=None, post=None, n: Optional[int] = None, per_connection: bool = False) -> Dict[str, Dict[str, float]]:
+    """Distribution of synaptic weights, for excitatory (w > 0), inhibitory (w < 0) and all non-zero weights: count,
+    mean, s.d., coefficient of variation, skewness and median of |w|, and the mean (`log_mu`) and s.d. (`log_sigma`)
+    of log |w| (the parameters of a log-normal fit; cortical weights are close to log-normal, Song et al. 2005).
+    With `per_connection`, the weights of synapses between the same ordered pair (pre, post) are summed first (needs
+    pre and post). Zero weights are ignored. nan entries for an empty group. O(E) (O(E log E) per connection)."""
+    w = np.asarray(weight, np.float64).ravel()
+    if per_connection:
+        if pre is None or post is None:
+            raise ValueError("weight_stats: per_connection needs pre and post")
+        pre = np.asarray(pre, np.int64).ravel()
+        post = np.asarray(post, np.int64).ravel()
+        if n is None:
+            n = int(max(pre.max(initial=-1), post.max(initial=-1)) + 1)
+        key, inv = np.unique(pre * n + post, return_inverse=True)
+        w = np.bincount(inv, w, minlength=len(key))
+    out = {}
+    for name, m in (("exc", w > 0), ("inh", w < 0), ("all", w != 0)):
+        a = np.abs(w[m])
+        if len(a) == 0:
+            out[name] = dict(count=0, mean=float("nan"), sd=float("nan"), cv=float("nan"), skew=float("nan"),
+                             median=float("nan"), log_mu=float("nan"), log_sigma=float("nan"))
+            continue
+        lg = np.log(a)
+        out[name] = dict(count=int(len(a)), mean=float(a.mean()), sd=float(a.std()), cv=float(a.std() / a.mean()),
+                         skew=_skewness(a), median=float(np.median(a)), log_mu=float(lg.mean()), log_sigma=float(lg.std()))
+    return out
+
+
+TRIAD_NAMES = ("003", "012", "102", "021D", "021U", "021C", "111D", "111U", "030T", "030C", "201", "120D", "120U",
+               "120C", "210", "300")
+# class of the 3-cell graph with adjacency bits a->b 1, b->a 2, a->c 4, c->a 8, b->c 16, c->b 32 (index in TRIAD_NAMES)
+_TRIAD_CLASS = np.array([0, 1, 1, 2, 1, 3, 5, 7, 1, 5, 4, 6, 2, 7, 6, 10, 1, 5, 3, 7, 4, 8, 8, 12, 5, 9, 8, 13, 6, 13,
+                         11, 14, 1, 4, 5, 6, 5, 8, 9, 13, 3, 8, 8, 11, 7, 12, 13, 14, 2, 6, 7, 10, 6, 11, 13, 14, 7, 13,
+                         12, 14, 10, 14, 14, 15], np.int64)
+
+
+def triad_census(pre, post, n: Optional[int] = None, max_pairs: int = 50_000_000) -> Dict[str, int]:
+    """Number of unordered cell triples in each of the 16 isomorphism classes of directed 3-cell graphs (Holland &
+    Leinhardt 1976; names M-A-N: mutual, asymmetric, null dyads, then D down, U up, C cyclic, T transitive; e.g. 030T
+    a feed-forward loop, 030C a 3-cycle, 300 all six connections). Triples with two or three connected pairs come
+    from the 2-paths (O(sum_k deg_k^2), raises above `max_pairs`); those with one connected pair and the empty ones are
+    counted without listing them. The counts sum to C(n, 3)."""
+    a, b, n = edges(pre, post, n)
+    counts = dict.fromkeys(TRIAD_NAMES, 0)
+    total = n * (n - 1) * (n - 2) // 6
+    if n < 3:
+        return counts
+    ptr, nb = _neighbour_lists(a, b, n)
+    deg = np.diff(ptr)
+    n_paths = int(np.sum(deg.astype(np.int64) ** 2))
+    if n_paths > max_pairs:
+        raise ValueError(f"triad_census: {n_paths} two-paths exceed max_pairs={max_pairs}")
+    key = a * n + b
+    mid = np.repeat(np.arange(n), deg)
+    reps = deg[mid]
+    i = np.repeat(nb, reps)
+    j = nb[_concat_ranges(ptr[mid], reps)] if len(reps) else np.zeros(0, np.int64)
+    k = np.repeat(mid, reps)
+    ok = i < j
+    i, j, k = i[ok], j[ok], k[ok]
+    # connected triples {i, j, k}: sorted rows, unique
+    T = np.sort(np.stack([i, j, k], axis=1), axis=1)
+    if len(T):
+        o = np.lexsort((T[:, 2], T[:, 1], T[:, 0]))
+        T = T[o]
+        T = T[np.r_[True, np.any(T[1:] != T[:-1], axis=1)]]
+
+    def has(u, v):
+        q = u * n + v
+        pos = np.searchsorted(key, q)
+        return (pos < len(key)) & (key[np.minimum(pos, max(len(key) - 1, 0))] == q) if len(key) else np.zeros(len(q), bool)
+
+    if len(T):
+        x, y, z = T[:, 0], T[:, 1], T[:, 2]
+        code = (has(x, y) * 1 + has(y, x) * 2 + has(x, z) * 4 + has(z, x) * 8 + has(y, z) * 16 + has(z, y) * 32)
+        cls = np.bincount(_TRIAD_CLASS[code], minlength=16)
+        for c, name in enumerate(TRIAD_NAMES):
+            counts[name] += int(cls[c])
+    # triples with exactly one connected pair: third cell adjacent to neither end
+    u = np.unique(np.minimum(a, b) * n + np.maximum(a, b))
+    pu, pv = u // n, u % n
+    pk, cn = np.unique(i * n + j, return_counts=True)
+    pos = np.searchsorted(pk, u)
+    common = np.where((pos < len(pk)) & (pk[np.minimum(pos, max(len(pk) - 1, 0))] == u), cn[np.minimum(pos, max(len(pk) - 1, 0))], 0) \
+        if len(pk) else np.zeros(len(u), np.int64)
+    alone = n - deg[pu] - deg[pv] + common
+    mutual = has(pu, pv) & has(pv, pu)
+    counts["102"] = int(alone[mutual].sum())
+    counts["012"] = int(alone[~mutual].sum())
+    counts["003"] = total - sum(v for name, v in counts.items() if name != "003")
     return counts
 
 

@@ -154,3 +154,72 @@ def test_fit_metrics_on_a_tissue():
     assert METRICS["simplex_count"](t, {"dim": 3, "cell_type": 0}) == 1.0     # 4 cells: one 3-simplex
     assert METRICS["reciprocity"](t, {"measure": "fraction"}) == 0.0
     assert METRICS["degree_skewness"](t, {"direction": "out"}) == pytest.approx(0.0)
+
+
+def _brute_triads(A):
+    n = len(A)
+    counts = dict.fromkeys(cx.TRIAD_NAMES, 0)
+    for x, y, z in itertools.combinations(range(n), 3):
+        code = (A[x, y] * 1 + A[y, x] * 2 + A[x, z] * 4 + A[z, x] * 8 + A[y, z] * 16 + A[z, y] * 32)
+        counts[cx.TRIAD_NAMES[cx._TRIAD_CLASS[code]]] += 1
+    return counts
+
+
+def test_triad_class_table_is_permutation_invariant():
+    pairs = [(0, 1), (1, 0), (0, 2), (2, 0), (1, 2), (2, 1)]
+    for code in range(64):
+        A = np.zeros((3, 3), int)
+        for k, (u, v) in enumerate(pairs):
+            A[u, v] = code >> k & 1
+        for perm in itertools.permutations(range(3)):
+            B = A[np.ix_(perm, perm)]
+            c2 = sum(B[u, v] << k for k, (u, v) in enumerate(pairs))
+            assert cx._TRIAD_CLASS[c2] == cx._TRIAD_CLASS[code]
+    assert len(set(cx._TRIAD_CLASS.tolist())) == 16
+
+
+def test_triad_census_known_answers():
+    assert cx.triad_census([0, 1, 2], [1, 2, 0], 3)["030C"] == 1          # 3-cycle
+    assert cx.triad_census([0, 0, 1], [1, 2, 2], 3)["030T"] == 1          # feed-forward loop
+    assert cx.triad_census([0, 1], [1, 0], 3)["102"] == 1
+    c = cx.triad_census([0, 0], [1, 2], 3)
+    assert c["021D"] == 1 and sum(c.values()) == 1
+    c = cx.triad_census([], [], 5)
+    assert c["003"] == 10 and sum(c.values()) == 10
+
+
+def test_triad_census_matches_brute_force():
+    A, pre, post = _random_graph(18, 0.2, 11)
+    c = cx.triad_census(pre, post, 18)
+    assert c == _brute_triads(A.astype(int))
+    assert sum(c.values()) == 18 * 17 * 16 // 6
+
+
+def test_weight_stats_recovers_a_log_normal():
+    rng = np.random.default_rng(0)
+    w = np.r_[rng.lognormal(1.0, 0.5, 20000), -rng.lognormal(2.0, 0.3, 5000), np.zeros(10)]
+    s = cx.weight_stats(w)
+    assert s["exc"]["count"] == 20000 and s["inh"]["count"] == 5000 and s["all"]["count"] == 25000
+    assert s["exc"]["log_mu"] == pytest.approx(1.0, abs=0.02) and s["exc"]["log_sigma"] == pytest.approx(0.5, abs=0.02)
+    assert s["inh"]["log_mu"] == pytest.approx(2.0, abs=0.02) and s["exc"]["skew"] > 0
+    assert np.isnan(cx.weight_stats([1.0, 2.0])["inh"]["mean"])
+
+
+def test_weight_stats_per_connection_sums_multiple_synapses():
+    s = cx.weight_stats([1.0, 2.0, 4.0], pre=[0, 0, 1], post=[1, 1, 0], per_connection=True)
+    assert s["exc"]["count"] == 2 and s["exc"]["mean"] == pytest.approx(3.5)
+    with pytest.raises(ValueError):
+        cx.weight_stats([1.0], per_connection=True)
+
+
+def test_triad_and_weight_fit_metrics():
+    from neurogenesis.fitting import METRICS
+    from neurogenesis.tissue import SparseConnectivity, Tissue
+    t = Tissue.empty()
+    t.add_cells(3, positions=np.zeros((3, 3)))
+    t.connectivity = SparseConnectivity(np.array([0, 0, 1], np.int32), np.array([1, 2, 2], np.int32),
+                                        np.array([2, 2, -3], np.int32), np.ones(3, np.int32))
+    assert METRICS["triad_count"](t, {}) == 1.0
+    assert METRICS["triad_count"](t, {"triad": "030C"}) == 0.0
+    assert METRICS["weight_stat"](t, {"measure": "mean"}) == 2.0
+    assert METRICS["weight_stat"](t, {"sign": "inh", "measure": "count"}) == 1.0

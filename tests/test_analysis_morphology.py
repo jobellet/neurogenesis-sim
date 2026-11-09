@@ -108,3 +108,39 @@ def test_fit_metrics_on_a_tissue():
     assert METRICS["arbor"](t, {"measure": "n_tips"}) == pytest.approx(2.0)
     ref = np.concatenate([mo.tmd_barcodes(_y_tree())[0]] * 2)
     assert METRICS["barcode_distance"](t, {"bars": ref.tolist()}) == pytest.approx(0.0)
+
+
+def _grown(record=True, retraction=0.0, seed=1):
+    from neurogenesis.stages.base import STAGE_REGISTRY
+    from neurogenesis.tissue import Tissue
+    t = Tissue.empty()
+    t.add_cells(3, positions=np.random.default_rng(0).random((3, 3)) * 10)
+    p = dict(steps=8, n_neurites=2, branch_prob=0.3, step_length=0.5, retraction_prob=retraction, record_history=record)
+    return STAGE_REGISTRY["grow_arbors"]().run(t, p, {}, {}, np.random.default_rng(seed))
+
+
+def test_record_history_is_off_by_default_and_does_not_change_growth():
+    a, b = _grown(False), _grown(True)
+    assert not hasattr(a, "_arbor_history")
+    np.testing.assert_array_equal(a.morphology.xyz, b.morphology.xyz)
+
+
+def test_temporal_barcodes_grow_and_end_with_the_final_tree():
+    t = _grown(True, retraction=0.3)
+    h = t._arbor_history
+    series = mo.temporal_barcodes(h)
+    final = mo.tmd_barcodes(t.morphology)
+    for c, s in series.items():
+        assert len(s) == h["steps"] + 2
+        assert all(len(x) == 0 for x in s[:1])                     # step 0: somas only
+        assert np.allclose(s[-1], final[c])                        # after retraction = the final tree
+        n_bars = [len(x) for x in s[:-1]]
+        assert n_bars[-1] >= n_bars[1] > 0
+        assert all(np.all(x[:, 0] >= x[:, 1]) for x in s if len(x))
+    assert len(mo.temporal_barcodes(h, every=3)[0]) == 5          # steps 0, 3, 6, the last (8), after retraction
+    one = series[0]
+    assert mo.barcode_series_distance(one, one) == 0.0
+    assert mo.barcode_series_distance(one, series[1]) > 0
+    assert mo.barcode_series_distance(one, one[:3]) > 0           # padded with its last barcode
+    with pytest.raises(ValueError):
+        mo.barcode_series_distance(one, [])
