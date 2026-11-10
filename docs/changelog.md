@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased (November 2026)
+- Neuromorphic Intermediate Representation (NIR) export and import (J3, `neurogenesis.interop.nir`):
+  - `export_nir(net, path, **opts)` and `import_nir(path)` registered in `neurogenesis.interop` (`format="nir"`).
+  - Translates integer LIF networks into NIR computation graphs using `nir.CubaLIF` nodes with continuous-time ODE parameters from the shared dynamics mapping.
+  - Segregates Poisson / burster drivers into dedicated external input channels (`drivers="input"`) or drops them with explicit warnings (`drivers="drop"`).
+  - Honest `ExportReport` telemetry detailing exact parameters, approximations (discretisation, missing refractory periods/delays), and dropped attributes.
+  - Low-compute enforcement: dense weight matrices bounded at $N \le 2048$ cells ($O(N^2)$ scaling invariant).
+  - Round-trip support reconstructing valid `SNNNetwork` instances from NIR graphs.
+- Partner selection stage (C18, `partner_select` in `neurogenesis.stages.partner`, PR #89):
+  - Recognition channels and transmitter-receptor compatibility filtering on candidate synapses.
 - Configurable development: Project schema (A1), Tissue (A2), Params and stage scheduler (A3, A4), legacy plans
   compiled into schedules with identical networks (A5).
 - Geometry (primitives, CSG, meshes, voxel masks) and fields (grids, analytic fields, layer stacks, operations, maps).

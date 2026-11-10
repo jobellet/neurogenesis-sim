@@ -15,7 +15,10 @@ from typing import Callable, Dict, List, Optional, Union
 from ..spiking.network import SNNNetwork
 
 _FORMATS: Dict[str, dict] = {}
-_BUILTIN = {"sonata": "neurogenesis.interop.sonata"}
+_BUILTIN = {
+    "sonata": "neurogenesis.interop.sonata",
+    "nir": "neurogenesis.interop.nir",
+}
 
 
 @dataclass

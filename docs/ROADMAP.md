@@ -285,7 +285,8 @@ sources, listed below the table.
 | C17 | done: `choice_point` in `neurogenesis/stages/fasciculation.py`, receptor switch in geometry/field & waypoint routing |
 | C19 | partial: `contacts` and weight scaling done; `post_node` placement waits for N2/N3 |
 | C24 | done: `tissue_expand` in `neurogenesis/stages/expansion.py`, dilation by `1 + kappa * N_new / N_total` about a centre along chosen axes; optional delay recompute |
-| C18, C20 | not done |
+| C18 | done: `partner_select` in `neurogenesis/stages/partner.py` (#89) |
+| C20 | not done |
 | C26 | not done (deferred: needs a develop / simulate loop that keeps neuron indices stable across recompiles) |
 
 **Order and priorities.** C14 → C15 first (they make birth-order-dependent layering emerge in G2.3, instead of being
@@ -730,12 +731,11 @@ libsonata names (`node_id_to_ranges`). Reader for point-neuron circuits from oth
 libsonata (`node_id_to_ranges` / afferent and efferent edges). Drivers are written as nodes (rates kept); replaying
 their spikes as a SONATA spikes input is a follow-up.
 
-**J3. NIR (output, small modules).** The Neuromorphic Intermediate Representation (Pedersen et al. 2024, Nat Commun
+**J3. NIR (output, small modules). Status: done (`neurogenesis/interop/nir.py`).** The Neuromorphic Intermediate Representation (Pedersen et al. 2024, Nat Commun
 15:8122; `pip install nir`): CubaLIF nodes and dense affine / linear weights, for snnTorch, Norse, Lava-DL, SpiNNaker2
-and other NIR backends. NIR has no refractory period, no sparse connectivity and no per-synapse delays (its Delay node
-is per channel), and its time units are not enforced: suited to small modules only; refractoriness and delays are
-reported as approximated, and the time step is written explicitly. Drivers become external inputs or are dropped
-(reported).
+and other NIR backends. LIF neurons map to CubaLIF with continuous-time ODE parameters from the shared dynamics mapping. NIR has no refractory period, no sparse connectivity and no per-synapse delays (its Delay node
+is per channel), and its time units are not enforced: suited to small modules only (N <= 2048, O(N²) connectivity); refractoriness and delays are
+reported as approximated, and the time step dt = 1 ms is written explicitly. Drivers become external input channels (`drivers="input"`) or are dropped (reported). Export (`export_nir`) and import (`import_nir`) in `neurogenesis.interop.nir`.
 
 **J4. PyNN (output).** A self-contained script plus `.npz` arrays: populations of `IF_curr_exp` with the shared
 mapping (C_m in nF, weights in nA), positions, `FromListConnector` (pre, post, weight, delay) projections, drivers as
