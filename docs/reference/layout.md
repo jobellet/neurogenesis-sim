@@ -43,6 +43,7 @@ Rules for a new measure:
 |---|---|---|---|
 | `reference` | Python | O(N + E) | the specification; slow |
 | `jax_backend` | CPU or GPU, batched with `vmap` | O(N + E) | the main kernel; all neuron models through `batch` |
+| `currents` | with any kernel, as external current | O(N), 4 bytes and about 6 operations per neuron and tick for each current | burst (T-type-like) and linear recovery currents without Hodgkin–Huxley gates |
 | `numba_backend` | CPU (optional: `pip install "neurogenesis-sim[fast]"`) | O(N + spikes x out-degree) | event-driven, fast for sparse activity on a laptop; `lif_int` with single-channel synapses; optional forced inputs, short-term depression, threshold homeostasis (off by default, not in the other kernels) |
 | `nglif` (C), browser | native apps, viewer | O(N + E) | shared contract with the apps |
 

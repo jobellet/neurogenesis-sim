@@ -23,6 +23,19 @@ differ in how a neuron integrates its inputs between spikes.
 
 This makes the models comparable on the same network, not quantitatively equivalent.
 
+## Slow intrinsic currents without Hodgkin–Huxley gates
+`neurogenesis.spiking.currents` adds channel-like dynamics to any model at one float per neuron and about 6 operations
+per tick. The currents are computed outside the kernel and given to it as external current, so the integer kernel and
+its equivalent implementations are unchanged.
+
+| Function | What it reduces | Behaviour kept (tested) |
+|---|---|---|
+| `t_current` | low-threshold T-type calcium current, in its integrate-and-fire-or-burst form: an inactivation variable recovers below a potential `v_h` and decays above it | rebound burst after a long enough hyperpolarisation; no current in a neuron held depolarised (tonic mode) |
+| `recovery_current` | any gated current linearised around an operating point: du/dt = (kappa v − u) / tau, jump `d` per spike | sag and partial return under a hyperpolarising step (kappa > 0); spike-frequency adaptation (d > 0) |
+
+Not kept: the all-or-none shape of the low-threshold spike and anything that depends on large voltage excursions of a
+linearised gate. With neutral parameters (g = 0; kappa = 0, d = 0) the currents are zero.
+
 **Adding a model:** `neurogenesis.spiking.models.register_model(module)`. The module provides `name`, `description`,
 `substeps`, `state_bytes`, `flops`, `init_state(net, seed)` and `tick(net, state, ext)`, and uses
 `models.base.drivers` and `models.base.transmit`, so that drivers and delays behave as in every other model. Then add it

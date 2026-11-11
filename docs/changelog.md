@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased (November 2026)
+- `neurogenesis.spiking.currents`: slow intrinsic currents without Hodgkin–Huxley gates, given to any model as external
+  current: `t_current` (low-threshold burst current, integrate-and-fire-or-burst form) and `recovery_current` (one linear
+  recovery variable: sag, resonance, adaptation). Zero with neutral parameters (`tests/test_currents.py`,
+  `docs/NEURON_MODELS.md`).
 - Neuromorphic Intermediate Representation (NIR) export and import (J3, `neurogenesis.interop.nir`):
   - `export_nir(net, path, **opts)` and `import_nir(path)` registered in `neurogenesis.interop` (`format="nir"`).
   - Translates integer LIF networks into NIR computation graphs using `nir.CubaLIF` nodes with continuous-time ODE parameters from the shared dynamics mapping.

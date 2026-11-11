@@ -73,6 +73,9 @@ Generated from the docstrings of the installed package.
 .. automodule:: neurogenesis.spiking.numba_backend
    :members: simulate, arrays
 
+.. automodule:: neurogenesis.spiking.currents
+   :members: t_current, t_decays, recovery_current
+
 .. automodule:: neurogenesis.spiking.models
    :members: register_model
 
