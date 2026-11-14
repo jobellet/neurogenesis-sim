@@ -12,17 +12,19 @@
   const PREWARM = 5; // generations evolved before the first paint
   const TAG = { neurogenesis: "cell_cycle_clock", fate: "proliferate", migration: "migrate", axons: "grow_axons",
     refinement: "competitive_elimination", activity: "lif_int" };
-  const DUR = { neurogenesis: 7, fate: 4.5, migration: 7.5, axons: 7.5, refinement: 7, activity: 8 };
+  const DUR = { neurogenesis: 9, fate: 4.5, migration: 8, axons: 7.5, refinement: 7, activity: 8 };
   const COL = { glia: "#4ade80", newborn: "#f472b6", pyr: "#ff6fa8", inter: "#ffd166", bg: "#04070d" };
 
   const INFO = {
     neurogenesis: {
       title: "Neurogenesis: progenitors divide, then leave the cell cycle",
-      text: "Radial glial progenitors divide at the ventricular surface; their nuclei move up and down with the cell " +
-        "cycle (interkinetic nuclear migration). At every cycle a progenitor leaves the cycle with a probability Q that " +
-        "rises from cycle to cycle; its last division then gives two postmitotic daughters, which become neurons. " +
-        "Fewer early exits mean more divisions: more neurons, born later.",
-      refs: "Sauer 1935, J Comp Neurol · Takahashi, Nowakowski & Caviness 1996, J Neurosci",
+      text: "Radial glial progenitors remain tethered to the ventricular surface by an apical process and span the wall " +
+        "to the pia. Their nuclei migrate asynchronously with the cell cycle (slow basal ascent in G1, DNA " +
+        "replication in S, rapid apical return in G2, rounding up for mitosis at the ventricle) before newborn " +
+        "neurons delaminate into the SVZ/IZ multipolar zone. At every cycle a progenitor leaves the cycle with a " +
+        "probability Q that rises from cycle to cycle; fewer early exits mean more divisions: more neurons, born later.",
+      refs: "Sauer 1935, J Comp Neurol · Takahashi, Nowakowski & Caviness 1996, J Neurosci · Miyata et al. 2001, Neuron · " +
+        "Noctor et al. 2001, Nature · Kosodo et al. 2011, EMBO J",
     },
     fate: {
       title: "Fate: GABAergic interneurons come from the ventral telencephalon",
@@ -33,13 +35,13 @@
     },
     migration: {
       title: "Migration: radial climbing, inside-out layers, tangential streams",
-      text: "Each pyramidal neuron moves radially for 20 steps at the radial speed plus the birth-date gain × (birth " +
-        "cycle − 3.5); a positive gain makes later-born neurons settle more superficially " +
-        "(inside-out, as in the real cortex). Interneurons travel tangentially from the MGE, disperse, then enter the " +
-        "cortical plate at the depth of nearby pyramidal cells. The drawing adds the multipolar pause and saltatory " +
-        "jumps of real migrating neurons.",
-      refs: "Rakic 1972, J Comp Neurol · Angevine & Sidman 1961, Nature · Marín & Rubenstein 2001, Nat Rev Neurosci · " +
-        "Lodato et al. 2011, Neuron",
+      text: "Each pyramidal neuron pauses as a multipolar cell in the SVZ/IZ, then climbs along radial glial fibers for " +
+        "20 steps at the radial speed plus the birth-date gain × (birth cycle − 3.5); a positive gain makes later-born " +
+        "neurons settle more superficially (inside-out, as in the real cortex). Interneurons travel tangentially from " +
+        "the MGE, disperse, then enter the cortical plate at the depth of nearby pyramidal cells. The drawing shows " +
+        "the proximal centrosomal swelling advancing ahead of each saltatory nuclear jump.",
+      refs: "Rakic 1972, J Comp Neurol · Angevine & Sidman 1961, Nature · Noctor et al. 2004, Nat Neurosci · " +
+        "Tsai et al. 2007, Cell · Marín & Rubenstein 2001, Nat Rev Neurosci · Lodato et al. 2011, Neuron",
     },
     axons: {
       title: "Axon guidance: thalamic axons find their place in layer 4",
@@ -97,6 +99,9 @@
   // ----------------------------------------------------------------------------------------------------------------
   function clamp01(x) {
     return x < 0 ? 0 : x > 1 ? 1 : x;
+  }
+  function clamp(x, lo, hi) {
+    return x < lo ? lo : x > hi ? hi : x;
   }
   function lerp(a, b, t) {
     return a + (b - a) * t;
@@ -203,13 +208,46 @@
     rec.migration.mge.forEach(function (ti, k) { mgeK.set(ti, k); });
     net.cells.tissue.forEach(function (ti, n) { if (ti >= 0) netOf.set(ti, n); });
 
-    // cortical VZ lineage
+    // cortical VZ lineage and cell-cycle schedule (asynchronous INM, apical mitosis, delamination)
+    const divByMother = [];
+    for (let i = 0; i < nCortex; i++) divByMother.push({});
+    for (const d of rec.vz.divisions) divByMother[d[1]][d[0]] = d[2];
+    const basePhi = new Float64Array(nCortex);
+    function phiOf(i, cyc) {
+      return clamp(basePhi[i] + 0.10 * (hash(i * 19 + cyc, seed + 39) - 0.5), 0.02, 0.80);
+    }
+    function tEndOf(i, cyc) {
+      return (cyc - 0.34) + 0.32 * phiOf(i, cyc);
+    }
     const vz = [];
     for (let i = 0; i < nCortex; i++) {
-      const neuron = !t.cycling[i];
-      vz.push({ i: i, born: t.born[i], exit: neuron ? t.generation[i] : 99, parent: t.parent[i], x: rec.vz.x[i],
-        px: t.parent[i] >= 0 ? rec.vz.x[t.parent[i]] : rec.vz.x[i], h: hash(i, seed), k: pyrK.has(i) ? pyrK.get(i) : -1,
-        n: netOf.has(i) ? netOf.get(i) : -1, izZ: 0.11 + 0.15 * hash(i, seed + 3) });
+      const born = t.born[i], parent = t.parent[i], neuron = !t.cycling[i], exit = neuron ? t.generation[i] : 99;
+      if (born === 0) {
+        const frac = (i * 0.61803398875 + 0.15 * hash(i, seed + 31)) % 1;
+        basePhi[i] = 0.02 + 0.54 * frac;
+      } else {
+        basePhi[i] = clamp(phiOf(parent, born) + 0.16 * (hash(i, seed + 37) - 0.5), 0.02, 0.78);
+      }
+      const root = parent >= 0 ? vz[parent].root : i;
+      const x = rec.vz.x[i], px = parent >= 0 ? rec.vz.x[parent] : x;
+      const rootX = parent >= 0 ? vz[root].x : x;
+      const tBirth = born === 0 ? 0 : tEndOf(parent, born);
+      const cycles = [];
+      const maxCyc = Math.min(C.cycles, exit);
+      for (let cyc = born + 1; cyc <= maxCyc; cyc++) {
+        const tStart = cyc === born + 1 ? (born === 0 ? -0.68 * phiOf(i, 1) : tBirth) : cycles[cycles.length - 1].tEnd;
+        const tEnd = tEndOf(i, cyc);
+        const zBasal = 0.044 + 0.030 * hash(i * 13 + cyc, seed + 41);
+        const xStart = born > 0 && cyc === born + 1 ? px : x;
+        const daughter = divByMother[i][cyc] !== undefined ? divByMother[i][cyc] : -1;
+        cycles.push({ cyc: cyc, tStart: tStart, tEnd: tEnd, zBasal: zBasal, xStart: xStart, xEnd: x,
+          isExit: cyc === exit, daughter: daughter });
+      }
+      const tLeave = !neuron ? 99 : cycles.length > 0 ? cycles[cycles.length - 1].tEnd : tBirth;
+      vz.push({ i: i, born: born, exit: exit, parent: parent, root: root, rootX: rootX, x: x, px: px,
+        tBirth: tBirth, tLeave: tLeave, cycles: cycles, h: hash(i, seed),
+        k: pyrK.has(i) ? pyrK.get(i) : -1, n: netOf.has(i) ? netOf.get(i) : -1,
+        izZ: 0.11 + 0.15 * hash(i, seed + 3), zRest: 0.026 + 0.024 * hash(i, seed + 47) });
     }
     // MGE lineage
     const mge = rec.mge.cells.map(function (ti, k) {
@@ -407,41 +445,124 @@
     ctx.restore();
   }
 
-  function drawFiber(ctx, g, x, zSoma, h, a) {
-    const X = g.X(x), Y = g.Y(zSoma), T = g.Y(1) + 1;
-    const bend = (h - 0.5) * 10 * g.s;
+  function drawScaffoldFiber(ctx, g, x, h, a) {
+    const X0 = g.X(x), Y0 = g.Y(0), T = g.Y(1) + 1;
+    const bend = (h - 0.5) * 10 * g.s, XT = X0 + bend * 0.35;
     ctx.globalAlpha = a;
+    ctx.strokeStyle = "rgba(74,222,128,0.8)";
+    ctx.fillStyle = "rgba(74,222,128,0.8)";
+    ctx.lineWidth = Math.max(0.7, 0.8 * g.s);
     ctx.beginPath();
-    ctx.moveTo(X, Y);
-    ctx.quadraticCurveTo(X + bend, (Y + T) / 2, X + bend * 0.4, T);
+    ctx.moveTo(X0, Y0);
+    ctx.quadraticCurveTo(X0 + bend, (Y0 + T) / 2, XT, T);
     ctx.stroke();
-    ctx.beginPath(); // endfoot on the pia
-    ctx.moveTo(X + bend * 0.4 - 2 * g.s, T);
-    ctx.lineTo(X + bend * 0.4 + 2 * g.s, T);
-    ctx.lineTo(X + bend * 0.4, T + 3 * g.s);
+    ctx.globalAlpha = a * 0.75;
+    ctx.beginPath(); // apical footplate on the ventricular border
+    ctx.moveTo(X0 - 2.1 * g.s, Y0);
+    ctx.lineTo(X0 + 2.1 * g.s, Y0);
+    ctx.lineTo(X0, Y0 - 2.2 * g.s);
+    ctx.closePath();
     ctx.fill();
+    if (g.zTop > 0.9) {
+      ctx.beginPath(); // branched pial endfoot
+      ctx.moveTo(XT - 2.6 * g.s, T);
+      ctx.lineTo(XT + 2.6 * g.s, T);
+      ctx.lineTo(XT, T + 3.2 * g.s);
+      ctx.closePath();
+      ctx.fill();
+    }
   }
 
-  function drawProgenitor(ctx, g, X, Y, s, rounded, a) {
-    drawGlow(ctx, COL.glia, X, Y, 7 * s, 0.35 * a);
+  function drawApicalProcess(ctx, g, x, rootX, zSoma, h, s, a) {
+    const Xa = g.X(lerp(x, rootX, 0.35)), Ya = g.Y(0);
+    const X = g.X(x), Y = g.Y(zSoma);
+    const cx = (Xa + X) / 2 + (h - 0.5) * 2.2 * s, cy = (Ya + Y) / 2;
+    ctx.strokeStyle = "rgba(74,222,128,0.88)";
+    ctx.lineWidth = Math.max(0.85, 1.1 * s);
+    ctx.globalAlpha = Math.min(1, 0.65 * a);
+    ctx.beginPath(); // taut apical process anchoring soma to the ventricle
+    ctx.moveTo(Xa, Ya);
+    ctx.quadraticCurveTo(cx, cy, X, Y);
+    ctx.stroke();
+    ctx.lineWidth = Math.max(1.1, 1.4 * s);
+    ctx.globalAlpha = Math.min(1, 0.8 * a);
+    ctx.beginPath(); // apical adherens endfoot
+    ctx.moveTo(Xa - 1.8 * s, Ya - 0.4);
+    ctx.lineTo(Xa + 1.8 * s, Ya - 0.4);
+    ctx.stroke();
+    const T = g.Y(1) + 1;
+    ctx.lineWidth = Math.max(0.6, 0.7 * s);
+    ctx.globalAlpha = Math.min(1, 0.25 * a);
+    ctx.beginPath(); // basal process ascending toward the pia
+    ctx.moveTo(X, Y);
+    ctx.quadraticCurveTo(X + (h - 0.5) * 5 * s, (Y + T) / 2, X + (h - 0.5) * 3.5 * s, T);
+    ctx.stroke();
+  }
+
+  function drawProgenitor(ctx, g, X, Y, s, phase, mProg, a) {
+    const mitotic = phase === "M", sPhase = phase === "S";
+    drawGlow(ctx, COL.glia, X, Y, (mitotic ? 9 : sPhase ? 7.5 : 6.5) * s, (mitotic ? 0.5 : 0.34) * a);
+    const rx = (mitotic ? 2.6 : sPhase ? 2.3 : phase === "rest" ? 2.0 : 1.85) * s;
+    const ry = (mitotic ? 2.6 : sPhase ? 3.2 : phase === "rest" ? 3.3 : 3.6) * s;
     ctx.globalAlpha = a;
-    ctx.fillStyle = "rgba(74,222,128,0.85)";
+    ctx.fillStyle = mitotic ? "rgba(110,235,160,0.92)" : "rgba(74,222,128,0.88)";
     ctx.beginPath();
-    ctx.ellipse(X, Y, 2.1 * s, (rounded ? 2.5 : 3.6) * s, 0, 0, 6.283);
+    ctx.ellipse(X, Y, rx, ry, 0, 0, 6.283);
     ctx.fill();
-    ctx.fillStyle = "rgba(10,40,25,0.7)";
+    ctx.fillStyle = sPhase ? "rgba(18,75,45,0.6)" : "rgba(10,40,25,0.72)";
+    if (mitotic && mProg > 0.55) {
+      const sepN = 1.15 * s * ease((mProg - 0.55) / 0.45);
+      ctx.beginPath();
+      ctx.arc(X - sepN, Y, 0.85 * s, 0, 6.283);
+      ctx.arc(X + sepN, Y, 0.85 * s, 0, 6.283);
+      ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.ellipse(X, Y, rx * 0.52, ry * 0.56, 0, 0, 6.283);
+      ctx.fill();
+    }
+    if (mitotic && mProg > 0.2 && mProg < 0.96) {
+      ctx.strokeStyle = "rgba(220,255,235,0.82)";
+      ctx.lineWidth = Math.max(0.7, 0.85 * s);
+      ctx.beginPath(); // metaphase plate / cleavage furrow perpendicular to the ventricle
+      ctx.moveTo(X, Y - ry * 0.9);
+      ctx.lineTo(X, Y + ry * 0.9);
+      ctx.stroke();
+    }
+  }
+
+  function drawDelaminating(ctx, X, Y, Yvent, mDelam, s, color, h, a) {
+    const prog = ease(mDelam / 0.55);
+    drawGlow(ctx, color, X, Y, 6 * s, 0.34 * a);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 0.85;
+    ctx.globalAlpha = a * 0.85;
+    ctx.beginPath(); // basal leading process reaching into the SVZ/IZ
+    ctx.moveTo(X, Y);
+    ctx.lineTo(X + (h - 0.5) * 3 * s, Y - (4 + 5 * prog) * s);
+    ctx.stroke();
+    const tailY = Math.max(Y + 1.5 * s, lerp(Yvent, Y + 3.5 * s, prog));
+    ctx.globalAlpha = a * 0.65 * (1 - 0.55 * prog);
+    ctx.beginPath(); // retracting apical process after ventricular detachment
+    ctx.moveTo(X, Y);
+    ctx.lineTo(X + (h - 0.5) * 1.5 * s, tailY);
+    ctx.stroke();
+    ctx.globalAlpha = a;
+    ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.ellipse(X, Y, 1.1 * s, (rounded ? 1.4 : 2) * s, 0, 0, 6.283);
+    ctx.ellipse(X, Y, 1.7 * s, 2.5 * s, 0, 0, 6.283);
     ctx.fill();
   }
 
-  function drawMultipolar(ctx, X, Y, s, color, h, a) {
+  function drawMultipolar(ctx, X, Y, s, color, h, a, time, emerge) {
+    const t = time || 0, em = emerge === undefined ? 1 : emerge;
     drawGlow(ctx, color, X, Y, 6 * s, 0.3 * a);
     ctx.globalAlpha = a;
     ctx.strokeStyle = color;
     ctx.lineWidth = 0.7;
-    for (let j = 0; j < 4; j++) {
-      const an = 6.283 * (h + j / 4 + 0.08 * Math.sin(j * 7.1 + h * 13)), l = (3 + 2.5 * hash(j, h * 1e6)) * s;
+    for (let j = 0; j < 5; j++) {
+      const an = 6.283 * (h + j / 5 + 0.06 * Math.sin(t * 1.4 + j * 2.3 + h * 11));
+      const l = em * (2.6 + 2.4 * hash(j, h * 1e6) + 1.0 * Math.sin(t * 2.0 + j * 1.7 + h * 13)) * s;
       ctx.beginPath();
       ctx.moveTo(X, Y);
       ctx.lineTo(X + Math.cos(an) * l, Y + Math.sin(an) * l);
@@ -449,16 +570,19 @@
     }
     ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.arc(X, Y, 1.9 * s, 0, 6.283);
+    ctx.arc(X, Y, 1.85 * s, 0, 6.283);
     ctx.fill();
   }
 
-  function drawMigrating(ctx, X, Y, s, color, dirx, diry, a, forked) {
+  function drawMigrating(ctx, X, Y, s, color, dirx, diry, a, forked, phase) {
+    const ph = phase === undefined ? 0.5 : clamp01(phase);
+    const ang = Math.atan2(diry, dirx);
     drawGlow(ctx, color, X, Y, 6 * s, 0.32 * a);
     ctx.globalAlpha = a;
     ctx.strokeStyle = color;
     ctx.lineWidth = 0.9;
-    const lx = X + dirx * 9 * s, ly = Y + diry * 9 * s;
+    const leadLen = (forked ? 9 : 9.5 + 2.5 * clamp01(ph / 0.45)) * s;
+    const lx = X + dirx * leadLen, ly = Y + diry * leadLen;
     ctx.beginPath(); // leading process
     ctx.moveTo(X, Y);
     ctx.lineTo(lx, ly);
@@ -469,15 +593,29 @@
       ctx.lineTo(lx + (dirx + diry * 0.7) * 4 * s, ly + (diry - dirx * 0.7) * 4 * s);
     }
     ctx.stroke();
+    if (!forked) { // proximal cytoplasmic dilation (centrosomal swelling) ahead of nucleokinesis
+      const swellDist = (2.4 + 3.2 * Math.sin(Math.PI * clamp01(ph / 0.7))) * s;
+      const sx = X + dirx * swellDist, sy = Y + diry * swellDist;
+      ctx.globalAlpha = a * 0.75;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.ellipse(sx, sy, 2.0 * s, 1.25 * s, ang, 0, 6.283);
+      ctx.fill();
+      ctx.globalAlpha = a * 0.9;
+      ctx.fillStyle = "#ffe8f3";
+      ctx.beginPath();
+      ctx.arc(sx, sy, 0.65 * s, 0, 6.283);
+      ctx.fill();
+    }
     ctx.globalAlpha = a * 0.6;
     ctx.beginPath(); // trailing process
     ctx.moveTo(X, Y);
-    ctx.lineTo(X - dirx * 4 * s, Y - diry * 4 * s);
+    ctx.lineTo(X - dirx * 4.5 * s, Y - diry * 4.5 * s);
     ctx.stroke();
     ctx.globalAlpha = a;
     ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.ellipse(X, Y, (1.6 + Math.abs(dirx)) * s, (1.6 + Math.abs(diry)) * s, 0, 0, 6.283);
+    ctx.ellipse(X, Y, 2.45 * s, 1.5 * s, ang, 0, 6.283);
     ctx.fill();
   }
 
@@ -640,6 +778,39 @@
     st.aps = st.aps.filter(function (a) { return tick - a.t0 <= axonDelay + 2; });
   }
 
+  /** Nuclear depth and cell-cycle phase during asynchronous interkinetic nuclear migration. */
+  function inmState(c, tau, time) {
+    let cr = null;
+    for (let j = 0; j < c.cycles.length; j++) {
+      if (tau <= c.cycles[j].tEnd) {
+        cr = c.cycles[j];
+        break;
+      }
+    }
+    if (!cr) {
+      const lastEnd = c.cycles.length ? c.cycles[c.cycles.length - 1].tEnd : c.tBirth;
+      const r = ease((tau - lastEnd) / 0.55);
+      const drift = r * 0.0018 * Math.sin(time * 1.4 + c.h * 17);
+      return { z: lerp(0.008, c.zRest, r) + drift, phase: "rest", mProg: 0 };
+    }
+    const u = clamp01((tau - cr.tStart) / Math.max(1e-6, cr.tEnd - cr.tStart));
+    if (u < 0.44) {
+      const q = u / 0.44;
+      const wobble = 0.002 * Math.sin(Math.PI * q) * Math.sin(time * 2.4 + c.h * 19 + cr.cyc);
+      return { z: clamp(lerp(0.008, cr.zBasal, ease(q)) + wobble, 0.008, 0.085), phase: "G1", mProg: 0 };
+    }
+    if (u < 0.74) {
+      const q = (u - 0.44) / 0.30;
+      const drift = 0.0022 * Math.sin(Math.PI * q) * Math.sin(time * 2.1 + c.h * 23 + cr.cyc * 3.1);
+      return { z: cr.zBasal + drift, phase: "S", mProg: 0 };
+    }
+    if (u < 0.89) {
+      const q = (u - 0.74) / 0.15;
+      return { z: lerp(cr.zBasal, 0.008, ease(q)), phase: "G2", mProg: 0 };
+    }
+    return { z: 0.008, phase: "M", mProg: clamp01((u - 0.89) / 0.11) };
+  }
+
   function drawPanel(ctx, g, sc, D, stage, p, time, st, label) {
     g.view(stage === "neurogenesis" || stage === "fate" ? 0.42 : stage === "migration" ? lerp(0.42, 1, ease(p / 0.4)) : 1);
     const s = g.s, C = sc.C;
@@ -654,40 +825,42 @@
     ctx.globalCompositeOperation = "lighter";
     let hud = "";
 
-    // ---------------- radial glia fibres (progenitors present in this stage)
+    // ---------------- radial glial unit scaffold (spanning ventricle to pia)
     const tau = isStage("neurogenesis") ? p * C.cycles : C.cycles + 1;
-    ctx.strokeStyle = "rgba(74,222,128,0.8)";
-    ctx.fillStyle = "rgba(74,222,128,0.8)";
-    ctx.lineWidth = 0.8;
-    for (const c of sc.vz) {
-      const exists = c.born === 0 || tau >= c.born - 1 + 0.85;
-      const progenitor = exists && tau < c.exit - 0.15;
-      if (!progenitor) continue;
-      const f = isStage("neurogenesis") ? tau - Math.floor(tau) : 0.5;
-      const zN = 0.012 + 0.055 * Math.pow(Math.sin(Math.PI * f), 1.5);
-      drawFiber(ctx, g, c.x, zN, c.h, isStage("neurogenesis") ? 0.2 : 0.1);
+    const fiberA = isStage("neurogenesis") ? 0.22 : isStage("fate") ? 0.16 : isStage("migration") ? 0.18 : 0.07;
+    for (let i = 0; i < Math.min(C.progenitors, sc.vz.length); i++) {
+      const c = sc.vz[i];
+      drawScaffoldFiber(ctx, g, c.x, c.h, fiberA);
     }
     ctx.globalAlpha = 1;
 
     // ---------------- stage 1: neurogenesis
     if (isStage("neurogenesis")) {
-      const cyc = Math.min(C.cycles, Math.floor(tau) + 1), f = tau - Math.floor(tau);
+      const cyc = Math.min(C.cycles, Math.floor(tau) + 1);
+      const Yvent = g.Y(0);
       let nProg = 0, nNeu = 0;
       for (const c of sc.vz) {
-        const appear = c.born === 0 ? -1 : c.born - 1 + 0.85;
-        if (tau < appear) continue;
-        const sep = c.born === 0 ? 1 : ease((tau - appear) / 0.25);
-        const x = lerp(c.px, c.x, sep);
-        if (tau < c.exit - 0.15) { // progenitor: nucleus moves with the cycle, mitosis at the apical surface
+        if (tau < c.tBirth) continue;
+        const sep = c.born === 0 ? 1 : ease((tau - c.tBirth) / 0.30);
+        const xBase = lerp(c.px, c.x, sep);
+        if (tau < c.tLeave) { // cycling progenitor: anchored apical process + asynchronous G1/S/G2/M INM
           nProg++;
-          const z = 0.012 + 0.058 * Math.pow(Math.sin(Math.PI * f), 1.5);
-          const mitotic = f > 0.82 || sep < 1;
-          drawProgenitor(ctx, g, g.X(x), g.Y(sep < 1 ? 0.01 : z), s, mitotic, 1);
-        } else { // newborn neuron: rises into the intermediate zone as a multipolar cell
+          const stInm = inmState(c, tau, time);
+          drawApicalProcess(ctx, g, xBase, c.rootX, stInm.z, c.h, s, 0.95);
+          drawProgenitor(ctx, g, g.X(xBase), g.Y(stInm.z), s, stInm.phase, stInm.mProg, 1);
+        } else { // newborn neuron: delaminates from the ventricle, then enters SVZ/IZ multipolar phase
           nNeu++;
-          const born = c.exit - 0.15, m = ease((tau - born) / 0.9);
-          const z = lerp(0.012, c.izZ, m);
-          drawMultipolar(ctx, g.X(x + 0.004 * Math.sin(time * 1.3 + c.h * 9)), g.Y(z), 0.85 * s, COL.newborn, c.h, 0.9);
+          const mDelam = clamp01((tau - c.tLeave) / 0.55);
+          const z = lerp(0.008, c.izZ, ease(mDelam));
+          const sway = clamp01((mDelam - 0.55) / 0.25);
+          const dx = sway * 0.0045 * Math.sin(time * 1.1 + c.h * 19);
+          const dz = sway * 0.003 * Math.cos(time * 0.9 + c.h * 23);
+          if (mDelam < 0.55) {
+            drawDelaminating(ctx, g.X(xBase), g.Y(z), Yvent, mDelam, 0.85 * s, COL.newborn, c.h, 0.92);
+          } else {
+            const emerge = clamp01(0.25 + 0.75 * (mDelam - 0.55) / 0.30);
+            drawMultipolar(ctx, g.X(xBase + dx), g.Y(z + dz), 0.85 * s, COL.newborn, c.h, 0.9, time, emerge);
+          }
         }
       }
       hud = "cycle " + cyc + "/" + C.cycles + " · " + nProg + " progenitors · " + nNeu + " neurons";
@@ -695,12 +868,24 @@
 
     // pyramidal neurons waiting in the intermediate zone (stage 2)
     if (isStage("fate")) {
+      const tau2 = C.cycles + p * 1.2, Yvent = g.Y(0);
       for (const c of sc.vz) {
         if (c.exit > C.cycles) {
-          drawProgenitor(ctx, g, g.X(c.x), g.Y(0.035), s, false, 0.8);
+          const stInm = inmState(c, tau2, time);
+          drawApicalProcess(ctx, g, c.x, c.rootX, stInm.z, c.h, s, 0.75);
+          drawProgenitor(ctx, g, g.X(c.x), g.Y(stInm.z), s, stInm.phase, 0, 0.85);
           continue;
         }
-        drawMultipolar(ctx, g.X(c.x + 0.004 * Math.sin(time * 1.3 + c.h * 9)), g.Y(c.izZ), 0.85 * s, COL.newborn, c.h, 0.75);
+        const mDelam = clamp01((tau2 - c.tLeave) / 0.55);
+        const z = lerp(0.008, c.izZ, ease(mDelam));
+        const sway = clamp01((mDelam - 0.55) / 0.25);
+        const dx = sway * 0.0045 * Math.sin(time * 1.1 + c.h * 19);
+        const dz = sway * 0.003 * Math.cos(time * 0.9 + c.h * 23);
+        if (mDelam < 0.55) {
+          drawDelaminating(ctx, g.X(c.x), g.Y(z), Yvent, mDelam, 0.85 * s, COL.newborn, c.h, 0.8);
+        } else {
+          drawMultipolar(ctx, g.X(c.x + dx), g.Y(z + dz), 0.85 * s, COL.newborn, c.h, 0.75, time, 1);
+        }
       }
       const tauM = p * (C.mgeRounds + 0.6);
       let n = 0;
@@ -721,7 +906,9 @@
       let inL4 = 0;
       for (const c of sc.vz) {
         if (c.exit > C.cycles) {
-          drawProgenitor(ctx, g, g.X(c.x), g.Y(0.035), s, false, 0.7);
+          const zRest = c.zRest + 0.0015 * Math.sin(time * 1.3 + c.h * 17);
+          drawApicalProcess(ctx, g, c.x, c.rootX, zRest, c.h, s, 0.65);
+          drawProgenitor(ctx, g, g.X(c.x), g.Y(zRest), s, "rest", 0, 0.75);
           continue;
         }
         const k = c.k, p0 = 0.04 * (c.exit - 1) + 0.05 * c.h;
@@ -731,14 +918,16 @@
         const i0 = Math.min(steps, Math.floor(step)), i1 = Math.min(steps, i0 + 1), r = step - i0;
         const x = lerp(R[i0][k][0], R[i1][k][0], r);
         const zPath = lerp(R[i0][k][1], R[i1][k][1], r);
-        const z = Math.max(zPath, Math.min(c.izZ, R[steps][k][1])); // multipolar pause in the intermediate zone
+        const zPause = Math.min(c.izZ, R[steps][k][1]);
+        const z = Math.max(zPath, zPause); // multipolar pause in the intermediate zone
         const m = clamp01((p - p0 - 0.62) / 0.2);
+        const climbing = zPath > zPause + 1e-4 && a < 1;
         if (m > 0) {
           drawPyramidal(ctx, g, g.X(x), g.Y(z), s, COL.pyr, m, c.h, 1, 0);
-        } else if (a < 0.02) {
-          drawMultipolar(ctx, g.X(x), g.Y(z), 0.85 * s, COL.newborn, c.h, 0.85);
+        } else if (!climbing) {
+          drawMultipolar(ctx, g.X(x), g.Y(z), 0.85 * s, COL.newborn, c.h, 0.85, time, 1);
         } else {
-          drawMigrating(ctx, g.X(x), g.Y(z), 0.85 * s, COL.newborn, 0, -1, 0.95, false);
+          drawMigrating(ctx, g.X(x), g.Y(z), 0.85 * s, COL.newborn, 0, -1, 0.95, false, fr);
         }
         const zf = R[steps][k][1];
         if (zf >= D.ZONES[5].z0 && zf < D.ZONES[5].z1 && m > 0.5) inL4++;
@@ -775,7 +964,8 @@
     if (isStage("axons") || isStage("refinement") || isStage("activity")) {
       for (const k of sc.glia) {
         const c = sc.vz[k];
-        drawProgenitor(ctx, g, g.X(c.x), g.Y(0.035), s, false, 0.55);
+        drawApicalProcess(ctx, g, c.x, c.rootX, c.zRest, c.h, s, 0.45);
+        drawProgenitor(ctx, g, g.X(c.x), g.Y(c.zRest), s, "rest", 0, 0.55);
       }
       let tick = 0, raster = null, mode = stage;
       if (isStage("refinement")) {
