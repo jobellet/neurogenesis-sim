@@ -43,11 +43,8 @@ position of its targets, per axis; a diagonal is a topographic map. Made by `doc
 ```{toctree}
 :hidden:
 
-../hypotheses/2026-11-02-retinothalamic
 ../hypotheses/2026-11-03-retinothalamic-expression
 ```
-
-The hypotheses, metrics and pass criteria were written before the runs: {doc}`../hypotheses/2026-11-02-retinothalamic`.
 
     python examples/retinothalamic.py --cpu --seeds 10 --out out_dir      # about 1.5 min on 2 CPU threads
     python examples/retinothalamic.py --cpu --seeds 2 --small             # test configuration, about 10 s
