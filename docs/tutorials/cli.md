@@ -116,10 +116,54 @@ printf '%s\n' '{"id": 1, "method": "ping"}' \
 Any program that can start a process and read lines can drive development, simulation, evolution and modules this
 way. See {doc}`../integration/bridge` and the full {doc}`../reference/bridge-protocol`.
 
-```{admonition} PLACEHOLDER
-:class: placeholder
-Planned commands: `neurogenesis run project.json` (run a Project's schedule and save the network),
-`neurogenesis stages --json` and `neurogenesis ui-schema` (catalogue of stages and Params, task H3),
-`neurogenesis validate module.json` (re-run a module's assays, task E4), `neurogenesis data fetch` (connectome
-datasets, task I1). An animated terminal recording (asciinema) of this tutorial.
+## Stage-by-stage development cost and UI schema
+Estimate memory and time for every stage of a `Project` JSON before running it:
+
+```bash
+python -m neurogenesis estimate --project project.json
+```
+
+Export the machine-readable schema of all registered stages, `Param` types, geometries, fields, and neuron models
+(used by the desktop apps):
+
+```bash
+python -m neurogenesis ui-schema > ui_schema.json
+python -m neurogenesis ui-schema --project project.json --calibrated > ui_schema.json
+```
+
+## Fitting, module validation, and sharing
+```bash
+# Fit a Project's Fit params to data targets (CMA-ES)
+python -m neurogenesis fit --project project.json --targets targets.json --seeds 0,1,2 --out fitted_genome.json
+
+# Re-run a module's validation assays (exits 1 if any assay fails)
+python -m neurogenesis validate module.json
+
+# Install a module into the local catalogue (~/.cache/neurogenesis/modules) and list installed modules
+python -m neurogenesis install module.json
+python -m neurogenesis modules
+
+# Validate an experiment across held-out seeds and export a neurogenesis-card/1 bundle
+python -m neurogenesis share --project project.json --orcid 0000-0002-1825-0097 --author "A. Researcher" --out circuit.card.json
+```
+
+## Connectome datasets and parameter profiles
+```bash
+# Inspect dataset metadata, size, license, and citation; download with SHA-256 verification
+python -m neurogenesis data info my_dataset
+python -m neurogenesis data fetch my_dataset --yes
+
+# Validate parameter provenance profiles and inspect which citations a project relies on
+python -m neurogenesis profile check --all
+python -m neurogenesis profile show example_receptors
+python -m neurogenesis profile report project.json
+```
+
+## Exporting and importing networks
+```bash
+python -m neurogenesis export column.json --format sonata --out circuit/
+python -m neurogenesis import circuit/ --format sonata --out roundtrip.json
+
+python -m neurogenesis export column.json --format nir --out circuit.nir
+python -m neurogenesis import circuit.nir --format nir --out roundtrip_nir.json
 ```

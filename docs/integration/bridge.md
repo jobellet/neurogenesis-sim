@@ -33,8 +33,81 @@ Methods cover projects, plans, development (with step-by-step checkpoints), simu
 plasticity, evolution (long jobs with progress events) and modules. Full list and message formats:
 {doc}`../reference/bridge-protocol`.
 
-```{admonition} PLACEHOLDER
-:class: placeholder
-Small client libraries (`neurogenesis-bridge` for Node and Julia), and an example notebook driving the bridge from
-MATLAB.
+### Node.js client
+
+```javascript
+import { spawn } from "node:child_process";
+import readline from "node:readline";
+
+const proc = spawn("python", ["-m", "neurogenesis.bridge"], { stdio: ["pipe", "pipe", "inherit"] });
+const rl = readline.createInterface({ input: proc.stdout });
+const pending = new Map();
+let nextId = 1;
+
+rl.on("line", (line) => {
+  const msg = JSON.parse(line);
+  if (msg.id !== undefined && pending.has(msg.id)) {
+    pending.get(msg.id)(msg);
+    pending.delete(msg.id);
+  }
+});
+
+const call = (method, params = {}) =>
+  new Promise((resolve) => {
+    const id = nextId++;
+    pending.set(id, resolve);
+    proc.stdin.write(JSON.stringify({ id, method, params }) + "\n");
+  });
+
+console.log(await call("ping"));
+const net = (await call("generate", { morphology: "column", neurons: 300, seed: 1 })).result;
+const sim = (await call("simulate", { ngb: net.path, model: "lif_int", ticks: 200, seed: 0 })).result;
+console.log("spikes:", sim.total_spikes);
+proc.stdin.end();
+```
+
+### Julia client
+
+```julia
+using JSON
+
+proc = open(`python -m neurogenesis.bridge`, "r+")
+ready = JSON.parse(readline(proc))
+
+function bridge_call(io, id, method; kwargs...)
+    req = Dict("id" => id, "method" => method, "params" => Dict(string(k) => v for (k, v) in kwargs))
+    println(io, JSON.json(req)); flush(io)
+    while true
+        msg = JSON.parse(readline(io))
+        get(msg, "id", nothing) == id && return msg
+    end
+end
+
+println(bridge_call(proc, 1, "ping"))
+net = bridge_call(proc, 2, "generate"; morphology="column", neurons=300, seed=1)["result"]
+sim = bridge_call(proc, 3, "simulate"; ngb=net["path"], model="lif_int", ticks=200, seed=0)["result"]
+close(proc)
+```
+
+### MATLAB client
+
+```matlab
+pb = java.lang.ProcessBuilder({'python', '-m', 'neurogenesis.bridge'});
+proc = pb.start();
+stdin = java.io.PrintWriter(java.io.OutputStreamWriter(proc.getOutputStream(), 'UTF-8'), true);
+stdout = java.io.BufferedReader(java.io.InputStreamReader(proc.getInputStream(), 'UTF-8'));
+
+ready = jsondecode(char(stdout.readLine()));
+
+stdin.println(jsonencode(struct('id', 1, 'method', 'ping', 'params', struct())));
+disp(jsondecode(char(stdout.readLine())));
+
+req = struct('id', 2, 'method', 'generate', 'params', struct('morphology', 'column', 'neurons', 300, 'seed', 1));
+stdin.println(jsonencode(req));
+net = jsondecode(char(stdout.readLine())).result;
+
+simReq = struct('id', 3, 'method', 'simulate', 'params', struct('ngb', net.path, 'model', 'lif_int', 'ticks', 200, 'seed', 0));
+stdin.println(jsonencode(simReq));
+sim = jsondecode(char(stdout.readLine())).result;
+proc.destroy();
 ```

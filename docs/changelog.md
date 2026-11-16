@@ -52,11 +52,9 @@
     sampled once per display frame (about 20 simulated ms), with frequencies computed as if each sample were 1 ms.
     The E/I and arbor sliders scale the baseline adjacency weights instead of compounding on already-scaled ones.
 
-## Earlier
-- Integer LIF kernel identical in Python, JAX and the browser; neuron models `two_compartment` and `hh`; calibrated
-  cost estimates; body plans, genomes, island evolution, modules; 3D browser viewer.
-
-```{admonition} PLACEHOLDER
-:class: placeholder
-Versioned release notes generated from tagged releases.
-```
+## Earlier (0.1.0 baseline)
+- Integer LIF kernel (`lif_int`) with bit-identical spikes in Python, JAX, the browser, and C (`nglif`); neuron models
+  `two_compartment` and `hh`; calibrated cost estimates; `BodyPlan`, genomes, island evolution, and shareable modules;
+  3D browser viewer.
+- Release builds and installer packages for macOS, Windows, and Linux are built automatically on `v*` tags by
+  `.github/workflows/release.yml` and `.github/workflows/avalonia-app.yml`.

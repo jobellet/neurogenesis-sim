@@ -4,11 +4,13 @@ individuals.
 
 One centre theta moves each generation along a Monte Carlo estimate of the slope of the expected score under
 N(theta, sigma^2 I) (Salimans et al. 2017, arXiv:1703.03864; Wierstra et al. 2008, IEEE CEC):
+
 - `pop` variants theta + sigma x eps_i in antithetic pairs (eps, -eps), eps ~ N(0, I); frozen genes get eps = 0;
 - every variant (and the centre itself, scored for the record) is evaluated on the same development seeds, so the noise common
   to a pair cancels in its difference;
 - fitness shaping: centred ranks (default; robust to outliers) or z-scores;
 - slope g = sum_i u_i eps_i / (pop x sigma), step by SGD or Adam, theta clipped to [0, 1].
+
 Because it maximises the mean score of a cloud of width sigma, ES prefers wide regions of good genomes; on tasks that change,
 this kept old tasks better than a genetic algorithm (Nisioti et al. 2026, arXiv:2610.01583).
 

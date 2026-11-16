@@ -72,8 +72,52 @@ class Torus(Geometry):
     ...   # contains, sample, bounding_box, local_coordinates, to_dict, from_dict
 ```
 
-```{admonition} PLACEHOLDER
-:class: placeholder
-A cookiecutter template for a plugin / module repository (package layout, tests, CI, docs) and a community index of
-published plugins.
+## Plugin & module repository template
+Keep plugins and shareable modules in their own Python package so projects can list them in `plugins` without modifying
+the core toolbox (`neurogenesis/`):
+
+```text
+my-neurogenesis-plugin/
+  pyproject.toml                 # depends on "neurogenesis-sim>=0.1"
+  my_plugin/
+    __init__.py                  # imports rules, stages, models so listing "my_plugin" registers all of them
+    rules.py                     # @register("weight", ...) developmental rules
+    stages.py                    # @register_stage(...) stages with Param + cost(N, E, params)
+    plan.py                      # body plan / Project + founding_genome() + assay()
+  tests/
+    test_plugin.py               # determinism, neutral params = no-op, declared cost within 3x, toy behaviour
+  .github/workflows/ci.yml       # JAX_PLATFORMS=cpu pytest -q
 ```
+
+Minimal `pyproject.toml`:
+
+```toml
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "my-neurogenesis-plugin"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["neurogenesis-sim>=0.1"]
+```
+
+Minimal `tests/test_plugin.py` checking the invariants from `AGENTS.md`:
+
+```python
+import numpy as np
+import my_plugin  # noqa: F401
+from neurogenesis.stages.base import STAGE_REGISTRY, run_schedule
+
+def test_shrink_neutral_and_deterministic():
+    proj = {"schedule": [{"name": "s", "operator": "seed_cells", "params": {"N": 10, "position": [1, 2, 3]}},
+                         {"name": "sh", "operator": "shrink", "params": {}}]}
+    t1 = run_schedule(proj, {}, seed=0)
+    t2 = run_schedule(proj, {}, seed=0)
+    assert np.array_equal(t1.positions, t2.positions)
+```
+
+Once a circuit built with your plugin passes validation assays (`python -m neurogenesis validate module.json`), bundle
+its project, genome, targets, and cost estimate into a catalogue card with
+`python -m neurogenesis share --project project.json --orcid ... --author ...` ({doc}`../catalogue`).

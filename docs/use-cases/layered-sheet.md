@@ -31,6 +31,13 @@ Delay distribution: min=1, max=20, mean=6.79
 ```
 This produces `project.json` (Project schema), `network.json` (for the 3D viewer), and `stats.json`.
 
+```{figure} ../_static/media/layered_sheet_stages.gif
+:width: 75%
+:class: gif-demo
+
+Key checkpoints of `examples/layered_sheet.py` (seed 42): cycling progenitors exit across generations, differentiate by competence window, migrate inside-out into layers (`z = 8, 16, 24`), wire laminar connections, and prune weak synapses.
+```
+
 ## Quantitative comparison of birth-order rules (in this simulation)
 
 | Rule | Target layer formula (`migrate`) | Spearman rank correlation $r(\text{generation}, z)$ (seed 42) | 5-seed range (`[42, 101, 7, 1234, 999]`) |

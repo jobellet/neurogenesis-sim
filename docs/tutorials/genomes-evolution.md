@@ -63,8 +63,53 @@ A small run of `evolve` on the topographic-map example: one island of 12 genomes
 Evolution can only find what the architecture can do. First set the genome **by hand** (or with an oracle wiring)
 and check that the task is solvable. If it is not, no search will find it, and the time is better spent on the plan.
 
-```{admonition} PLACEHOLDER
-:class: placeholder
-Tutorial on multi-island runs on a cluster (SLURM array jobs), checkpointing and resuming evolution, and a gallery of
-evolved modules with their audit reports.
+## Auditing on held-out seeds and knockouts
+After choosing a genome on validation seeds, assess it on held-out seeds (`HELD_OUT = tuple(range(1000, 1020))`) that
+were never seen during search, and verify that biological knockouts break the metric as expected:
+
+```python
+from neurogenesis.development import grow, knockout, region_of
+from neurogenesis.evolution import audit, HELD_OUT
+
+def evaluate_one(genome, seeds):
+    scores, passed = [], []
+    for s in seeds:
+        net = grow(plan, genome, seed=s)
+        counts = simulate_counts([net], [make_stimuli(net)], ticks=50, blank=40)[0]
+        sc = score(counts)
+        scores.append(sc)
+        passed.append(sc > 0.7)
+    return dict(score=scores, passed=passed)
+
+wt_report = audit(evaluate_one, best, seeds=HELD_OUT)
+ko_report = audit(evaluate_one, knockout(best, projections=[("sensor", "map")]), seeds=HELD_OUT)
+print(wt_report["pass_fraction"], ko_report["pass_fraction"])
 ```
+
+## Evolution strategies and quality-diversity
+Two other search methods share the same `[0, 1]` gene coding and `evaluate(genomes, seeds)` interface:
+
+- **Evolution strategies (`neurogenesis.evolution.strategies.evolve_es`):** updates one centre `theta` along antithetic
+  pairs (`theta ± sigma * eps`) evaluated on shared seeds with centred-rank or z-score fitness shaping and SGD or Adam
+  steps, preferring flat regions of high fitness:
+
+  ```python
+  from neurogenesis.evolution import evolve_es
+  theta, es_hist = evolve_es(genome, genes, evaluate, pop=16, gens=30, sigma=0.05, lr=0.05, optimizer="adam")
+  ```
+
+- **Quality-diversity (`neurogenesis.evolution.quality_diversity.evolve_qd`):** fills a grid `Archive` over behaviour
+  descriptors using MAP-Elites (`emitter="gaussian"`), CMA-ME, or CMA-MAE (`emitter="cma"` with `learning_rate < 1`),
+  keeping diverse stepping-stone solutions:
+
+  ```python
+  from neurogenesis.evolution import evolve_qd
+  archive, qd_hist = evolve_qd(
+      genome, genes, evaluate,
+      descriptors=["synapses", "mean_weight"], lows=[0.0, 0.0], highs=[1000.0, 1000.0], cells=[10, 10],
+      emitter="cma", emitters=2, batch=8, gens=25,
+  )
+  ```
+
+For running multi-island searches across cluster array jobs with per-generation checkpointing and final selection, see
+{doc}`../integration/cluster`.

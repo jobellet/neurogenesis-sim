@@ -50,9 +50,50 @@ label, rel_depth = lw[:, 0], lw[:, 1]
 Operations (`Add`, `Threshold`, `GaussianSmooth`, `DistanceTransform`) build new fields from others; `maps`
 provides orientation-like maps from pinwheel centres.
 
-```{admonition} PLACEHOLDER
-:class: placeholder
-Figures: a gallery of geometries (sampled points), a layer stack painted on a curved sheet, and a pinwheel map with
-its charges; a GIF of cells migrating along a gradient until a stop field. Tutorial for painting fields in the
-desktop apps' field painter.
+```{figure} ../_static/media/fields_geometry_gallery.png
+:width: 98%
+
+Three geometry and field primitives: (left) CSG `Difference(Box, Sphere)` sampled points in cutaway; (centre) a `LayerStackField` evaluated on a `CurvedSheet`; (right) an orientation `PinwheelField` with $\pm 1/2$ singularities recovered by `find_pinwheels`.
+```
+
+## Pinwheel orientation maps
+```python
+import numpy as np
+from neurogenesis.fields import PinwheelField, find_pinwheels, pinwheel_map
+
+centres = np.asarray([[3.0, 3.0], [7.0, 7.0], [3.0, 7.0], [7.0, 3.0]])
+charges = np.asarray([0.5, 0.5, -0.5, -0.5])
+_, angles, _ = pinwheel_map((np.zeros(2), np.full(2, 10.0)), 0.1, centres, charges)
+found, recovered_charges = find_pinwheels(angles, [0.0, 0.0], 0.1)
+```
+See `examples/pinwheel_sheet.py` for a full semi-supervised schedule where cell proliferation and chemotactic migration
+couple to hand-placed pinwheel centres.
+
+## Stopping migration with a field
+`migrate` evaluates `stop_field` at each candidate position and halts cells where the field is `True` or `> 0`:
+
+```python
+from neurogenesis.stages import run_schedule
+
+project = {
+    "geometry": {
+        "box": {"type": "Box", "center": [5, 5, 5], "size": [10, 10, 10]},
+        "seed_zone": {"type": "Box", "center": [5, 5, 1], "size": [8.4, 8.4, 1]},
+    },
+    "fields": {"stop": {"type": "AnalyticField", "expr": "z - (0.4 * x + 2.8)"}},
+    "schedule": [
+        {"name": "seed", "operator": "seed_cells", "params": {"N": 90, "geometry": "seed_zone"}},
+        {"name": "migrate", "operator": "migrate", "repeat": 16,
+         "params": {"direction": [0, 0, 1], "speed": 0.4,
+                    "stop_field": {"type": "Field", "name": "stop"}, "boundary": "box"}},
+    ],
+}
+checkpoints = run_schedule(project, {}, seed=0, checkpoints=True)
+```
+
+```{figure} ../_static/media/migrate_stop_field.gif
+:width: 65%
+:class: gif-demo
+
+Cells seeded near $z = 1$ migrate upwards until they cross the slanted `stop_field` surface $z = 0.4x + 2.8$.
 ```

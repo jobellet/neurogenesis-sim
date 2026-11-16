@@ -4,10 +4,12 @@
 the kernel itself is not changed) and lets `jax.grad` pass through them. Each state value (membrane potential,
 synaptic current, spike) is the exact integer one, but its derivative is that of a smooth relaxation of the update,
 evaluated along the exact trajectory (straight-through estimators; Bengio et al. 2013, arXiv:1308.3432):
+
 - bit-shift decays x - (x >> k) are differentiated as x (1 - 2^-k), and i >> 2 as i / 4;
-- the threshold step is differentiated as a fast sigmoid, d spike / d v = 1 / (1 + beta |v - threshold| / threshold)^2
+- the threshold step is differentiated as a fast sigmoid, ``d spike / d v = 1 / (1 + beta |v - threshold| / threshold)^2``
   (surrogate gradients: Zenke & Ganguli 2018, Neural Comput 30:1514; Neftci et al. 2019, IEEE Signal Process Mag);
 - weights are rounded to integers in the forward pass and differentiated as the identity.
+
 So gradients are approximate (a descent direction for losses on spike counts or rates), while the forward pass stays
 bit-identical. Gradients pass through leaky integrate-and-fire neurons (mode 0) only; Poisson and burster neurons keep
 their exact spikes with zero derivative. Single-channel synapses (no `channel` array). Memory O(T (N + E)) for the

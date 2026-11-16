@@ -1,22 +1,40 @@
 # Installation
 
 ## Desktop apps (no Python needed)
-The native apps bundle their own Python runtime and the toolbox:
+The native apps bundle their own pinned Python runtime (`desktop/common/runtime/build_runtime.py`) with the toolbox:
 
-| Platform | Package | Status |
+| Platform | Package | Build script / workflow |
 |---|---|---|
-| macOS (Apple silicon and Intel) | `.dmg` | in progress (roadmap task H4) |
-| Windows 10 / 11 | setup `.exe` and portable `.zip` | in progress (task H5) |
-| Linux | AppImage | in progress (task H5) |
+| macOS (Apple silicon and Intel) | `.dmg` | `desktop/mac/release.sh` (`.github/workflows/release.yml`) |
+| Windows 10 / 11 | setup `.exe` and portable `.zip` | `desktop/avalonia/packaging/build-windows.ps1` (`.github/workflows/avalonia-app.yml`) |
+| Linux | `.AppImage` and `.tar.gz` | `desktop/avalonia/packaging/build-appimage.sh` (`.github/workflows/avalonia-app.yml`) |
 
-```{admonition} PLACEHOLDER
-:class: placeholder
-Download links to the release page, checksums, and screenshots of the installer on each platform, once the first
-release is tagged.
+Tagged releases (`v*`) attach installers and `.sha256` checksum files to the
+[GitHub Releases](https://github.com/jobellet/neurogenesis-sim/releases) page. After downloading an archive, verify its
+checksum before launching:
+
+```bash
+# macOS / Linux
+shasum -a 256 -c Neurogenesis-*.sha256
+```
+```powershell
+# Windows (PowerShell)
+Get-FileHash .\Neurogenesis-Setup.exe -Algorithm SHA256
 ```
 
+To build the embedded Python runtime or desktop packages locally from source, see {doc}`../tutorials/desktop-apps` and
+`desktop/common/runtime/README.md`.
+
 ## Python package
-Requirements: Python ≥ 3.10, numpy, jax, matplotlib (installed automatically).
+Requirements: Python ≥ 3.10, `numpy`, `jax`, `matplotlib` (installed automatically).
+
+Install directly from GitHub without cloning:
+
+```bash
+pip install "git+https://github.com/jobellet/neurogenesis-sim.git"
+```
+
+Or clone for development and testing:
 
 ```bash
 git clone https://github.com/jobellet/neurogenesis-sim.git
@@ -30,10 +48,15 @@ For GPU simulation, install the CUDA build of JAX instead of the CPU one:
 pip install -U "jax[cuda12]"
 ```
 
-```{admonition} PLACEHOLDER
-:class: placeholder
-`pip install neurogenesis-sim` from PyPI and a conda-forge package, once the package is published.
-```
+Optional dependency extras declared in `pyproject.toml`:
+
+| Extra | Packages | Enables |
+|---|---|---|
+| `fast` | `numba>=0.59` | event-driven CPU kernel (`neurogenesis.spiking.numba_backend`) |
+| `sonata` | `h5py` | SONATA circuit export / import (`neurogenesis.interop.sonata`) |
+| `nir` | `nir>=1.0.0` | NIR graph export / import (`neurogenesis.interop.nir`) |
+| `data` | `pyarrow` | Parquet and Feather connectome table streaming (`neurogenesis.data`) |
+| `test` | `pytest`, `jsonschema`, `h5py`, `libsonata` (non-Windows), `numba`, `nir` | full test suite |
 
 ## Browser viewer
 The viewer is a static web app (TypeScript + three.js) in `viz/`:

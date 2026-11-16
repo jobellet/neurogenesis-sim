@@ -83,7 +83,9 @@ def main():
     for f in ("topographic_network.json", "cli_column_500.json"):
         if not (WORK / f).exists():
             sys.exit(f"missing {WORK / f}: run docs/_scripts/make_media.py cli topo first")
-    server = subprocess.Popen(["npx", "vite", "--port", str(PORT), "--strictPort"], cwd=ROOT / "viz", env=node_env(),
+    env = node_env()
+    npx = shutil.which("npx", path=env.get("PATH")) or "npx"
+    server = subprocess.Popen([npx, "vite", "--port", str(PORT), "--strictPort"], cwd=ROOT / "viz", env=env,
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         wait_http(f"http://localhost:{PORT}/")

@@ -38,6 +38,22 @@ All exporters share one translation (`neurogenesis.interop.dynamics`), into a cu
 So spike times in another simulator are close to the toolbox's, not identical. The export report says this every
 time.
 
+## NIR — Neuromorphic Intermediate Representation (available)
+```bash
+python -m neurogenesis export network.json --format nir --out circuit.nir
+python -m neurogenesis import circuit.nir --format nir --out back.json
+```
+```python
+from neurogenesis.interop import export_network, import_network
+report = export_network(net, "nir", "circuit.nir", drivers="keep")   # needs: pip install "neurogenesis-sim[nir]"
+print(report)
+net2 = import_network("nir", "circuit.nir")
+```
+`neurogenesis.interop.nir` maps integer LIF networks ($N \le 2{,}048$) into NIR `CubaLIF` nodes with dense `Linear`
+recurrent weights (Pedersen et al. 2024). Driver neurons (`mode != 0`) can be kept (`drivers="keep"`), dropped
+(`"drop"`), or converted into external input channels (`"input"`). Toolbox neuron and synapse fields are stored in
+node metadata so `import_network("nir", ...)` reconstructs the `SNNNetwork` with identical neuron and synapse counts.
+
 ## Other targets
 | Simulator / toolchain | Route | Status |
 |---|---|---|
@@ -46,10 +62,22 @@ time.
 | Brian 2 (Stimberg et al. 2019) | PyNN backend | planned (J4) |
 | Arbor (Abi Akar et al. 2019) | NeuroML 2 / morphologies (phase N) | planned |
 | SpiNNaker (sPyNNaker, Rhodes et al. 2018) | PyNN | planned (J4) |
-| snnTorch, Norse, Lava-DL, SpiNNaker2 | NIR (Pedersen et al. 2024): small modules only, no per-synapse delays | planned (J3) |
+| snnTorch, Norse, Lava-DL, SpiNNaker2 | NIR (Pedersen et al. 2024): `CubaLIF` + dense `Linear` ($N \le 2048$, no per-synapse delays) | available (J3) |
 
-```{admonition} PLACEHOLDER
-:class: placeholder
-Cross-simulator checks (J6): the same grown networks simulated in the toolbox and, through SONATA and PyNN, in NEST
-and Brian 2, with spike statistics compared against declared tolerances.
-```
+## Cross-simulator and continuous-ODE comparison
+Every exporter reports exact, approximated, and dropped attributes in an `ExportReport`. For the 200-neuron column
+(`1,149` synapses), `export_network(..., "nir", ...)` marks `neurons` and `synapses` as **exact**, `neuron dynamics`,
+`delays`, and `refractory` as **approximated**, and `integer arithmetic` / `drivers` as **dropped**.
+
+Using `neurogenesis.interop.dynamics.lif_params`, default integer parameters (`shift_v=5`, `shift_s=4`,
+`threshold=1024`, `refractory=3`) translate to continuous-time exponential LIF parameters
+`tau_m = 31.50 ms`, `tau_syn = 15.49 ms`, `C_m = 250 pF`, `E_L = -65.0 mV`, `V_reset = -68.75 mV`, `V_th = -50.0 mV`,
+and `t_ref = 3.0 ms`. Driving a target neuron with an identical 80 Hz Poisson spike train (`delay = 1` tick $\to 2$ ms
+latency, 5,000 ticks) gives close firing rates between the 1-ms integer kernel and a continuous Euler ODE integration
+(`dt = 0.05 ms`), with the small offset coming from integer bit-shift rounding:
+
+| Synaptic weight $w$ | Translated PSC jump $W$ (pA) | `lif_int` rate (Hz) | Continuous exp-LIF ODE rate (Hz) |
+|---|---|---|---|
+| 80 | 70.9 | 3.80 | 3.00 |
+| 120 | 106.4 | 12.40 | 10.60 |
+| 200 | 177.3 | 27.00 | 25.60 |

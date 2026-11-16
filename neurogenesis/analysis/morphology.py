@@ -2,11 +2,13 @@
 
 Inputs are `ArborStore`s (`neurogenesis.arbors`: grown by `grow_arbors`, read from SWC, imported skeletons). Each
 cell's tree is rooted at its root node (normally the soma, `parent = -1`). Definitions:
+
 - a *branch point* is a non-root node with two or more children, a *tip* a non-root node without children, a *stem* a
   child of a root;
 - the *branch order* of a node is the number of branch points strictly between it and its root;
 - a *branch* is the path between a node that is a root, branch point or tip and its nearest such ancestor; its
   tortuosity is path length / Euclidean distance (>= 1).
+
 Scalar morphometrics follow the feature set of MorphoPy (Laturnus et al. 2020, J Open Source Softw 5:2339); the
 topological morphology descriptor (TMD) is that of Kanari et al. 2018, Neuroinformatics 16:3-13, and barcodes are
 compared through persistence images (Adams et al. 2017, J Mach Learn Res 18:1-35).
@@ -253,7 +255,7 @@ def tmd_barcodes(store: ArborStore, feature: str = "radial", cells: Optional[Seq
 def persistence_image(bars, extent: Optional[Sequence[float]] = None, resolution: int = 20,
                       bandwidth: Optional[float] = None) -> np.ndarray:
     """Persistence image of a barcode (Adams et al. 2017): Gaussian kernels at (birth, death) weighted by the bar
-    length |birth - death|, sampled on a resolution x resolution grid over `extent` = (lo, hi) for both axes (default
+    length ``|birth - death|``, sampled on a resolution x resolution grid over `extent` = (lo, hi) for both axes (default
     0 to the largest value), normalised to sum 1 (zeros for an empty barcode). `bandwidth` defaults to (hi - lo) / 10."""
     bars = np.asarray(bars, np.float64).reshape(-1, 2)
     if extent is None:

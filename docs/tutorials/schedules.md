@@ -110,22 +110,17 @@ print(schedule_cost(project, N=10_000, E=1_000_000))    # (bytes, operations), d
 
 ## Available stages
 
-| Operator | Task | What it does |
+| Category | Operators | What they do |
 |---|---|---|
-| `seed_cells` | C1 | create cells at a point, in a geometry, with a region and type |
-| `proliferate` | C2 | cell division with a probability; daughters inherit lineage |
-| `apoptosis` | C3 | cell death: by probability, density, or missing inputs / outputs |
-| `migrate` | C4 | move cells (direction, radial, towards a target; stop field, boundary) |
-| `sort` | C5 | reorder cells along an axis by a key |
-| `express` | C6 | gene-regulatory step on expression channels (morphogens, neighbours) |
-| `differentiate` | C7 | assign cell types and neuron parameters from conditions |
-| `grow_axons` | C8 | connections by axon guidance |
-| `place_by_hand`, `connect_by_hand` | C9 | explicit cell positions and synapses (supervised) |
-| `prune`, `scale`, `myelinate` | C10, C12 | remove weak synapses, scale weights, shorten delays |
-| `refine_by_activity` | C11 | simulate inside development and apply a plasticity rule |
-| `legacy_grow_stage` | A5 | the original `grow` procedure as one stage |
+| Population (C1–C3, C14) | `seed_cells`, `proliferate`, `apoptosis`, `cell_cycle_clock`, `tissue_expand` (C24) | create cells, divide with lineage, prune by density or inputs, track mitotic cycles, dilate tissue with growth |
+| Migration & sorting (C4–C5) | `migrate`, `sort`, `mosaic` | radial/tangential/chemotactic migration with stop fields, axis sorting & differential adhesion, homotypic exclusion |
+| Expression & fate (C6–C7, C15) | `express`, `temporal_competence`, `differentiate` | gene-regulatory network step with morphogens and neighbours, competence cascade, conditional cell-type assignment |
+| Connectivity (C8–C9, C16–C19, C25) | `grow_axons`, `fasciculate`, `choice_point`, `cluster_boutons`, `partner_select`, `bilinear_select`, `place_by_hand`, `connect_by_hand` | chemoaffinity guidance, bundling & midline switching, multiplicity, compatibility matrices, low-rank bilinear selection, explicit placement & wiring |
+| Arbors & dendrites (N1–N3, N5) | `grow_arbors`, `arbor_synapses`, `dendritic_attenuate` | branching neurite trees, proximity-based Peters'-rule synapses with path delays, passive dendritic attenuation |
+| Pharmacology & modulation (P1–P5, C21) | `set_transmitters`, `express_receptors`, `assign_receptors`, `pharmacology`, `apply_drug`, `transporter_switch`, `neuromodulate` | transmitter bitmasks, receptor profiles & context compilation, drug dosing, NKCC1→KCC2 chloride shift, volume-transmitted three-factor modulation |
+| Maturation & freeze (C10–C13, C22–C23, A5) | `prune`, `scale`, `myelinate`, `refine_by_activity`, `competitive_elimination`, `critical_period_gate`, `freeze`, `legacy_grow_stage` | weight/coactivity pruning, homeostatic scaling, myelination, STDP/Hebbian/three-factor activity refinement, competitive synapse loss, plasticity gating, network export |
 
-Every stage's parameters, defaults and limits: {doc}`../reference/stages` (also through the bridge `stages` method).
+Every stage's parameters, defaults and limits: {doc}`../reference/stages` (also via `python -m neurogenesis ui-schema` or the bridge `stages` method).
 
 ## Legacy plans as schedules
 Any `BodyPlan` can be compiled into a Project whose schedule reproduces `grow()` bit for bit:
@@ -138,9 +133,21 @@ net = tissue.to_network()
 `legacy_stream=True` exists only for legacy plans (one random stream shared by all stages, as in `grow`); new
 schedules never use it.
 
-```{admonition} PLACEHOLDER
-:class: placeholder
-A full worked example — a layered sheet grown from progenitors (seed → proliferate → migrate into layers →
-differentiate by layer → grow axons → refine by spontaneous waves → prune) — once the fix wave is merged (roadmap
-milestone M2, example G2.3), with a GIF of every stage.
+## Worked example: layered sheet from progenitors
+`examples/layered_sheet.py` combines `seed_cells` in a `Sheet2D`, three cycles of `cell_cycle_clock` (C14) →
+`temporal_competence` (C15) → `proliferate` (C2), `differentiate` (C7) into deep/mid/superficial excitatory and
+superficial inhibitory types, `migrate` (C4) into a `LayerStackField`, laminar `grow_axons` (C8), wave-like
+`refine_by_activity` (C11, STDP), and `prune` (C10):
+
+```bash
+python examples/layered_sheet.py --cpu --out example_out
 ```
+
+```{figure} ../_static/media/layered_sheet_stages.gif
+:width: 75%
+:class: gif-demo
+
+Key checkpoints of `examples/layered_sheet.py` (seed 42): cycling progenitors differentiate by competence window, migrate inside-out across layer boundaries ($z = 8, 16, 24$), form laminar synapses, and prune weak connections.
+```
+
+See {doc}`../use-cases/layered-sheet` for the connection matrix, birth-order rank correlations, and inside-out vs. outside-in rule comparison.

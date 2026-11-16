@@ -22,11 +22,43 @@ cd desktop/mac && ./build.sh        # developer build; a signed .dmg is produced
 ```
 
 ## Windows and Linux
-See `desktop/avalonia/README.md` (in progress, roadmap task H5).
+The cross-platform desktop app (`desktop/avalonia/`, .NET 8 + Avalonia + Silk.NET) shares the C kernel `nglif`, NGB1
+binary transport, `UI_SCHEMA.md`, and `visual_spec.json` with the macOS app.
 
-```{admonition} PLACEHOLDER
-:class: placeholder
-Screenshots of each app (network view, inspector, live development preview, schedule editor generated from the UI
-schema, evolution progress), a GIF of growing and simulating a project end to end, and installation instructions
-for the released packages.
+```bash
+# Build nglif native library
+cmake -S desktop/common/native/nglif -B build/nglif -DCMAKE_BUILD_TYPE=Release
+cmake --build build/nglif --config Release
+ctest --test-dir build/nglif -C Release --output-on-failure
+
+# Build and test the .NET solution
+dotnet build desktop/avalonia/Neurogenesis.Desktop.sln --configuration Release
+dotnet test desktop/avalonia/Neurogenesis.Desktop.sln --configuration Release --no-build
 ```
+
+Packaging scripts produce standalone distributions with the embedded Python runtime:
+- **Windows:** `powershell -ExecutionPolicy Bypass -File desktop/avalonia/packaging/build-windows.ps1 -OutputDir dist`
+  (setup `.exe` via Inno Setup `setup.iss` and portable `.zip`).
+- **Linux:** `./desktop/avalonia/packaging/build-appimage.sh dist` (AppImage and `.tar.gz`).
+
+## Embedded Python runtime
+To package a standalone relocatable Python runtime (`python-build-standalone` + hashed wheel lockfiles in
+`desktop/common/runtime/locks/`) and smoke-test the bridge handshake in an isolated environment:
+
+```bash
+python desktop/common/runtime/build_runtime.py --target macos-arm64 --out build/runtime-macos-arm64
+python desktop/common/runtime/smoke_test.py build/runtime-macos-arm64
+```
+
+Supported targets: `macos-x86_64`, `macos-arm64`, `linux-x86_64`, `linux-arm64`, `windows-x86_64`. See
+`desktop/common/runtime/README.md` for details.
+
+## Workspace overview
+- **Viewport & inspector:** drag to orbit, scroll/pinch to zoom, select neurons to inspect membrane parameters (`mode`,
+  `shift_v`, `shift_s`, `threshold`, `refractory`) and outgoing synapses, or inject current pulses during live `nglif`
+  simulation.
+- **Schema-driven editors:** Project, Geometry, Fields, Body plan, Genome, Schedule, Development checkpoints (scrubbing
+  through every stage), Plasticity, Evolution, Modules, Cost (`estimate_development`), and Analysis panels are generated
+  directly from `python -m neurogenesis ui-schema` ({doc}`../reference/ui-schema`).
+- **Unsigned macOS first launch:** builds without a Developer ID signature open via right-click **Open → Open** (or
+  **System Settings → Privacy & Security → Open Anyway**); see `desktop/mac/README.md`.

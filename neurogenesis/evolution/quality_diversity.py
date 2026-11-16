@@ -4,6 +4,7 @@ Instead of one best genome, the search fills an *archive*: a grid over behaviour
 wiring length, an excitation / inhibition ratio, the largest directed simplex), each cell keeping the best genome found
 with descriptors in it. This keeps stepping stones that a single objective would drop, and returns a map of the
 trade-offs between the descriptors.
+
 - **MAP-Elites** (Mouret & Clune 2015, arXiv:1504.04909): `emitter="gaussian"`; each child is a random elite plus
   Gaussian noise of width `sigma` in the [0, 1] coding.
 - **CMA-ME** (Fontaine et al. 2020, GECCO, arXiv:1912.02400): `emitter="cma"`; each emitter is a CMA-ES (Hansen &
@@ -13,6 +14,7 @@ trade-offs between the descriptors.
   cell has an acceptance threshold that moves towards the fitness of every accepted candidate by that rate (the
   annealing), starting at `threshold_min`; a candidate enters when its fitness beats the threshold, and its
   improvement is fitness minus threshold. With learning_rate = 1 the threshold is the elite's fitness (CMA-ME).
+
 The archive always keeps, per cell, the best genome seen.
 
 evaluate(genomes, seeds) -> (fitness array, list of info dicts), as for `islands.evolve`; descriptors(info) -> d

@@ -24,6 +24,7 @@ The browser viewer captures are made by docs/_scripts/viewer_capture.py.
 from __future__ import annotations
 
 import io
+import json
 import os
 import subprocess
 import sys
@@ -33,6 +34,7 @@ from pathlib import Path
 os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
 import matplotlib  # noqa: E402
+import matplotlib.ticker  # noqa: E402
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
@@ -617,9 +619,649 @@ def make_retino():
             frames[idx].save(OUT / f"{prefix}{step_num:02d}.png")
 
 
+# --------------------------------------------------------------------------------------------------------------------
+# 9. Geometry and fields gallery + migration with stop field
+def make_fields():
+    print("fields: geometry & field gallery + migrate stop_field GIF")
+    from neurogenesis.fields import AnalyticField, LayerStackField, find_pinwheels, pinwheel_map
+    from neurogenesis.geometry import Box, CurvedSheet, Difference, Sphere
+    from neurogenesis.stages import run_schedule
+
+    fig = plt.figure(figsize=(12.2, 3.9))
+    ax1 = fig.add_subplot(1, 3, 1, projection="3d")
+    shell = Difference(Box([0, 0, 0], [2, 2, 2]), Sphere([0, 0, 0], 0.55))
+    pts = shell.sample_points(3000, np.random.default_rng(0))
+    cut = pts[pts[:, 0] > -0.05]
+    r = np.linalg.norm(cut, axis=1)
+    ax1.scatter(*cut.T, c=r, cmap="viridis", s=5, alpha=0.85, depthshade=False)
+    ax1.view_init(elev=22, azim=20)
+    ax1.set_xlim(-1.05, 1.05); ax1.set_ylim(-1.05, 1.05); ax1.set_zlim(-1.05, 1.05)
+    ax1.set_xlabel("x"); ax1.set_ylabel("y"); ax1.set_zlabel("z")
+    ax1.set_title("CSG: Difference(Box, Sphere)\n(cutaway x > -0.05)", fontsize=9.5)
+
+    ax2 = fig.add_subplot(1, 3, 2, projection="3d")
+    sheet = CurvedSheet("2*u - 1", "2*v - 1", "0.35*np.sin(np.pi*u)*np.sin(np.pi*v)", thickness=0.6)
+    spts = sheet.sample_points(2200, np.random.default_rng(1))
+    layers = LayerStackField(AnalyticField("z + 0.32"), thicknesses=[0.33, 0.33, 0.34], labels=[0, 1, 2])
+    lab = layers.values(spts)[:, 0].astype(int)
+    for k, col, name in ((0, "#0072B2", "layer 0"), (1, "#009E73", "layer 1"), (2, "#D55E00", "layer 2")):
+        m = lab == k
+        ax2.scatter(*spts[m].T, c=col, s=5, alpha=0.85, depthshade=False, label=name)
+    ax2.legend(fontsize=7.5, loc="upper right", frameon=False)
+    ax2.view_init(elev=24, azim=-45)
+    ax2.set_xlabel("x"); ax2.set_ylabel("y"); ax2.set_zlabel("z")
+    ax2.set_title("LayerStackField on CurvedSheet", fontsize=9.5)
+
+    ax3 = fig.add_subplot(1, 3, 3)
+    centres = np.asarray([[3.0, 3.0], [7.0, 7.0], [3.0, 7.0], [7.0, 3.0]])
+    charges = np.asarray([0.5, 0.5, -0.5, -0.5])
+    _, angles, _ = pinwheel_map((np.zeros(2), np.full(2, 10.0)), 0.1, centres, charges)
+    found, ch = find_pinwheels(angles, [0.0, 0.0], 0.1)
+    ax3.imshow(angles.T, origin="lower", extent=[0, 10, 0, 10], cmap="hsv", vmin=0.0, vmax=np.pi)
+    pos_c = found[ch > 0]
+    neg_c = found[ch < 0]
+    ax3.scatter(pos_c[:, 0], pos_c[:, 1], s=75, c="white", edgecolors="black", linewidths=1.2, label="+1/2 pinwheel")
+    ax3.scatter(neg_c[:, 0], neg_c[:, 1], s=75, c="black", marker="^", edgecolors="white", linewidths=1.0, label="-1/2 pinwheel")
+    ax3.legend(fontsize=7.5, loc="upper center", bbox_to_anchor=(0.5, -0.14), ncol=2, frameon=False)
+    ax3.set_xlabel("x"); ax3.set_ylabel("y")
+    ax3.set_title("PinwheelField + find_pinwheels", fontsize=9.5)
+    fig.tight_layout()
+    save_png(fig, "fields_geometry_gallery.png", dpi=115)
+
+    project = dict(
+        geometry={
+            "box": {"type": "Box", "center": [5.0, 5.0, 5.0], "size": [10.0, 10.0, 10.0]},
+            "seed_zone": {"type": "Box", "center": [5.0, 5.0, 1.0], "size": [8.4, 8.4, 1.0]},
+        },
+        fields={"stop": {"type": "AnalyticField", "expr": "z - (0.4 * x + 2.8)"}},
+        schedule=[
+            {"name": "seed", "operator": "seed_cells", "params": {"N": 90, "geometry": "seed_zone"}},
+            {"name": "migrate", "operator": "migrate", "repeat": 16,
+             "params": {"direction": [0.0, 0.0, 1.0], "speed": 0.4,
+                        "stop_field": {"type": "Field", "name": "stop"}, "boundary": "box"}},
+        ],
+    )
+    cps = run_schedule(project, {}, seed=0, checkpoints=True)
+    stop_fn = AnalyticField("z - (0.4 * x + 2.8)")
+    xs = np.linspace(0.0, 10.0, 100)
+    zs_stop = 0.4 * xs + 2.8
+    frames, dur = [], []
+    for k, t in enumerate(cps):
+        fig, ax = plt.subplots(figsize=(5.8, 4.2))
+        ax.plot(xs, zs_stop, ls="--", c="#D55E00", lw=1.6, label="stop_field = 0 (z = 0.4x + 2.8)")
+        ax.fill_between(xs, zs_stop, 10.0, color="#D55E00", alpha=0.08)
+        stopped = stop_fn.values(t.positions + np.array([0.0, 0.0, 0.4])) > 0
+        ax.scatter(t.positions[~stopped, 0], t.positions[~stopped, 2], s=28, c="#0072B2", edgecolors="white",
+                   linewidths=0.4, label="migrating")
+        ax.scatter(t.positions[stopped, 0], t.positions[stopped, 2], s=28, c="#009E73", edgecolors="white",
+                   linewidths=0.4, label="stopped")
+        ax.set_xlim(0, 10); ax.set_ylim(0, 8.5)
+        ax.set_xlabel("x"); ax.set_ylabel("z")
+        ax.legend(fontsize=8, loc="upper left", frameon=False)
+        ax.set_title(f"migrate + stop_field: step {k}/{len(cps) - 1} ({int(stopped.sum())}/{len(t.alive)} stopped)",
+                     fontsize=10, loc="left")
+        fig.tight_layout()
+        frames.append(fig_to_image(fig, dpi=80))
+        dur.append(280 if k < len(cps) - 1 else 2000)
+    save_gif(frames, "migrate_stop_field.gif", dur, colours=64)
+
+
+# --------------------------------------------------------------------------------------------------------------------
+# 10. Synaptic plasticity: measured STDP curve + wave refinement + RF sharpening GIF
+def make_plasticity():
+    print("plasticity: STDPRule window + refine_by_activity waves + RF sharpening GIF")
+    import jax.numpy as jnp
+    from neurogenesis.spiking.plasticity import STDPRule
+    from neurogenesis.stages import run_schedule
+
+    # 1. Measure STDP curve across dt in [-60, 60] ms in a single batched apply() call
+    rule = STDPRule(A_plus=1.0, A_minus=1.05, tau_plus=20.0, tau_minus=20.0, w_min=0.0, w_max=1000.0)
+    dts = np.arange(-60, 61, 1)
+    dts = dts[dts != 0]
+    E = len(dts)
+    T = 160
+    spikes = np.zeros((T, 2 * E), dtype=np.float32)
+    t_pre = 80
+    for k, dt in enumerate(dts):
+        spikes[t_pre, 2 * k] = 1.0
+        spikes[t_pre + int(dt), 2 * k + 1] = 1.0
+    w0 = jnp.full(E, 500.0, dtype=jnp.float32)
+    pre = jnp.arange(0, 2 * E, 2, dtype=jnp.int32)
+    post = jnp.arange(1, 2 * E, 2, dtype=jnp.int32)
+    delays = jnp.zeros(E, dtype=jnp.int32)
+    dw = np.asarray(rule.apply(w0, pre, post, delays, jnp.asarray(spikes), w0)) - 500.0
+
+    # 2. Wave-driven refine_by_activity on a 1D topographic sensor -> map tissue
+    n_src, n_dst = 30, 80
+    src_pos = np.column_stack([np.linspace(1.0, 29.0, n_src), np.full(n_src, 15.0), np.zeros(n_src)])
+    dst_pos = np.column_stack([np.linspace(1.0, 29.0, n_dst), np.full(n_dst, 15.0), np.full(n_dst, 10.0)])
+    base_proj = dict(
+        schedule=[
+            {"name": "src", "operator": "place_by_hand", "params": {"positions": src_pos.tolist(), "region": 0, "sign": 1}},
+            {"name": "dst", "operator": "place_by_hand", "params": {"positions": dst_pos.tolist(), "region": 1, "sign": 1}},
+            {"name": "axons", "operator": "grow_axons", "params": {
+                "projections": ["0->1"], "exact": True, "conduction_velocity": 5.0,
+                "guidance": {"0->1": {"B": [[1.0, 0, 0], [0, 0, 0], [0, 0, 0]], "c": [0, 0, 0],
+                                      "sigma": 0.35, "p0": 0.85, "w": 220.0}}}},
+        ]
+    )
+    t_init = run_schedule(base_proj, {}, seed=0)
+    w_before = np.abs(t_init.connectivity.weight.copy())
+
+    refine_stage = {
+        "name": "waves", "operator": "refine_by_activity",
+        "params": {
+            "rule": "stdp", "ticks": 220, "A_plus": 35.0, "A_minus": 38.0, "tau_plus": 20.0, "tau_minus": 20.0,
+            "w_min": 0.0, "w_max": 600.0, "restore_modes": True,
+            "waves": {"sources": [[0.0, 15.0, 0.0], [30.0, 15.0, 0.0]], "speed": 0.3, "interval": 110,
+                      "duration": 4, "amplitude": 1500, "cells": {"region": [0]}},
+        },
+    }
+    n_waves = 8
+    wave_sched = {"schedule": base_proj["schedule"] + [dict(refine_stage, name=f"waves_{k}") for k in range(n_waves)]}
+    cps = run_schedule(wave_sched, {}, seed=0, checkpoints=True)
+    # checkpoints[2] is right after grow_axons; checkpoints[3:] are after each refine_by_activity step
+    rf_cps = cps[2:]
+    w_after = np.abs(rf_cps[-1].connectivity.weight.copy())
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10.5, 4.0))
+    pos_m = dts > 0
+    neg_m = dts < 0
+    ax1.axhline(0, c="#888888", lw=0.8)
+    ax1.axvline(0, c="#888888", lw=0.8)
+    ax1.plot(dts[pos_m], dw[pos_m], c="#009E73", lw=2.2, label="LTP (post after pre)")
+    ax1.plot(dts[neg_m], dw[neg_m], c="#D55E00", lw=2.2, label="LTD (post before pre)")
+    ax1.set_xlabel(r"$\Delta t = t_{\mathrm{post}} - t_{\mathrm{pre}}$ (ms)")
+    ax1.set_ylabel(r"Measured $\Delta w$ (weight units)")
+    ax1.set_title("STDP window measured from STDPRule.apply", fontsize=10)
+    ax1.legend(fontsize=8, frameon=False)
+
+    bins = np.linspace(0, 600, 25)
+    ax2.hist(w_before, bins=bins, alpha=0.55, color="#999999", edgecolor="white", label=f"before (mean {w_before.mean():.0f})")
+    ax2.hist(w_after, bins=bins, alpha=0.65, color="#0072B2", edgecolor="white", label=f"after {n_waves} wave epochs (mean {w_after.mean():.0f})")
+    ax2.set_xlabel("Synaptic weight |w|")
+    ax2.set_ylabel("Number of synapses")
+    ax2.set_title("Weight distribution before vs. after wave refinement", fontsize=10)
+    ax2.legend(fontsize=8, frameon=False)
+    fig.tight_layout()
+    save_png(fig, "plasticity_stdp_waves.png", dpi=115)
+
+    frames, dur = [], []
+    for k, t in enumerate(rf_cps):
+        c = t.connectivity
+        xs_pre = t.positions[c.pre, 0]
+        xs_post = t.positions[c.post, 0]
+        w = np.abs(c.weight).astype(float)
+        # Weighted RF width (std of pre x per post neuron with weight > 0)
+        stds = []
+        for idx in np.flatnonzero(t.region == 1):
+            m = c.post == idx
+            if m.any() and w[m].sum() > 0:
+                wm = w[m] / w[m].sum()
+                mu = (wm * xs_pre[m]).sum()
+                stds.append(np.sqrt((wm * (xs_pre[m] - mu) ** 2).sum()))
+        rf_w = float(np.mean(stds)) if stds else 0.0
+        fig, ax = plt.subplots(figsize=(5.4, 4.6))
+        ax.plot([0, 30], [0, 30], ls="--", c="#bbbbbb", lw=0.9)
+        order = np.argsort(w)
+        sc = ax.scatter(xs_pre[order], xs_post[order], c=w[order], s=4 + 28 * (w[order] / 600.0),
+                        cmap="viridis", vmin=0, vmax=600, alpha=0.85)
+        ax.set_xlim(0, 30); ax.set_ylim(0, 30); ax.set_aspect("equal")
+        ax.set_xlabel("sensor x position"); ax.set_ylabel("target x position")
+        ax.set_title(f"Wave-driven STDP refinement: epoch {k}/{n_waves}\nmean RF width = {rf_w:.2f} space units", fontsize=9.5)
+        fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.04, label="|w|")
+        fig.tight_layout()
+        frames.append(fig_to_image(fig, dpi=80))
+        dur.append(450 if k < len(rf_cps) - 1 else 2200)
+    save_gif(frames, "plasticity_rf_sharpening.gif", dur, colours=96)
+    print(f"  STDP max LTP={dw[pos_m].max():.3f}, max LTD={dw[neg_m].min():.3f}; "
+          f"mean |w| {w_before.mean():.1f} -> {w_after.mean():.1f}")
+
+
+# --------------------------------------------------------------------------------------------------------------------
+# 11. Layered sheet from progenitors (examples/layered_sheet.py)
+def make_layered():
+    print("layered: examples/layered_sheet.py checkpoints GIF")
+    import importlib.util
+    from neurogenesis.stages import run_schedule
+
+    spec = importlib.util.spec_from_file_location("layered_sheet", ROOT / "examples" / "layered_sheet.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    proj = mod.build_project()
+    d = proj.to_dict()
+    cps = run_schedule(d, proj.genome, seed=42, checkpoints=True)
+    labels = [(st["name"], st["operator"]) for st in d["schedule"] for _ in range(st.get("repeat", 1))]
+
+    # Select key milestones to keep GIF crisp and concise
+    pick = [0, 3, 6, 9, 10, 11, 12, 13, 14]
+    type_colors = {0: "#0072B2", 1: "#009E73", 2: "#56B4E9", 3: "#D55E00"}
+    type_names = {0: "deep exc", 1: "mid exc", 2: "sup exc", 3: "sup inh"}
+    frames, dur = [], []
+    for frame_k, idx in enumerate(pick):
+        t = cps[idx]
+        name, op = labels[idx]
+        fig = plt.figure(figsize=(6.2, 5.0))
+        ax = fig.add_axes([0.04, 0.06, 0.92, 0.82], projection="3d")
+        pos, ct = t.positions, t.cell_type
+        if t.connectivity is not None and len(t.connectivity.pre) > 0:
+            c = t.connectivity
+            rng = np.random.default_rng(0)
+            s_idx = rng.choice(len(c.pre), size=min(len(c.pre), 250), replace=False)
+            for a, b, w in zip(c.pre[s_idx], c.post[s_idx], c.weight[s_idx]):
+                col = "#0072B2" if w > 0 else "#D55E00"
+                ax.plot(*np.stack([pos[a], pos[b]]).T, color=col, lw=0.4, alpha=0.28)
+        for tid in range(4):
+            m = ct == tid
+            if m.any():
+                marker = "^" if tid == 3 else "o"
+                ax.scatter(*pos[m].T, s=26 if tid == 3 else 20, c=type_colors[tid], marker=marker,
+                           edgecolors="white", linewidths=0.3, depthshade=False, label=f"{type_names[tid]} ({int(m.sum())})")
+        for z_b in (8.0, 16.0, 24.0):
+            ax.plot([0, 40, 40, 0, 0], [0, 0, 40, 40, 0], [z_b] * 5, c="#cccccc", ls="--", lw=0.6)
+        ax.set_xlim(0, 40); ax.set_ylim(0, 40); ax.set_zlim(-1, 25)
+        ax.set_xlabel("x"); ax.set_ylabel("y"); ax.set_zlabel("z (layer)")
+        ax.view_init(elev=18, azim=-40 + 5 * frame_k)
+        ax.legend(fontsize=7.5, loc="upper left", frameon=False)
+        n_syn = len(t.connectivity.pre) if t.connectivity is not None else 0
+        ax.set_title(f"{frame_k + 1}/{len(pick)}: {name} ({op})\n{int(t.alive.sum())} cells, {n_syn} synapses",
+                     fontsize=9.5, loc="left")
+        frames.append(fig_to_image(fig, dpi=78))
+        dur.append(1000 if idx < pick[-1] else 2500)
+    save_gif(frames, "layered_sheet_stages.gif", dur, colours=96)
+
+
+# --------------------------------------------------------------------------------------------------------------------
+# 12. Connectome-constrained optic lobe comparison (examples/optic_lobe_column.py)
+def make_optic():
+    print("optic: examples/optic_lobe_column.py connectome vs fitted circuit")
+    import importlib.util
+    import neurogenesis.data.catalogue as cat
+    from neurogenesis.data.importer import import_connectome
+    from neurogenesis.data.targets import compare_type_statistics, extract_fitting_targets
+    from neurogenesis.fitting import fit
+    from neurogenesis.stages import run_schedule
+
+    spec = importlib.util.spec_from_file_location("optic_lobe_column", ROOT / "examples" / "optic_lobe_column.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    WORK.mkdir(parents=True, exist_ok=True)
+    target_dir = WORK / "mock_optic"
+    hex_centres = mod.setup_mock_dataset(target_dir)
+    orig_sha = cat.sha256
+    cat.sha256 = lambda p: "mock1" if "neurons" in str(p) else "mock2"
+    try:
+        manifest_dict = json.loads((target_dir / "manifest.json").read_text())
+        t_baseline, info = import_connectome(
+            manifest_dict, directory=target_dir,
+            transmitter_signs={"ACh": 1, "Glu": -1, "GABA": -1}, log=lambda s: None
+        )
+    finally:
+        cat.sha256 = orig_sha
+
+    targets = extract_fitting_targets(t_baseline, columns=hex_centres, min_synapses=1)
+    fit_targets = [t for t in targets if t["metric"] != "cell_count"]
+    project = mod.create_project(hex_centres, t_baseline, info)
+    fit_res = fit(project, fit_targets, seeds=(0, 1), iterations=30, popsize=10)
+    t_grown = run_schedule(project, fit_res.genome, seed=2)
+    stats = compare_type_statistics(t_grown, t_baseline)
+
+    type_names = info["type_names"]
+    nt = len(type_names)
+
+    def _mat(t):
+        m = np.zeros((nt, nt), dtype=int)
+        c = t.connectivity
+        if c is not None and len(c.pre) > 0:
+            for a, b in zip(t.cell_type[c.pre], t.cell_type[c.post]):
+                m[a, b] += 1
+        return m
+
+    m_base = _mat(t_baseline)
+    m_grown = _mat(t_grown)
+    vmax = max(int(m_base.max()), int(m_grown.max()), 1)
+
+    fig, axs = plt.subplots(1, 3, figsize=(12.0, 3.9))
+    cols = ("#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00")
+    for k, name in enumerate(type_names):
+        sel = t_baseline.cell_type == k
+        axs[0].scatter(t_baseline.positions[sel, 0], t_baseline.positions[sel, 1], s=32 if name == "T4" else 18,
+                       marker="^" if name == "T4" else "o", c=cols[k % len(cols)], label=f"{name} ({int(sel.sum())})")
+    axs[0].legend(fontsize=7.5, loc="upper right", frameon=False)
+    axs[0].set_aspect("equal")
+    axs[0].set_xlabel("x (um)"); axs[0].set_ylabel("y (um)")
+    axs[0].set_title(f"7 hexagonal columns\n({len(t_baseline.alive)} cells, {len(t_baseline.connectivity.pre)} edges)", fontsize=9.5)
+
+    for ax, mat, title in ((axs[1], m_base, "Connectome type matrix"),
+                           (axs[2], m_grown, f"Fitted grown matrix (seed 2)\ncos sim={stats['matrix_cosine_similarity']:.3f}, deg err={stats['degree_mean_rel_error']:.3f}")):
+        ax.imshow(mat, cmap="Blues", vmin=0, vmax=vmax)
+        ax.set_xticks(range(nt)); ax.set_xticklabels(type_names, fontsize=8)
+        ax.set_yticks(range(nt)); ax.set_yticklabels(type_names, fontsize=8)
+        ax.set_xlabel("post type"); ax.set_ylabel("pre type")
+        ax.set_title(title, fontsize=9.5)
+        for i in range(nt):
+            for j in range(nt):
+                v = mat[i, j]
+                ax.text(j, i, str(v), ha="center", va="center", fontsize=8,
+                        color="white" if v > 0.55 * vmax else "#222222")
+    fig.tight_layout()
+    save_png(fig, "optic_lobe_comparison.png", dpi=115)
+    print(f"  optic stats: {stats}")
+    print(f"  baseline edges={len(t_baseline.connectivity.pre)}, grown edges={len(t_grown.connectivity.pre)}")
+
+
+# --------------------------------------------------------------------------------------------------------------------
+# 13. Developmental knockouts on topographic_map across 50 held-out seeds
+def make_knockouts():
+    print("knockouts: 50 held-out seeds on examples/topographic_map.py")
+    import copy
+    from neurogenesis.development import grow, knockout, region_of
+
+    make_plan, make_genome = topographic_example()
+    plan = make_plan()
+    base = make_genome()
+    seeds = range(1000, 1050)
+
+    def _conds():
+        wt = copy.deepcopy(base)
+        ko_x = copy.deepcopy(base); ko_x["guidance"][("sensor", "map")]["B"][0, 0] = 0.0
+        ko_y = copy.deepcopy(base); ko_y["guidance"][("sensor", "map")]["B"][1, 1] = 0.0
+        ko_xy = copy.deepcopy(base); ko_xy["guidance"][("sensor", "map")]["B"] = np.zeros((3, 3))
+        broad = copy.deepcopy(base); broad["guidance"][("sensor", "map")]["sigma"] = 0.50
+        return [("WT", wt), ("B[0,0]=0\n(x cue KO)", ko_x), ("B[1,1]=0\n(y cue KO)", ko_y),
+                ("B=0\n(double KO)", ko_xy), ("sigma=0.50\n(broad arbor)", broad)]
+
+    results = {}
+    for label, g in _conds():
+        rxs, rys = [], []
+        for s in seeds:
+            net = grow(plan, g, seed=s)
+            src, tgt, _ = topography(net, region_of(net, plan, "sensor"), region_of(net, plan, "map"))
+            rx = float(np.corrcoef(src[:, 0], tgt[:, 0])[0, 1]) if len(src) > 2 else 0.0
+            ry = float(np.corrcoef(src[:, 1], tgt[:, 1])[0, 1]) if len(src) > 2 else 0.0
+            rxs.append(rx); rys.append(ry)
+        results[label] = (np.asarray(rxs), np.asarray(rys))
+        print(f"  {label.replace(chr(10), ' ')}: r_x={np.mean(rxs):.3f}+-{np.std(rxs):.3f}, r_y={np.mean(rys):.3f}+-{np.std(rys):.3f}")
+
+    # Verify structural projection knockout gives 0 synapses
+    ko_proj = knockout(base, projections=[("sensor", "map")])
+    assert grow(plan, ko_proj, seed=1000).num_synapses == 0
+
+    fig, ax = plt.subplots(figsize=(8.6, 4.2))
+    labels = list(results.keys())
+    x = np.arange(len(labels))
+    w = 0.34
+    rx_m = [results[k][0].mean() for k in labels]
+    rx_s = [results[k][0].std() for k in labels]
+    ry_m = [results[k][1].mean() for k in labels]
+    ry_s = [results[k][1].std() for k in labels]
+    ax.bar(x - w / 2, rx_m, w, yerr=rx_s, capsize=3, color="#0072B2", alpha=0.85, label="r_x (horizontal axis)")
+    ax.bar(x + w / 2, ry_m, w, yerr=ry_s, capsize=3, color="#D55E00", alpha=0.85, label="r_y (vertical axis)")
+    rng = np.random.default_rng(0)
+    for i, k in enumerate(labels):
+        jx = rng.uniform(-0.07, 0.07, len(seeds))
+        ax.scatter(x[i] - w / 2 + jx, results[k][0], s=8, c="#003f63", alpha=0.35, zorder=4)
+        ax.scatter(x[i] + w / 2 + jx, results[k][1], s=8, c="#7a3200", alpha=0.35, zorder=4)
+    ax.axhline(0, c="#777777", lw=0.8)
+    ax.set_xticks(x); ax.set_xticklabels(labels, fontsize=8.5)
+    ax.set_ylim(-0.4, 1.12)
+    ax.set_ylabel("Topographic Pearson correlation r")
+    ax.set_title("Genetic knockouts across 50 held-out developmental seeds (1000–1049)", fontsize=10)
+    ax.legend(fontsize=8.5, frameon=False, loc="upper right")
+    fig.tight_layout()
+    save_png(fig, "topographic_knockouts.png", dpi=115)
+
+
+# --------------------------------------------------------------------------------------------------------------------
+# 14. Shared ON/OFF module + composition with topographic map
+def make_modules_demo():
+    print("modules_demo: ON/OFF module + compose with topographic map")
+    from neurogenesis.development import BodyPlan, FixedPlacement, Region, grow, region_of
+    from neurogenesis.evolution.robust import audit
+    from neurogenesis.modules import Module, compose
+    from neurogenesis.spiking.batch import simulate_counts
+    from neurogenesis.validation import validate_module
+
+    pos_1d = [[(i + 0.5) / 12, 0.5, 0.5] for i in range(12)]
+    on_off_plan = BodyPlan(
+        name="on_off_sensory",
+        regions=[
+            Region("receptor", (0, 0, 0), (10, 30, 5), FixedPlacement(pos_1d), role=1),
+            Region("inter", (15, 0, 0), (10, 30, 5), FixedPlacement(pos_1d), role=0),
+            Region("on_out", (30, 0, 0), (10, 30, 5), FixedPlacement(pos_1d), role=2),
+            Region("off_out", (30, 10, 0), (10, 30, 5), FixedPlacement(pos_1d), role=2),
+        ],
+        projections=[("receptor", "on_out"), ("receptor", "inter"), ("inter", "on_out"), ("receptor", "off_out")],
+    )
+    on_off_genome = dict(
+        count={}, inh_weight_factor=2.0, w_clip=2047,
+        inhibitory=dict(receptor=dict(a0=-8.0, a=np.zeros(3)), inter=dict(a0=8.0, a=np.zeros(3)),
+                        on_out=dict(a0=-8.0, a=np.zeros(3)), off_out=dict(a0=-8.0, a=np.zeros(3))),
+        tonic=dict(off_out=35.0),
+        guidance={
+            ("receptor", "on_out"): dict(B=np.eye(3) * 2.0, c=np.zeros(3), sigma=0.06, p0=1.0, w=900.0),
+            ("receptor", "inter"): dict(B=np.eye(3) * 2.0, c=np.zeros(3), sigma=0.06, p0=1.0, w=900.0),
+            ("inter", "on_out"): dict(B=np.eye(3) * 2.0, c=np.zeros(3), sigma=0.08, p0=1.0, w=500.0),
+            ("receptor", "off_out"): dict(B=np.eye(3) * 2.0, c=np.zeros(3), sigma=0.06, p0=1.0, w=900.0,
+                                          receptor="inverting"),
+        },
+    )
+    assays = [
+        {"name": "on_responds_to_step", "ticks": 80, "blank": 20, "seeds": [1000, 1001, 1002, 1003, 1004],
+         "stimuli": [{}, {"receptor": 80}], "readout": {"region": "on_out", "measure": "rate"},
+         "metric": "difference", "gate": {"min": 20.0}, "pass_fraction": 1.0},
+        {"name": "off_suppressed_by_step", "ticks": 80, "blank": 20, "seeds": [1000, 1001, 1002, 1003, 1004],
+         "stimuli": [{}, {"receptor": 80}], "readout": {"region": "off_out", "measure": "rate"},
+         "metric": "difference", "gate": {"max": -20.0}, "pass_fraction": 1.0},
+    ]
+    on_off_mod = Module(
+        "on_off_sensory", on_off_plan, on_off_genome,
+        inputs=["receptor"], outputs=["on_out", "off_out"],
+        description="12-channel sensory module: ON output excited by input, OFF output suppressed by inverting receptors.",
+        validation={"assays": assays},
+    )
+    val_res = validate_module(on_off_mod)
+    assert all(r["ok"] for r in val_res), val_res
+
+    def eval_one(g, seeds):
+        nets, exts, on_idx, off_idx = [], [], [], []
+        for s in seeds:
+            net = grow(on_off_plan, g, s)
+            base = np.zeros(net.num_neurons, np.int32)
+            base[region_of(net, on_off_plan, "off_out")] = 35
+            ext = np.tile(base, (3, 1))
+            ext[1, region_of(net, on_off_plan, "receptor")] += 80
+            nets.append(net); exts.append(ext)
+            on_idx.append(region_of(net, on_off_plan, "on_out"))
+            off_idx.append(region_of(net, on_off_plan, "off_out"))
+        cnts = simulate_counts(nets, exts, ticks=80, blank=20)
+        on_r = [c[:, idx].mean(1) * 1000.0 / 80 for c, idx in zip(cnts, on_idx)]
+        off_r = [c[:, idx].mean(1) * 1000.0 / 80 for c, idx in zip(cnts, off_idx)]
+        score = np.array([(r_on[1] - r_on[0]) + (r_off[0] - r_off[1]) for r_on, r_off in zip(on_r, off_r)])
+        return dict(score=score, passed=score > 50.0, on_rates=on_r, off_rates=off_r)
+
+    aud = audit(eval_one, on_off_genome, seeds=range(1000, 1010), keep=("on_rates", "off_rates"))
+    on_r_arr = np.asarray(aud["on_rates"])   # (10, 3)
+    off_r_arr = np.asarray(aud["off_rates"]) # (10, 3)
+
+    make_topo_plan, make_topo_genome = topographic_example()
+    topo_mod = Module("topographic_map", make_topo_plan(), make_topo_genome(), inputs=["sensor"], outputs=["map"])
+    brain = compose(
+        "sensory+map", {"eye": on_off_mod, "cortex": topo_mod},
+        offsets={"cortex": (60.0, 0.0, 0.0)},
+        links=[("eye.on_out", "cortex.sensor", dict(B=np.eye(3) * 2.0, c=np.zeros(3), sigma=0.15, p0=0.9, w=800.0))],
+    )
+    cnet = brain.grow(seed=0)
+    rec = region_of(cnet, brain.plan, "eye.receptor")
+    cmap = region_of(cnet, brain.plan, "cortex.map")
+    u_map = np.asarray([(cnet.neurons[i].x - 110.0) / 30.0 for i in cmap])
+    ext_c = np.zeros((2, cnet.num_neurons), np.int32)
+    ext_c[0, rec[:4]] = 90
+    ext_c[1, rec[-4:]] = 90
+    c_cnt = simulate_counts([cnet], [ext_c], ticks=80, blank=20)[0][:, cmap]
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10.5, 4.0))
+    epochs = np.arange(3)
+    ax1.errorbar(epochs, on_r_arr.mean(0), yerr=on_r_arr.std(0), marker="o", lw=2, c="#0072B2", capsize=3, label="on_out rate")
+    ax1.errorbar(epochs, off_r_arr.mean(0), yerr=off_r_arr.std(0), marker="s", lw=2, c="#D55E00", capsize=3, label="off_out rate")
+    ax1.set_xticks(epochs); ax1.set_xticklabels(["1. Baseline\n(I=0)", "2. Step ON\n(I=80)", "3. Step OFF\n(I=0)"])
+    ax1.set_ylabel("Mean population rate (Hz)")
+    ax1.set_title(f"ON/OFF module across 10 held-out seeds\n(audit pass fraction = {aud['pass_fraction']:.2f})", fontsize=9.5)
+    ax1.legend(fontsize=8.5, frameon=False)
+
+    bins = np.linspace(0, 1, 11)
+    centres = 0.5 * (bins[:-1] + bins[1:])
+    for k, col, lab in ((0, "#0072B2", "stimulate low receptors (0..3)"), (1, "#D55E00", "stimulate high receptors (8..11)")):
+        rates = np.zeros(len(centres))
+        for b in range(len(centres)):
+            m = (u_map >= bins[b]) & (u_map <= bins[b + 1])
+            rates[b] = c_cnt[k, m].mean() * 1000.0 / 80 if m.any() else 0.0
+        ax2.plot(centres, rates, marker="o", lw=2, c=col, label=lab)
+    ax2.set_xlabel("Normalized cortex.map x position (u)")
+    ax2.set_ylabel("Mean map firing rate (Hz)")
+    ax2.set_title("Composed eye.on_out -> cortex.sensor -> cortex.map", fontsize=9.5)
+    ax2.legend(fontsize=8, frameon=False)
+    fig.tight_layout()
+    save_png(fig, "shared_module_composition.png", dpi=115)
+    print(f"  ON rates: {on_r_arr.mean(0).round(1).tolist()}, OFF rates: {off_r_arr.mean(0).round(1).tolist()}")
+    print(f"  assay results: {[(r['name'], r['pass_fraction']) for r in val_res]}")
+
+
+# --------------------------------------------------------------------------------------------------------------------
+# 15. Quantitative 100-seed topographic map study
+def make_topo_study():
+    print("topo_study: 100-seed sweep over sigma, N_map, and activity refinement")
+    import copy
+    import jax
+    import jax.numpy as jnp
+    from neurogenesis.development import grow, region_of
+    from neurogenesis.spiking import jax_backend
+    from neurogenesis.spiking.batch import stack
+    from neurogenesis.stages.refinement import coactivity
+
+    make_plan, make_genome = topographic_example()
+    plan = make_plan()
+    base = make_genome()
+    seeds = range(100)
+    sigmas = [0.05, 0.08, 0.12, 0.18, 0.25, 0.35, 0.50]
+
+    def _mean_r(nets):
+        rs = []
+        for net in nets:
+            src, tgt, _ = topography(net, region_of(net, plan, "sensor"), region_of(net, plan, "map"))
+            if len(src) > 2:
+                rs.append(0.5 * (np.corrcoef(src[:, 0], tgt[:, 0])[0, 1] + np.corrcoef(src[:, 1], tgt[:, 1])[0, 1]))
+            else:
+                rs.append(0.0)
+        return np.asarray(rs)
+
+    _jit_wave = {}
+
+    def _refine_batch(nets, ticks=120):
+        # Simulate travelling sweeps across sensor sheet in one batched JAX call per bucket, then filter via coactivity
+        arr, N_pad = stack(nets)
+        T = ticks
+        ext = np.zeros((len(nets), T, N_pad), dtype=np.int32)
+        s_idx = region_of(nets[0], plan, "sensor")
+        for b, net in enumerate(nets):
+            xs = np.array([net.neurons[i].x for i in s_idx]) / 30.0
+            ys = np.array([net.neurons[i].y for i in s_idx]) / 30.0
+            for t in range(T):
+                phase = (t % 60) / 60.0
+                active = (np.abs(xs - phase) < 0.12) if t < 60 else (np.abs(ys - phase) < 0.12)
+                ext[b, t, s_idx[active]] = 180
+
+        def run_one(a, ext_seq, seed):
+            st = jax_backend.init_state(a, seed)
+
+            def step(s, e):
+                s, spk, _ = jax_backend.tick(a, s, e)
+                return s, spk
+            _, spk_all = jax.lax.scan(step, st, ext_seq)
+            return spk_all
+
+        if T not in _jit_wave:
+            _jit_wave[T] = jax.jit(jax.vmap(run_one))
+        spikes_batch = np.asarray(_jit_wave[T](arr, jnp.asarray(ext), jnp.arange(len(nets), dtype=jnp.uint32)))
+        refined_rs = []
+        for b, net in enumerate(nets):
+            n_real = net.num_neurons
+            spk = spikes_batch[b, :, :n_real]
+            pre = np.array([s.pre for s in net.synapses], dtype=np.int32)
+            post = np.array([s.post for s in net.synapses], dtype=np.int32)
+            dly = np.array([s.delay for s in net.synapses], dtype=np.int32)
+            co = coactivity(spk, pre, post, dly, window=10).astype(float)
+            # Keep synapses whose coactivity is at least the mean coactivity of that presynaptic sensor
+            keep = np.zeros(len(pre), dtype=bool)
+            for si in s_idx:
+                m = pre == si
+                if m.any():
+                    thr = max(1.0, float(np.mean(co[m])))
+                    keep[m] = co[m] >= thr
+            if keep.any():
+                xy = np.asarray([[n.x, n.y] for n in net.neurons])
+                src_xy, tgt_xy = [], []
+                for si in s_idx:
+                    m = (pre == si) & keep
+                    if m.any():
+                        t_idx = post[m]
+                        wm = np.maximum(co[m], 1.0)
+                        src_xy.append(xy[si] / 30.0)
+                        tgt_xy.append(((xy[t_idx] - [50.0, 0.0]) / 30.0 * wm[:, None]).sum(0) / wm.sum())
+                if len(src_xy) > 2:
+                    s_a, t_a = np.asarray(src_xy), np.asarray(tgt_xy)
+                    refined_rs.append(0.5 * (np.corrcoef(s_a[:, 0], t_a[:, 0])[0, 1] + np.corrcoef(s_a[:, 1], t_a[:, 1])[0, 1]))
+                else:
+                    refined_rs.append(0.0)
+            else:
+                refined_rs.append(0.0)
+        return np.asarray(refined_rs)
+
+    r_raw_m, r_raw_s, r_ref_m, r_ref_s = [], [], [], []
+    for sig in sigmas:
+        g = copy.deepcopy(base)
+        g["guidance"][("sensor", "map")]["sigma"] = sig
+        nets = [grow(plan, g, seed=s) for s in seeds]
+        rr = _mean_r(nets)
+        rf = _refine_batch(nets)
+        r_raw_m.append(rr.mean()); r_raw_s.append(rr.std())
+        r_ref_m.append(rf.mean()); r_ref_s.append(rf.std())
+        print(f"  sigma={sig:.2f}: raw r={rr.mean():.3f}+-{rr.std():.3f}, refined r={rf.mean():.3f}+-{rf.std():.3f}")
+
+    counts = [50, 100, 200, 400]
+    cnt_m, cnt_s = [], []
+    for nc in counts:
+        g = copy.deepcopy(base)
+        g["count"]["map"] = nc
+        nets = [grow(plan, g, seed=s) for s in seeds]
+        rr = _mean_r(nets)
+        cnt_m.append(rr.mean()); cnt_s.append(rr.std())
+        print(f"  N_map={nc}: r={rr.mean():.3f}+-{rr.std():.3f}")
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10.5, 4.0))
+    ax1.errorbar(sigmas, r_raw_m, yerr=r_raw_s, marker="o", lw=2, c="#0072B2", capsize=3, label="chemoaffinity alone")
+    ax1.errorbar(sigmas, r_ref_m, yerr=r_ref_s, marker="s", lw=2, c="#009E73", capsize=3, label="after STDP wave refinement + prune")
+    ax1.set_xlabel(r"Arbor spread $\sigma$")
+    ax1.set_ylabel("Topographic Pearson r (mean ± SD, 100 seeds)")
+    ax1.set_ylim(0.55, 1.02)
+    ax1.set_title("Precision vs. arbor spread (N_map = 200)", fontsize=10)
+    ax1.legend(fontsize=8.5, frameon=False, loc="lower left")
+
+    ax2.errorbar(counts, cnt_m, yerr=cnt_s, marker="o", lw=2, c="#D55E00", capsize=3)
+    ax2.set_xlabel("Number of map cells N_map")
+    ax2.set_ylabel("Topographic Pearson r (mean ± SD, 100 seeds)")
+    ax2.set_ylim(0.85, 1.01)
+    ax2.set_xscale("log"); ax2.set_xticks(counts); ax2.get_xaxis().set_major_formatter(matplotlib.ticker.ScalarFormatter())
+    ax2.set_title("Precision vs. target population size (sigma = 0.12)", fontsize=10)
+    fig.tight_layout()
+    save_png(fig, "topographic_study_100seeds.png", dpi=115)
+
 
 TASKS = dict(cli=make_cli, topo=make_topo, models=make_models, fi=make_fi, cost=make_cost, evo=make_evo,
-             stages=make_stages, retino=make_retino)
+             stages=make_stages, retino=make_retino, fields=make_fields, plasticity=make_plasticity,
+             layered=make_layered, optic=make_optic, knockouts=make_knockouts,
+             modules_demo=make_modules_demo, topo_study=make_topo_study)
 
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)

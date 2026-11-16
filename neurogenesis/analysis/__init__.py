@@ -3,6 +3,7 @@ for its own sake; functions take a tissue, a network, positions, connectivity ar
 numbers.
 
 Layout (one module per kind of measure; add new measures to the matching module or a new one here):
+
 - `cells`: single-cell responses (frequency-current curves);
 - `structure`: anatomy and wiring (mosaic regularity, connection lengths, modules);
 - `criticality`: statistics of population activity (branching parameter, avalanches, scaling relations);

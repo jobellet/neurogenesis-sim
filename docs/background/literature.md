@@ -193,9 +193,33 @@ Licences: these tools keep their own licences (several are GPL, LGPL or CeCILL, 
 non-commercial). neurogenesis-sim uses them only as optional dependencies or as test references, never copies their
 code, and never redistributes their data; see {doc}`../development/third-party`.
 
-```{admonition} PLACEHOLDER
-:class: placeholder
-A comparison table with measured numbers (time to grow and simulate a reference circuit) against Cx3D / BioDynaMo,
-Brian 2 and NEST; a BibTeX file of all references; and short summaries of how each listed model maps onto toolbox
-stages and Params.
-```
+## Mapping classical mechanisms onto toolbox stages and `Param`s
+
+| Mechanism / paper | Toolbox stage, rule, or `Param` | Key parameter mapping |
+|---|---|---|
+| Positional information (Wolpert 1969); morphogens (Turing 1952; Gierer & Meinhardt 1972) | `express`, `differentiate`, `AnalyticField`, `GridField` | `morphogens` weighted onto `K` expression channels; `condition` thresholds on `expr[k]` and `field_<name>` |
+| Notch–Delta lateral inhibition (Collier et al. 1996) | `express` (`radius > 0`, `neighbor_weights < 0`) | Contact-radius neighbour sum suppresses `expr[0]` in adjacent cells (`examples/retinothalamic.py`) |
+| Inside-out laminar neurogenesis (Angevine & Sidman 1961; Rakic 1972) | `cell_cycle_clock`, `temporal_competence`, `proliferate`, `migrate` | Exit cycle freezes competence; `migrate` stops at `target_layer` in `LayerStackField` (`examples/layered_sheet.py`) |
+| Chemoaffinity gradients (Sperry 1963; McLaughlin & O'Leary 2005) | `grow_axons`, `expression_gradient`, `topographic` | `target = sigmoid(4 B (pos - 0.5) + c)` or graded `Expr` receptor levels |
+| Activity-dependent refinement & retinal waves (Willshaw & von der Malsburg 1976; Wong 1999) | `refine_by_activity` (`waves`), `competitive_elimination`, `prune` | Travelling wave currents + `STDPRule` / coactivity competition per target cell |
+| Developmental GABA polarity switch (Ben-Ari 2002; Rivera et al. 1999) | `pharmacology`, `transporter_switch` | Context (`"immature"` vs `"mature"`) or age-driven NKCC1→KCC2 `e_rev` shift |
+| STDP & three-factor learning (Bi & Poo 1998; Frémaux & Gerstner 2016) | `STDPRule`, `ThreeFactorRule`, `neuromodulate` | Exponential pre/post traces (`tau_plus`, `tau_minus`) and eligibility $\times$ volume-transmitted modulator |
+| Peters' rule & morphology (Peters & Feldman 1976) | `grow_arbors`, `arbor_synapses`, `dendritic_attenuate` | Axonal–dendritic proximity via `CellList`, path-length delays, exponential dendritic attenuation |
+| Island-model neuroevolution (Whitley et al. 1999) | `neurogenesis.evolution.islands.evolve`, `evolve_es`, `evolve_qd` | Isolated islands evaluated on fresh `seeds_of(island, gen, n)` each generation |
+
+## Measured growth and simulation times on reference circuits
+Timings measured on a single CPU (`JAX_PLATFORMS=cpu`, `docs/_scripts` benchmark):
+
+| Circuit / workload | Size ($N$ cells, $E$ synapses) | Growth time | 1 s simulation (1,000 ticks) |
+|---|---|---|---|
+| `examples/topographic_map.py` (seed 0) | 236, 124 | 20.4 ms | 5.7 ms (`lif_int`, JAX CPU) |
+| `examples/layered_sheet.py` (15 stages) | 112, 686 | 1.68 s | 10.4 ms (`lif_int`, JAX CPU) |
+| `examples/retinothalamic.py` (WT, 4 waves) | 423, 760 | 3.01 s | 19.5 ms (`lif_int`, JAX CPU) |
+| Cortical column (`generate --neurons 1000`) | 1,000, 28,670 | — | 62.1 ms (`numba_backend`), 178.3 ms (`lif_int` JAX), 280.3 ms (`two_compartment`), 1.199 s (`hh`), 74.26 s (Python `reference`) |
+
+Simulators such as Cx3D / BioDynaMo solve continuous 3D physical forces between neurites, whereas Brian 2 and NEST
+target biophysical conductance / network simulation without an integrated evolvable developmental schedule; grown
+networks can be handed to NEST, NEURON, or Brian 2 via {doc}`../integration/other-simulators`.
+
+## BibTeX file
+All references listed above are available in BibTeX format: {download}`references.bib <../_static/references.bib>`.

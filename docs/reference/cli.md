@@ -16,8 +16,9 @@
 | `data info` / `data fetch` | dataset size, license, citation; resumable, checksum-verified download | `dataset --manifest --target --yes` |
 | `profile check` / `profile show` / `profile report` | check that every parameter of a profile has a status and a source (exit 1 on failure); list parameters with their status; what a project's parameters rest on (`metadata.profiles`, genes, `Fit`) | `profiles --all --online`, `project` |
 | `ui-schema` | export the versioned UI schema JSON for the desktop apps | `--project --calibrated` |
-| `export` | write a network (JSON or NGB1) in another format; prints the export report | `network --format {sonata} --out` |
-| `import` | read a network from another format into network JSON | `path --format {sonata} --out` |
+| `export` | write a network (JSON or NGB1) in another format; prints the export report | `network --format {sonata,nir} --out` |
+| `import` | read a network from another format into network JSON | `path --format {sonata,nir} --out` |
+| `share` | validate an experiment and export a `neurogenesis-card/1` bundle | `--project --genome --targets --orcid --doi --author --name --out` |
 
 Every command has `--help`. Worked examples: {doc}`../tutorials/cli`.
 
@@ -34,7 +35,18 @@ JSON-lines server for apps and other programs. No options; see {doc}`bridge-prot
 | `NEUROGENESIS_DATA`, `NEUROGENESIS_DATASETS` | dataset cache; extra manifest directory |
 | `NEUROGENESIS_PROFILES` | pharmacology profile directory |
 
-```{admonition} PLACEHOLDER
-:class: placeholder
-Planned: `neurogenesis run`, `neurogenesis stages --json`, `neurogenesis data list`.
+## Inspecting registered stages and running Projects from the shell
+Export the machine-readable catalogue of all registered stages, `Param` schemas, geometries, fields, and neuron models:
+
+```bash
+python -m neurogenesis ui-schema > ui_schema.json
+```
+
+Run a Project's developmental schedule and save the compiled network JSON directly from the shell (or send `run_schedule`
+over `python -m neurogenesis.bridge`):
+
+```bash
+python -c 'from neurogenesis.project.io import Project; from neurogenesis.stages.base import run_schedule
+p = Project.load("project.json")
+run_schedule(p.to_dict(), p.genome, seed=0).to_network().save_json("network.json")'
 ```

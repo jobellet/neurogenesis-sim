@@ -61,12 +61,14 @@ def degree_stats(pre, post, n: Optional[int] = None) -> Dict[str, float]:
 
 def reciprocity(pre, post, n: Optional[int] = None) -> Dict[str, float]:
     """Reciprocal connections of the binary directed graph:
+
     - `fraction`: fraction of connections i -> j whose reverse j -> i exists;
     - `pairs`: number of reciprocally connected unordered pairs;
     - `overrepresentation`: fraction / p, with p = E / (n (n - 1)) the connection probability (1 when reciprocal
       pairs are as frequent as in a random graph of the same density; Song et al. 2005 report about 4 in rat cortex);
     - `r`: Pearson correlation between A_ij and A_ji over ordered pairs i != j, (R / M - p^2) / (p (1 - p)) with R
       ordered reciprocal pairs and M = n (n - 1) (0 for an Erdos-Renyi graph, 1 when every connection is reciprocal).
+
     nan without connections. O(E log E)."""
     a, b, n = edges(pre, post, n)
     E = len(a)

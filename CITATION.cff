@@ -1,4 +1,5 @@
 cff-version: 1.2.0
+version: "0.1.0"
 message: "If you use neurogenesis-sim, please cite it as below, and cite the methods and datasets you use (docs/THIRD_PARTY.md)."
 title: "neurogenesis-sim: growing spiking neural networks through development"
 type: software

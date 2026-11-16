@@ -31,17 +31,27 @@ The CLI column (`generate --neurons 500 --weight-scale 0.2 --refractory 3`) simu
 neurons are spiking, and the population raster scrolls at the bottom right.
 ```
 
-```{admonition} PLACEHOLDER
-:class: placeholder
-A GIF of the viewer simulating a network while the camera orbits (`docs/_scripts/viewer_capture.py` writes it, but
-headless software-WebGL capture was too heavy for the documentation build machine; capture it on a desktop
-with a GPU).
+```{figure} ../_static/media/viewer_rotate.gif
+:width: 85%
+:class: gif-demo
+
+The 500-neuron column running live in the browser viewer while the camera orbits (captured headless with `docs/_scripts/viewer_capture.py`).
 ```
 
 The viewer is the reference implementation of the browser kernel and the lightweight web demo. Full editors
 (projects, geometry, fields, schedules) live in the desktop apps ({doc}`desktop-apps`).
 
-```{admonition} PLACEHOLDER
-:class: placeholder
-A hosted web demo on GitHub Pages (the built viewer with preset networks), embedded in this page.
+## Live browser demo
+You can interact with the built 3D viewer directly below (loading a 1,000-neuron cortical column preset with the
+bit-identical `lif_int` kernel) or [open it in a full tab](../_static/viewer/index.html?preset=column&no-modal):
+
+```{raw} html
+<div style="margin: 14px 0 22px 0; border: 1px solid #d0d7de; border-radius: 8px; overflow: hidden; background: #070b14;">
+  <iframe
+    src="../_static/viewer/index.html?preset=column&no-modal"
+    title="neurogenesis-sim 3D browser viewer"
+    style="width: 100%; height: 540px; border: 0; display: block;"
+    loading="lazy"
+  ></iframe>
+</div>
 ```
