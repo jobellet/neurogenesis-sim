@@ -19,15 +19,17 @@ import { SceneManager } from './render/SceneManager';
 import { Inspector } from './ui/Inspector';
 import { RasterCanvas } from './ui/RasterCanvas';
 import { DEFAULT_SEED, stepKernel } from './sim/kernel';
+import { loadPresetNetwork } from './sim/presets';
 
 // 1. Allocate Simulation Memory (SharedArrayBuffer when available, ArrayBuffer fallback)
 const simMem: SharedSimulationMemory = createSharedSimulationMemory();
 const spatialHash = new SpatialHashManager();
 
 // 2. Initialize Initial State
-// Allow URL param override (?preset=column or ?test=1 for testing)
+// Allow URL param override (?preset=... or ?test=1 for testing)
 const urlParams = new URLSearchParams(window.location.search);
-const shouldStartWithColumn = urlParams.get('preset') === 'column' || urlParams.get('test') === '1';
+const requestedPreset = urlParams.get('preset');
+const shouldStartWithColumn = requestedPreset === 'column' || urlParams.get('test') === '1';
 
 const INITIAL_NEURONS = shouldStartWithColumn ? 1000 : 0;
 if (INITIAL_NEURONS > 0) {
@@ -596,7 +598,19 @@ requestAnimationFrame(animate);
 
 inspector.captureBaseline();
 
-// Open Simulation Setup Modal on initial startup unless in automated test mode
-if (!window.location.search.includes('no-modal') && !window.location.search.includes('test=1')) {
+if (requestedPreset && requestedPreset !== 'column') {
+  loadPresetNetwork(requestedPreset)
+    .then((net) => {
+      if (net) {
+        importNetwork(net);
+      }
+    })
+    .catch((err) => {
+      console.error(`[Main] Failed to load preset '${requestedPreset}':`, err);
+    });
+}
+
+// Open Simulation Setup Modal on initial startup unless in automated test mode or preset requested
+if (!window.location.search.includes('no-modal') && !window.location.search.includes('test=1') && !urlParams.has('preset')) {
   inspector.openStartupModal();
 }

@@ -116,3 +116,54 @@ def test_catalogue_card_remix_loop(card_path):
     # Re-grow perturbed tissue
     tissue = run_schedule(proj.to_dict(), proj.genome, seed=1000)
     assert len(tissue.alive) > 0
+
+
+def test_catalogue_markdown_and_html_cards():
+    """Verify that catalogue cards are formatted without indentation issues and that built HTML renders all 6 cards."""
+    cat_md = Path(__file__).resolve().parents[1] / "docs" / "catalogue.md"
+    assert cat_md.exists()
+    content = cat_md.read_text(encoding="utf-8")
+
+    # Verify no raw unescaped LaTeX math inside HTML
+    assert "$R \\ge 0.65$" not in content
+    assert "$\\sigma \\approx 1.0$" not in content
+    assert "<i>R</i> &ge; 0.65" in content
+    assert "&sigma; &approx; 1.0" in content
+
+    # Verify 3D viewer links across cards point to viewer/index.html?preset=...
+    assert "_static/viewer/index.html?preset=microcircuit_100" in content
+    assert "_static/viewer/index.html?preset=column_unsaturated_500" in content
+    assert "_static/viewer/index.html?preset=cortical_column_1000" in content
+    assert "_static/viewer/index.html?preset=test_column_500" in content
+    assert "_static/viewer/index.html?preset=layered_sheets_600" in content
+
+    # If Sphinx build artifact exists, verify rendered HTML structure
+    built_html = Path(__file__).resolve().parents[1] / "docs" / "_build" / "html" / "catalogue.html"
+    if built_html.exists():
+        html_text = built_html.read_text(encoding="utf-8")
+        # Ensure cards are not swallowed inside <pre><code>
+        assert "&lt;div class=&quot;catalogue-card&quot;" not in html_text
+        assert "&lt;!-- Card 2:" not in html_text
+        # Ensure all 6 catalogue-card DOM elements are present
+        card_count = html_text.count('class="catalogue-card"')
+        assert card_count == 6, f"Expected 6 catalogue-card elements in catalogue.html, found {card_count}"
+
+
+def test_viewer_static_redirect_and_bundle():
+    """Verify that docs/_static/viewer.html redirect shim exists and forwards query params to viewer/index.html."""
+    repo_root = Path(__file__).resolve().parents[1]
+    viewer_html = repo_root / "docs" / "_static" / "viewer.html"
+    assert viewer_html.exists(), "docs/_static/viewer.html redirect shim must exist"
+    viewer_content = viewer_html.read_text(encoding="utf-8")
+    assert "viewer/index.html" in viewer_content
+    assert "window.location.search" in viewer_content
+
+    viewer_index = repo_root / "docs" / "_static" / "viewer" / "index.html"
+    assert viewer_index.exists(), "docs/_static/viewer/index.html must exist"
+
+    # Verify presets are chunked and present in assets
+    assets_dir = repo_root / "docs" / "_static" / "viewer" / "assets"
+    assert assets_dir.exists()
+    preset_chunks = list(assets_dir.glob("microcircuit_100-*.js"))
+    assert len(preset_chunks) > 0, "microcircuit_100 chunk must be present in viewer/assets"
+

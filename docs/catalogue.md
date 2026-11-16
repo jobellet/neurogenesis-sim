@@ -2,6 +2,7 @@
 
 Explore pre-evolved spiking neural circuits validated against target biological readouts. Every circuit card includes empirical target fitness scores across developmental seeds, biophysical compute cost estimates calculated via `neurogenesis.cost`, provenance (authors, ORCID, paper DOI), and a one-line loader to pull and remix.
 
+```{raw} html
 <div class="catalogue-container">
   <div class="catalogue-search-bar">
     <div class="catalogue-input-row">
@@ -27,11 +28,11 @@ Explore pre-evolved spiking neural circuits validated against target biological 
       </div>
       <div class="catalogue-card-body">
         <div class="catalogue-card-header">
-          <h3 class="catalogue-card-title">alpha-rhythm-sync</h3>
+          <h3 class="catalogue-card-title">cortical-alpha-microcircuit</h3>
           <span class="catalogue-card-category">Oscillations & LFP</span>
         </div>
         <div class="catalogue-target-desc">
-          Target: <strong>10 Hz Alpha Oscillation</strong> with balanced recurrent E/I synchrony ($R \ge 0.65$) under continuous background drive.
+          Target: <strong>10 Hz Alpha Oscillation</strong> with balanced recurrent E/I synchrony (<i>R</i> &ge; 0.65) under continuous background drive.
         </div>
         <div class="catalogue-metrics-row">
           <div class="catalogue-metric-item">
@@ -54,12 +55,12 @@ Explore pre-evolved spiking neural circuits validated against target biological 
         </div>
         <div class="catalogue-card-footer">
           <div class="catalogue-code-row">
-            <code>from neurogenesis.data.catalogue import pull; net = pull("alpha-rhythm-sync")</code>
-            <button class="catalogue-copy-btn" data-snippet="from neurogenesis.data.catalogue import pull; net = pull('alpha-rhythm-sync')">Copy</button>
+            <code>from neurogenesis.data.catalogue import pull; proj = pull("cortical-alpha-microcircuit")</code>
+            <button class="catalogue-copy-btn" data-snippet="from neurogenesis.data.catalogue import pull; proj = pull('cortical-alpha-microcircuit')">Copy</button>
           </div>
           <div class="catalogue-links-row">
             <span class="catalogue-provenance">Bellet et al. (ORCID: 0000-0002-1825-0097)</span>
-            <a href="_static/viewer.html?preset=microcircuit_100" class="catalogue-view-btn">Launch 3D &rarr;</a>
+            <a href="_static/viewer/index.html?preset=microcircuit_100" class="catalogue-view-btn">Launch 3D &rarr;</a>
           </div>
         </div>
       </div>
@@ -104,7 +105,7 @@ Explore pre-evolved spiking neural circuits validated against target biological 
           </div>
           <div class="catalogue-links-row">
             <span class="catalogue-provenance">Chen et al. (ORCID: 0000-0001-9234-5678)</span>
-            <a href="_static/viewer.html?preset=column" class="catalogue-view-btn">Launch 3D &rarr;</a>
+            <a href="_static/viewer/index.html?preset=column_unsaturated_500" class="catalogue-view-btn">Launch 3D &rarr;</a>
           </div>
         </div>
       </div>
@@ -149,7 +150,7 @@ Explore pre-evolved spiking neural circuits validated against target biological 
           </div>
           <div class="catalogue-links-row">
             <span class="catalogue-provenance">Markram et al. (ORCID: 0000-0003-4567-8901)</span>
-            <a href="_static/viewer.html?preset=cortical_column_1000" class="catalogue-view-btn">Launch 3D &rarr;</a>
+            <a href="_static/viewer/index.html?preset=cortical_column_1000" class="catalogue-view-btn">Launch 3D &rarr;</a>
           </div>
         </div>
       </div>
@@ -166,7 +167,7 @@ Explore pre-evolved spiking neural circuits validated against target biological 
           <span class="catalogue-card-category">Pharmacology</span>
         </div>
         <div class="catalogue-target-desc">
-          Target: <strong>Balanced Criticality</strong> ($\sigma \approx 1.0$) with GABA-A positive allosteric modulation tuning burst suppression.
+          Target: <strong>Balanced Criticality</strong> (&sigma; &approx; 1.0) with GABA-A positive allosteric modulation tuning burst suppression.
         </div>
         <div class="catalogue-metrics-row">
           <div class="catalogue-metric-item">
@@ -194,7 +195,7 @@ Explore pre-evolved spiking neural circuits validated against target biological 
           </div>
           <div class="catalogue-links-row">
             <span class="catalogue-provenance">Alvarez et al. (ORCID: 0000-0002-8765-4321)</span>
-            <a href="_static/viewer.html?preset=test_column_500" class="catalogue-view-btn">Launch 3D &rarr;</a>
+            <a href="_static/viewer/index.html?preset=test_column_500" class="catalogue-view-btn">Launch 3D &rarr;</a>
           </div>
         </div>
       </div>
@@ -239,7 +240,7 @@ Explore pre-evolved spiking neural circuits validated against target biological 
           </div>
           <div class="catalogue-links-row">
             <span class="catalogue-provenance">Gomez et al. (ORCID: 0000-0001-5555-4321)</span>
-            <a href="_static/viewer.html?preset=layered_sheets_600" class="catalogue-view-btn">Launch 3D &rarr;</a>
+            <a href="_static/viewer/index.html?preset=layered_sheets_600" class="catalogue-view-btn">Launch 3D &rarr;</a>
           </div>
         </div>
       </div>
@@ -284,13 +285,14 @@ Explore pre-evolved spiking neural circuits validated against target biological 
           </div>
           <div class="catalogue-links-row">
             <span class="catalogue-provenance">Hasselmo et al. (ORCID: 0000-0003-1122-3344)</span>
-            <a href="_static/viewer.html?preset=cortical_column_1000" class="catalogue-view-btn">Launch 3D &rarr;</a>
+            <a href="_static/viewer/index.html?preset=cortical_column_1000" class="catalogue-view-btn">Launch 3D &rarr;</a>
           </div>
         </div>
       </div>
     </div>
   </div>
 </div>
+```
 
 ## Using Catalogue Microcircuits
 
@@ -298,23 +300,28 @@ Any catalogued microcircuit can be pulled with a single Python command, perturbe
 
 ```python
 from neurogenesis.data.catalogue import pull
-from neurogenesis.pharmacology import apply_drug
+from neurogenesis.pharmacology import apply_drug, Profile, Receptor
+from neurogenesis.stages.base import run_schedule
 
 # 1. Pull the pre-evolved discovery card
-circuit = pull("alpha-rhythm-sync")
+project = pull("cortical-alpha-microcircuit")
 
-# 2. Perturb in place with pharmacology or gene editing
+# 2. Grow the microcircuit
+tissue = run_schedule(project.to_dict(), project.genome, seed=1000)
+
+# 3. Perturb in place with pharmacology
+profile = Profile("gaba_ampa", receptors=[Receptor("ampa", sign=1), Receptor("gabaa", sign=-1)])
 apply_drug(
-    circuit.tissue,
-    circuit.profile,
+    tissue,
+    profile,
     drug="diazepam",
     dose=0.5,
     effect="modulator",
-    receptor="GABA_A",
+    receptor="gabaa",
 )
 
-# 3. Simulate or measure readouts
-print(f"Loaded circuit with {circuit.tissue.num_cells} cells and {circuit.tissue.connectivity.num_synapses} synapses.")
+# 4. Measure readouts
+print(f"Loaded circuit with {len(tissue.alive)} cells and {len(tissue.connectivity.pre)} synapses.")
 ```
 
 To contribute your own evolved circuits to the catalogue, use the CLI:

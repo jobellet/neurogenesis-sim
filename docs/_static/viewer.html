@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>neurogenesis-sim 3D viewer</title>
+  <script>
+    // Forward all query parameters and hash to the built viewer application
+    var target = "viewer/index.html" + window.location.search + window.location.hash;
+    window.location.replace(target);
+  </script>
+  <noscript>
+    <meta http-equiv="refresh" content="0; url=viewer/index.html">
+  </noscript>
+</head>
+<body>
+  <p>Loading 3D viewer... <a id="link" href="viewer/index.html">Click here if not redirected automatically</a>.</p>
+  <script>
+    var linkEl = document.getElementById("link");
+    if (linkEl) {
+      linkEl.href = "viewer/index.html" + window.location.search + window.location.hash;
+    }
+  </script>
+</body>
+</html>

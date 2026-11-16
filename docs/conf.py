@@ -42,3 +42,4 @@ html_js_files = ["retinothalamic_carousel.js", "catalogue_search.js"]   # the fr
 html_title = "neurogenesis-sim documentation"
 html_context = {"display_github": True, "github_user": "jobellet", "github_repo": "neurogenesis-sim",
                 "github_version": "main", "conf_py_path": "/docs/"}
+linkcheck_ignore = [r"http://localhost:\d+"]
