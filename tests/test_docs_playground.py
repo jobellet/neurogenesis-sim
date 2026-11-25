@@ -104,6 +104,38 @@ def test_js_coactivity_and_competition_equal_python(tmp_path):
 
 
 @needs_node
+def test_js_cue_field_and_two_phase_growth_equal_python(tmp_path):
+    """CueField values, and grow_arbors with guidance, a target threshold and confinement (no noise or branching,
+    so growth is deterministic), give the same nodes in JavaScript (2D: x, z) as in Python (y = 0)."""
+    from neurogenesis.fields.maps import CueField
+    rng = np.random.default_rng(4)
+    src = np.c_[rng.uniform(0, 1, 30), rng.uniform(0.6, 0.72, 30)]
+    amounts, length, cutoff = rng.uniform(0.2, 1.0, 30), 0.05, 3.0
+    q = np.c_[rng.uniform(0, 1, 200), rng.uniform(0.4, 0.9, 200)]
+    spec = {"points": src.tolist(), "amounts": amounts.tolist(), "length": length, "cutoff": cutoff}
+    cue = CueField(np.c_[src[:, 0], np.zeros(30), src[:, 1]], amounts, length=length, cutoff=cutoff)
+    js = json.loads(_js("cue", dict(spec, queries=q.tolist()), tmp_path))
+    np.testing.assert_allclose(js, cue.values(np.c_[q[:, 0], np.zeros(200), q[:, 1]]), rtol=1e-12, atol=1e-12)
+    assert max(js) > 1.0
+    cells = np.c_[np.linspace(0.1, 0.9, 6), np.full(6, -0.55)]
+    direction = np.c_[np.linspace(0.3, -0.3, 6), np.ones(6)]
+    params = {"steps": 30, "step_length": 0.06, "angle_noise": 0.0, "branch_prob": 0.0, "branch_angle": 0.6,
+              "target_threshold": 0.8, "arbor_branch_prob": 0.0, "arbor_step_length": 0.02, "arbor_angle_noise": 0.0,
+              "confine_to_target": True}
+    out = json.loads(_js("arbor", dict(spec, cells=cells.tolist(), gain=1.0,
+                                       params=dict(params, direction=direction.tolist())), tmp_path))
+    t = Tissue.empty()
+    t.add_cells(6, positions=np.c_[cells[:, 0], np.zeros(6), cells[:, 1]])
+    py = STAGE_REGISTRY["grow_arbors"]().run(
+        t, dict(params, direction=np.c_[direction[:, 0], np.zeros(6), direction[:, 1]], compartment="axon",
+                guidance=[{"field": "cue", "gain": 1.0}], target_field="cue"),
+        {}, {"cue": cue}, np.random.default_rng(0)).morphology
+    np.testing.assert_allclose(np.c_[out["x"], out["z"]], py.xyz[:, [0, 2]], atol=1e-5)
+    np.testing.assert_array_equal(out["parent"], py.parent)
+    assert 0 < sum(out["arbor"]) < len(out["arbor"])                        # shafts, then arbors in the target
+
+
+@needs_node
 def test_js_evolution_is_deterministic_and_improves_in_few_generations(tmp_path):
     """Best-offspring selection lifts the held-out fitness of the founder (about 0.01) within ten generations."""
     r = json.loads(_js("evolve", {"island": 0, "generations": 10, "lambda": 10}, tmp_path))

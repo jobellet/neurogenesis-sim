@@ -10,9 +10,9 @@
   const STAGE_COLOR = { neurogenesis: "#4ade80", fate: "#facc15", migration: "#38bdf8", axons: "#f472b6",
     refinement: "#c084fc", activity: "#fb923c" };
   const PREWARM = 5; // generations evolved before the first paint
-  const TAG = { neurogenesis: "cell_cycle_clock", fate: "proliferate", migration: "migrate", axons: "grow_axons",
+  const TAG = { neurogenesis: "cell_cycle_clock", fate: "proliferate", migration: "migrate", axons: "grow_arbors",
     refinement: "competitive_elimination", activity: "lif_int" };
-  const DUR = { neurogenesis: 9, fate: 4.5, migration: 8, axons: 7.5, refinement: 7, activity: 8 };
+  const DUR = { neurogenesis: 9, fate: 4.5, migration: 8, axons: 9, refinement: 7, activity: 8 };
   const COL = { glia: "#4ade80", newborn: "#f472b6", pyr: "#ff6fa8", inter: "#ffd166", bg: "#04070d" };
 
   const INFO = {
@@ -44,12 +44,16 @@
         "Tsai et al. 2007, Cell · Marín & Rubenstein 2001, Nat Rev Neurosci · Lodato et al. 2011, Neuron",
     },
     axons: {
-      title: "Axon guidance: thalamic axons find their place in layer 4",
-      text: "Each thalamic axon (coloured by its position in the thalamus) targets the point x = sigmoid(4B(x_thalamus − ½)) " +
-        "in layer 4, set by graded receptor expression, and contacts cells around it within a spread σ. B = 0 sends " +
-        "every axon to the centre; a positive B lays out an ordered map. The route drawn (intermediate zone, a wait in the " +
-        "subplate, then layer 4) is the one real thalamocortical axons take.",
-      refs: "Sperry 1963, PNAS · Ghosh & Shatz 1992, J Neurosci · López-Bendito & Molnár 2003, Nat Rev Neurosci",
+      title: "Axon guidance: a shaft finds layer 4, then branches there",
+      text: "Layer-4 cells release a cue (glow) that decays over a few cell diameters. Each thalamic axon (coloured by its " +
+        "position in the thalamus) grows from its cell body towards x = sigmoid(4B(x_thalamus − ½)) in layer 4, set by " +
+        "graded receptor expression, and its growth cone turns up the cue's gradient with its receptor gain (a negative " +
+        "gain repels). Where the cue reaches the arrival threshold the shaft stops and branches into a terminal arbor, " +
+        "kept where the cue is above the threshold; arbor branches that pass close to a cell body make synapses. An " +
+        "axon that never meets enough cue makes no arbor and no synapse. B = 0 sends every axon to the centre; a " +
+        "positive B lays out an ordered map.",
+      refs: "Sperry 1963, PNAS · Tessier-Lavigne & Goodman 1996, Science · Hong et al. 1999, Cell · " +
+        "Cohen-Cory & Fraser 1995, Nature · López-Bendito & Molnár 2003, Nat Rev Neurosci",
     },
     refinement: {
       title: "Refinement: spontaneous waves, then competition between inputs",
@@ -83,8 +87,9 @@
       ["Pyramidal cells in L4", "inL4", "%", "Fraction of pyramidal neurons whose final depth is in layer 4"],
       ["Interneuron coverage", "coverage", "%", "Fraction of the 10 tenths of the sheet that hold at least one interneuron"]],
     axons: [
-      ["Map slope", "slope", 2, "Least-squares slope of axon target x on thalamic x: 0 = no map, 1 = one-to-one map"],
-      ["Thalamocortical synapses", "grownTC", 0, "Synapses formed by thalamic axons, before refinement"]],
+      ["Map slope", "slope", 2, "Least-squares slope of the arbor centre x on thalamic x: 0 = no map, 1 = one-to-one map"],
+      ["Axons that arborise", "arrived", "%", "Thalamic axons that reached the arrival threshold of the layer-4 cue"],
+      ["Thalamocortical synapses", "grownTC", 0, "Synapses formed by thalamic arbors, before refinement"]],
     refinement: [
       ["Synapses grown", "grownTC", 0, "Thalamocortical synapses before competition"],
       ["Synapses kept", "keptTC", 0, "Thalamocortical synapses left after competitive elimination"]],
@@ -261,33 +266,43 @@
     for (let n = 0; n < net.N; n++) {
       cells.push({ x: net.cells.x[n], z: net.cells.z[n], kind: net.cells.kind[n], h: hash(n, seed + 5) });
     }
-    // thalamic axons: path through the intermediate zone and subplate to layer 4, branches to their targets
-    const NT = net.NT, L4 = D.L4_DEPTH;
+    // thalamic axons: the arbors grown by grow_arbors, node by node (a shaft, then a branching arbor in the cue)
+    const NT = net.NT, L4 = D.L4_DEPTH, A = rec.axons.arbor;
     const axons = [];
     for (let k = 0; k < NT; k++) {
-      const x = net.cells.x[k], tx = rec.axons.tx[k], lane = (k / NT - 0.5) * 0.05;
-      const pts = [[x, -1]];
-      for (let s = 0; s <= 4; s++) pts.push([x, 0.02 + 0.08 * (s / 4)]);
-      for (let s = 1; s <= 18; s++) {
-        const u = s / 18, v = 1 - u;
-        const bx = v * v * v * x + 3 * v * v * u * x + 3 * v * u * u * tx + u * u * u * tx;
-        const bz = v * v * v * 0.1 + 3 * v * v * u * (0.22 + lane) + 3 * v * u * u * (0.17 + lane) + u * u * u * 0.29;
-        pts.push([bx, bz]);
-      }
-      const sp = pts.length;
-      pts.push([tx, 0.33]);
-      for (let s = 1; s <= 8; s++) pts.push([tx, 0.33 + (L4 - 0.33) * (s / 8)]);
-      axons.push({ k: k, x: x, tx: tx, color: turbo(x), pts: pts, sp: sp, branches: [], kept: 0, h: hash(k, seed + 17) });
+      axons.push({ k: k, x: net.cells.x[k], tx: rec.axons.tx[k], color: turbo(net.cells.x[k]), edges: [], pts: [],
+        branches: [], kept: 0, arrived: false, h: hash(k, seed + 17) });
     }
-    const g = net.grown;
+    const firstChild = new Int32Array(A.x.length).fill(-1);
+    for (let i = 0; i < A.x.length; i++) {
+      const ax = axons[A.cell[i]], q = A.parent[i];
+      if (q < 0) {
+        ax.soma = i;
+        continue;
+      }
+      ax.edges.push(i); // the segment parent -> i, grown at step A.step[i]
+      if (A.arbor[i]) ax.arrived = true;
+      if (firstChild[q] < 0) firstChild[q] = i; // the tip's own continuation is added before its branches
+    }
+    for (const ax of axons) { // trunk, for action potentials: the shaft from the soma to the start of the arbor
+      let i = ax.soma;
+      ax.pts.push([A.x[i], A.z[i]]);
+      while (firstChild[i] >= 0 && !A.arbor[i]) {
+        i = firstChild[i];
+        ax.pts.push([A.x[i], A.z[i]]);
+      }
+      if (ax.pts.length < 2) ax.pts.push(ax.pts[0]);
+    }
+    const g = net.grown, synNode = rec.axons.synNode;
     for (let s = 0; s < g.pre.length; s++) {
       if (g.kind[s] !== 0) continue;
       const keep = rec.refinement.keep[s] === 1;
       const ax = axons[g.pre[s]];
-      ax.branches.push({ post: g.post[s], keep: keep, h: hash(s, seed + 23) });
+      ax.branches.push({ post: g.post[s], node: synNode[s], keep: keep, h: hash(s, seed + 23) });
       if (keep) ax.kept++;
     }
-    return { genome: genome, seed: seed, dev: dev, ev: ev, ph: ph, vz: vz, mge: mge, cells: cells, axons: axons,
+    return { genome: genome, seed: seed, dev: dev, ev: ev, ph: ph, vz: vz, mge: mge, cells: cells, axons: axons, arbor: A,
+      cue: rec.axons.cue,
       glia: rec.glia, NT: NT, N: net.N, nPyr: net.nPyr, rec: rec, net: net, C: C, L4: L4,
       wave: rec.refinement.wave, waveTicks: rec.refinement.ticks, raster: ev.rasters[0], ticks: ev.ticks,
       order: ev.orders[0] };
@@ -316,8 +331,10 @@
     g.X = function (x) {
       return x >= 0 ? g.x0 + x * (g.x1 - g.x0) : g.x0 + x * ((g.gut - 6) / 0.22);
     };
+    g.thalZ = -0.55; // depth of the thalamus (CONST.thalamusDepth); between it and the ventricle the gap is compressed
     g.Y = function (z) {
-      return z <= -0.5 ? g.thY : g.bot - (z / g.zTop) * (g.bot - g.top);
+      if (z < 0) return z <= g.thalZ ? g.thY : lerp(g.bot, g.thY, z / g.thalZ);
+      return g.bot - (z / g.zTop) * (g.bot - g.top);
     };
     return g;
   }
@@ -682,30 +699,34 @@
     return [lerp(g.X(a[0]), g.X(b[0]), r), lerp(g.Y(a[1]), g.Y(b[1]), r)];
   }
 
-  function drawAxon(ctx, g, ax, f, alpha, width) {
-    const n = ax.pts.length - 1, upto = clamp01(f) * n;
+  /**
+   * The grown arbor of one thalamic axon up to growth step S (fractional: the segments of step ceil(S) are drawn in
+   * part). Shaft segments are thicker than arbor segments. Returns the growing tips [x, y, px, py, arbor].
+   */
+  function drawTree(ctx, g, sc, ax, S, alpha, width) {
+    const A = sc.arbor, tips = [];
     ctx.strokeStyle = ax.color;
-    ctx.lineWidth = width;
-    ctx.beginPath();
-    ctx.moveTo(g.X(ax.pts[0][0]), g.Y(ax.pts[0][1]));
-    for (let i = 1; i <= Math.floor(upto); i++) {
-      const p = ax.pts[i];
-      if (i === 1) { // the schematic crossing below the slice is faint
-        ctx.globalAlpha = alpha * 0.35;
-        ctx.lineTo(g.X(p[0]), g.Y(p[1]));
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(g.X(p[0]), g.Y(p[1]));
-        ctx.globalAlpha = alpha;
-        continue;
+    for (let pass = 0; pass < 2; pass++) { // 0: shaft, 1: arbor
+      ctx.globalAlpha = pass ? alpha * 0.8 : alpha;
+      ctx.lineWidth = pass ? width * 0.55 : width;
+      ctx.beginPath();
+      for (const i of ax.edges) {
+        if (A.arbor[i] !== pass) continue;
+        const f = S - (A.step[i] - 1);
+        if (f <= 0) continue;
+        const q = A.parent[i], x0 = g.X(A.x[q]), y0 = g.Y(A.z[q]);
+        let x1 = g.X(A.x[i]), y1 = g.Y(A.z[i]);
+        if (f < 1) {
+          x1 = lerp(x0, x1, f);
+          y1 = lerp(y0, y1, f);
+          tips.push([x1, y1, x0, y0, pass]);
+        }
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
       }
-      ctx.lineTo(g.X(p[0]), g.Y(p[1]));
+      ctx.stroke();
     }
-    const tip = axonPoint(g, ax, f);
-    ctx.lineTo(tip[0], tip[1]);
-    ctx.globalAlpha = alpha;
-    ctx.stroke();
-    return tip;
+    return tips;
   }
 
   function drawGrowthCone(ctx, g, tip, prev, color, s, t) {
@@ -729,9 +750,9 @@
   }
 
   function branchGeom(g, sc, ax, br) {
-    const c = sc.cells[br.post];
-    const x0 = g.X(ax.tx), y0 = g.Y(sc.L4), x1 = g.X(c.x), y1 = g.Y(c.z);
-    return { x0: x0, y0: y0, x1: x1, y1: y1, cx: (x0 + x1) / 2 + (br.h - 0.5) * 8 * g.s, cy: (y0 + y1) / 2 - 3 * g.s };
+    const c = sc.cells[br.post], A = sc.arbor;
+    const x0 = g.X(A.x[br.node]), y0 = g.Y(A.z[br.node]), x1 = g.X(c.x), y1 = g.Y(c.z);
+    return { x0: x0, y0: y0, x1: x1, y1: y1, cx: (x0 + x1) / 2 + (br.h - 0.5) * 3 * g.s, cy: (y0 + y1) / 2 - 1.5 * g.s };
   }
 
   function drawBranch(ctx, bg, f, color, alpha, width) {
@@ -978,48 +999,50 @@
       if (raster) advanceRaster(st, raster, sc.N, sc.NT, tick, 10, mode);
       const ca = raster ? st.ca : null;
 
-      // axons and branches
-      let grown = 0, kept = 0;
+      // the layer-4 cue: a glow around each releasing cell (secrete_cue), strongest while axons grow
+      if (isStage("axons") && sc.cue.points.length) {
+        const rc = sc.C.cueLength * (g.x1 - g.x0) * 1.6, pulse = 0.75 + 0.25 * Math.sin(time * 2.2);
+        for (let i = 0; i < sc.cue.points.length; i++) {
+          const pt = sc.cue.points[i];
+          drawGlow(ctx, "#f9a8d4", g.X(pt[0]), g.Y(pt[1]), rc, 0.16 * sc.cue.amounts[i] * pulse * (1 - 0.6 * clamp01((p - 0.8) / 0.2)));
+        }
+      }
+      // axons and their synapses
+      let grown = 0, kept = 0, arrived = 0;
+      const steps = sc.C.axonSteps, S = isStage("axons") ? steps * clamp01(p / 0.8) : steps + 1;
       for (const ax of sc.axons) {
-        let f = 1, alpha = 0.55;
-        if (isStage("axons")) {
-          const d = 0.06 * ax.h, fsp = (ax.sp) / (ax.pts.length - 1);
-          const q = p - d;
-          f = q < 0.4 ? fsp * ease(q / 0.4) : q < 0.5 ? fsp : fsp + (1 - fsp) * ease((q - 0.5) / 0.16);
-          alpha = 0.7;
-        } else if (isStage("activity")) {
-          alpha = ax.kept > 0 ? 0.32 : 0.08;
-        } else {
-          alpha = 0.45;
+        let alpha = 0.45;
+        if (isStage("axons")) alpha = 0.75;
+        else if (isStage("activity")) alpha = ax.kept > 0 ? 0.32 : 0.08;
+        const tips = drawTree(ctx, g, sc, ax, S, alpha, 0.9);
+        if (ax.arrived) arrived++;
+        for (const tp of tips) { // growth cones: full on the shaft, small on the arbor's tips
+          if (tp[4] === 0) drawGrowthCone(ctx, g, [tp[0], tp[1]], [tp[2], tp[3]], ax.color, s, time + ax.h * 5);
+          else drawGlow(ctx, ax.color, tp[0], tp[1], 3 * s, 0.6);
         }
-        const tip = drawAxon(ctx, g, ax, f, alpha, 0.9);
-        if (isStage("axons") && f < 0.999) {
-          drawGrowthCone(ctx, g, tip, axonPoint(g, ax, Math.max(0, f - 0.04)), ax.color, s, time + ax.h * 5);
-        }
-        if (f >= 0.999) {
-          for (const br of ax.branches) {
-            grown++;
-            const bg = branchGeom(g, sc, ax, br);
-            let bf = 1, ba = 0.5, col = ax.color;
-            if (isStage("axons")) {
-              bf = ease((p - 0.68 - 0.18 * br.h) / 0.14);
-              ba = 0.55;
-            } else if (isStage("refinement")) {
-              if (!br.keep) {
-                const r = clamp01((p - 0.62 - 0.1 * br.h) / 0.18);
-                bf = 1 - 0.85 * ease(r);
-                ba = 0.5 * (1 - 0.7 * r);
-                col = r > 0.05 ? "#64748b" : ax.color;
-              }
-            } else if (isStage("activity")) {
-              if (!br.keep) continue;
-              ba = 0.28 + (ca ? 0.6 * Math.min(1, ca[ax.k]) : 0);
+        if (S < steps) continue;
+        for (const br of ax.branches) {
+          grown++;
+          const bg = branchGeom(g, sc, ax, br);
+          let bf = 1, ba = 0.5, col = ax.color;
+          if (isStage("axons")) {
+            bf = ease((p - 0.8 - 0.08 * br.h) / 0.1);
+            ba = 0.55;
+          } else if (isStage("refinement")) {
+            if (!br.keep) {
+              const r = clamp01((p - 0.62 - 0.1 * br.h) / 0.18);
+              bf = 1 - 0.85 * ease(r);
+              ba = 0.5 * (1 - 0.7 * r);
+              col = r > 0.05 ? "#64748b" : ax.color;
             }
-            if (br.keep) kept++;
-            drawBranch(ctx, bg, bf, col, ba, 0.7);
-            if (bf >= 1 && (br.keep || !isStage("refinement") || p < 0.62)) {
-              drawGlow(ctx, ax.color, bg.x1, bg.y1, 3 * s, 0.5);
-            }
+          } else if (isStage("activity")) {
+            if (!br.keep) continue;
+            ba = 0.28 + (ca ? 0.6 * Math.min(1, ca[ax.k]) : 0);
+          }
+          if (br.keep) kept++;
+          drawBranch(ctx, bg, bf, col, ba, 0.7);
+          if (bf >= 1 && (br.keep || !isStage("refinement") || p < 0.62)) {
+            drawGlow(ctx, ax.color, bg.x1, bg.y1, 3 * s, 0.5);
           }
         }
       }
@@ -1052,7 +1075,10 @@
         ctx.arc(X, Y, 2 * s, 0, 6.283);
         ctx.fill();
       }
-      if (isStage("axons")) hud = "map slope " + sc.ph.slope.toFixed(2) + " · " + grown + " synapses";
+      if (isStage("axons")) {
+        hud = p < 0.8 ? "growth step " + Math.min(steps, Math.ceil(S)) + "/" + steps + " · " + arrived + " of " + sc.NT +
+          " axons arborise in the cue" : "map slope " + sc.ph.slope.toFixed(2) + " · " + grown + " synapses";
+      }
       if (isStage("refinement")) {
         hud = p < 0.6 ? "spontaneous wave · tick " + tick + " ms" : "kept " + kept + " of " + grown + " inputs";
       }

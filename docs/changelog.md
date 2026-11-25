@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased (November 2026)
+- Front-page playground: thalamic axons now grow with the C27 options of `grow_arbors` instead of jumping to a target
+  point. Layer-4 cells release a cue (`secrete_cue`); each axon heads for its chemoaffinity target, turns up the cue's
+  gradient with an evolvable receptor gain (negative repels), switches from shaft to branching arbor at an evolvable
+  arrival threshold, and makes synapses where its arbor meets cell bodies (`arbor_synapses`). Three genes (receptor
+  gain, arrival threshold, arbor branching) replace the arbor spread σ; the page animates the grown nodes step by step.
+  `NGJS.CueField` and `NGJS.growArbors` match Python (`tests/test_docs_playground.py`); playground statistics updated
+  (`docs/getting-started/playground.md`).
 - Fix: cell selectors given to `grow_arbors` (`cells`), `secrete_cue` (`cells`) and `refine_by_activity` (wave `cells`)
   through `run_schedule` arrive as `Const(dict)` and were ignored (every cell selected); they now select. `refine_by_activity`
   `sources` also accepts a {region, cell_type} selector (before: cell ids only). Projects that relied on the old behaviour

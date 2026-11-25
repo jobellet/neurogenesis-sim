@@ -6,6 +6,8 @@
 //   genes   spec.json        from_unit / to_unit of {genome, genes, u}
 //   seeds   spec.json        seeds_of for {island, generation, n}
 //   coact   spec.json        coactivity and competitive losers for {spikes, pre, post, delay, window, fraction}
+//   cue     spec.json        CueField values of {points, amounts, length, cutoff} at {queries} (2D: x, z)
+//   arbor   spec.json        growArbors nodes of {cells, params, gain} with that CueField as guidance and target
 //   evolve  spec.json        a short evolution {island, generations, lambda}: fitness history and determinism
 "use strict";
 const fs = require("fs");
@@ -43,6 +45,18 @@ if (cmd === "kernel") {
   const score = NG.coactivity(flat, T, N, spec.pre, spec.post, spec.delay, spec.window);
   const lose = NG.competitiveLosers(score, spec.post, flat, T, N, spec.fraction, 1);
   console.log(JSON.stringify({ score: Array.from(score), lose: Array.from(lose) }));
+} else if (cmd === "cue") {
+  const f = NG.CueField(spec.points, spec.amounts, spec.length, spec.cutoff);
+  console.log(JSON.stringify(spec.queries.map(([x, z]) => f.value(x, z))));
+} else if (cmd === "arbor") {
+  const f = NG.CueField(spec.points, spec.amounts, spec.length, spec.cutoff);
+  const n = spec.cells.length;
+  const p = Object.assign({}, spec.params, {
+    guidance: [{ field: f, gain: new Array(n).fill(spec.gain) }], target_field: f, max_nodes: 1e6,
+  });
+  const nodes = NG.growArbors({ x: spec.cells.map((c) => c[0]), z: spec.cells.map((c) => c[1]) }, p,
+    NG.Stream(1, "grow_arbors"));
+  console.log(JSON.stringify(nodes));
 } else if (cmd === "evolve") {
   const D = NG.CortexMapDemo;
   const run = () => {

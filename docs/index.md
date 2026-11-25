@@ -8,8 +8,8 @@ cheaply.**
 <script src="_static/ngjs/ng-hero.js"></script>
 
 **What runs above.** A JavaScript port of the toolbox grows each individual through six stages (cell-cycle exit,
-interneuron production, radial and tangential migration, chemoaffinity axon guidance, competitive elimination during
-spontaneous waves) and simulates it with the integer `lif_int` kernel, whose spikes are identical to the Python
+interneuron production, radial and tangential migration, thalamic axons that follow a cue released by layer-4 cells
+and branch where they arrive, competitive elimination during spontaneous waves) and simulates it with the integer `lif_int` kernel, whose spikes are identical to the Python
 reference. The task is a toy one: the cortex must report where its thalamic input was flashed, at a low energy cost.
 Each generation keeps the best of its offspring, so you can see which stage selection changes first. The model, its
 genes, its simplifications and the JavaScript API are described in {doc}`getting-started/playground`.
