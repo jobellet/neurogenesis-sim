@@ -10,11 +10,15 @@
  *   - coactivity ............ neurogenesis/stages/refinement.py (pre spike after the delay, then a post spike within
  *                             `window` ticks).
  *   - competitive_elimination neurogenesis/stages/competition.py with `remove: true`.
+ *   - CueField .............. neurogenesis/fields/maps.py (C27): same values (checked in tests/test_docs_playground.py).
  *   - stages ................ simplified 2D versions (x = tangential axis, z = depth from the ventricle) of
- *                             seed_cells (C1), cell_cycle_clock (C14), proliferate (C2), migrate (C4), mosaic (C5) and
- *                             grow_axons with the `lamina` target rule (C8). They follow the Python formulas; random
- *                             numbers come from one stream per stage (roadmap section 2.1), but the generator is not
- *                             NumPy's PCG64, so a JavaScript network is not the network Python grows from the same seed.
+ *                             seed_cells (C1), cell_cycle_clock (C14), proliferate (C2), migrate (C4), mosaic (C5),
+ *                             grow_axons with the `lamina` and topographic target rules (C8), secrete_cue and
+ *                             grow_arbors with guidance and two growth phases (N2, C27), and arbor_synapses (N3).
+ *                             They follow the Python formulas (grow_arbors without random draws grows the same nodes);
+ *                             random numbers come from one stream per stage (roadmap section 2.1), but the generator is
+ *                             not NumPy's PCG64, so a JavaScript network is not the network Python grows from the same
+ *                             seed.
  *
  * On top of these, `CortexMapDemo` is the toy problem of the front page: grow a cortex-like sheet whose spikes report
  * where a thalamic input was stimulated, and evolve its genome by keeping the best offspring of every generation.
@@ -515,6 +519,163 @@
     return out;
   }
 
+  /**
+   * CueField (C27, neurogenesis/fields/maps.py) of cells released by secrete_cue (soma sources): in 2D (x, z),
+   *   c(p) = sum_i a_i exp(-|p - p_i| / length), sources further than cutoff x length ignored.
+   * Sources are binned along x (bins of the cutoff radius), so a query reads three bins, not every source.
+   */
+  function CueField(points, amounts, length, cutoff) {
+    const R = (cutoff === undefined ? 5 : cutoff) * length;
+    const bins = new Map();
+    points.forEach(function (p, i) {
+      const b = Math.floor(p[0] / R);
+      if (!bins.has(b)) bins.set(b, []);
+      bins.get(b).push(i);
+    });
+    function value(x, z) {
+      const b = Math.floor(x / R);
+      let c = 0;
+      for (let d = -1; d <= 1; d++) {
+        const list = bins.get(b + d);
+        if (!list) continue;
+        for (const i of list) {
+          const dx = x - points[i][0], dz = z - points[i][1], r = Math.sqrt(dx * dx + dz * dz);
+          if (r <= R) c += amounts[i] * Math.exp(-r / length);
+        }
+      }
+      return c;
+    }
+    return { points: points, amounts: amounts, length: length, cutoff: R / length, value: value };
+  }
+
+  /** Central-difference gradient of a field at (x, z), step h (as migration._field_gradient). */
+  function fieldGradient(f, x, z, h) {
+    return [(f.value(x + h, z) - f.value(x - h, z)) / (2 * h), (f.value(x, z + h) - f.value(x, z - h)) / (2 * h)];
+  }
+
+  function unit2(x, z) {
+    const n = Math.sqrt(x * x + z * z);
+    return n < 1e-12 ? [x, z] : [x / n, z / n];
+  }
+
+  /**
+   * grow_arbors (N2, with the C27 options) in 2D, one neurite per cell (neurogenesis/stages/arbors.py). For `steps`
+   * steps every tip stops with probability stop_prob, turns by Gaussian angle_noise, is steered by each guidance cue
+   * (direction += gain x unit gradient; the gain is the cell's receptor, its sign sets attraction or repulsion), and
+   * elongates by step_length; with probability branch_prob it also starts a branch at branch_angle. Two phases: a
+   * pathfinding shaft until the tip reaches target_field >= target_threshold, then an arbor with arbor_branch_prob,
+   * arbor_step_length and arbor_angle_noise, confined to the target region. A step outside `boundary` stops the tip.
+   * Same order of random draws as Python per step (stop, noise, branch, branch direction), but not the same generator.
+   * Returns the nodes {x, z, parent, cell, step, arbor}: one soma node per cell, then the grown nodes.
+   */
+  function growArbors(cells, p, rng) {
+    const nodes = { x: [], z: [], parent: [], cell: [], step: [], arbor: [] };
+    function add(x, z, parent, cell, step, arbor) {
+      nodes.x.push(x); nodes.z.push(z); nodes.parent.push(parent); nodes.cell.push(cell); nodes.step.push(step);
+      nodes.arbor.push(arbor ? 1 : 0);
+      return nodes.x.length - 1;
+    }
+    const tgt = p.target_field || null, thr = p.target_threshold || 0, h = 1e-3, bd = p.boundary;
+    let tips = cells.x.map(function (x, c) {
+      const d = unit2(p.direction[c][0], p.direction[c][1]);
+      const inside = tgt ? tgt.value(x, cells.z[c]) >= thr : false;
+      return { node: add(x, cells.z[c], -1, c, 0, inside), x: x, z: cells.z[c], dx: d[0], dz: d[1], c: c, arbor: inside };
+    });
+    const nSoma = nodes.x.length;
+    function steer(t, glist) {
+      for (const g of glist) {
+        const gain = g.gain[t.c];
+        if (gain === 0) continue;
+        const gr = fieldGradient(g.field, t.x, t.z, h), u = unit2(gr[0], gr[1]);
+        const d = unit2(t.dx + gain * u[0], t.dz + gain * u[1]);
+        t.dx = d[0];
+        t.dz = d[1];
+      }
+    }
+    for (let s = 1; s <= p.steps; s++) {
+      if (tips.length === 0 || nodes.x.length - nSoma >= p.max_nodes) break;
+      tips = tips.filter(function () { return rng.random() >= (p.stop_prob || 0); });
+      for (const t of tips) {
+        const nz = t.arbor ? p.arbor_angle_noise : p.angle_noise;
+        const d = unit2(t.dx + rng.normal() * nz, t.dz + rng.normal() * nz);
+        t.dx = d[0];
+        t.dz = d[1];
+      }
+      for (const t of tips) steer(t, t.arbor ? (p.arbor_guidance || []) : (p.guidance || []));
+      const next = [];
+      for (const t of tips) {
+        const sl = t.arbor ? p.arbor_step_length : p.step_length;
+        const x = t.x + sl * t.dx, z = t.z + sl * t.dz;
+        let ok = !bd || (x >= bd.x_min && x <= bd.x_max && z >= bd.z_min && z <= bd.z_max);
+        let arbor = t.arbor;
+        if (tgt) {
+          const inside = tgt.value(x, z) >= thr;
+          if (p.confine_to_target !== false && t.arbor && !inside) ok = false;
+          arbor = arbor || inside;
+        }
+        if (nodes.x.length - nSoma >= p.max_nodes) ok = false;
+        if (!ok) continue;
+        next.push({ node: add(x, z, t.node, t.c, s, arbor), x: x, z: z, dx: t.dx, dz: t.dz, c: t.c, arbor: arbor });
+      }
+      const br = next.filter(function (t) { return rng.random() < (t.arbor ? p.arbor_branch_prob : p.branch_prob); });
+      const branched = [];
+      for (const t of br) {
+        const r0 = rng.normal(), r1 = rng.normal(), dot = r0 * t.dx + r1 * t.dz;
+        const perp = unit2(r0 - dot * t.dx, r1 - dot * t.dz), a = p.branch_angle;
+        const d = unit2(Math.cos(a) * t.dx + Math.sin(a) * perp[0], Math.cos(a) * t.dz + Math.sin(a) * perp[1]);
+        branched.push({ node: t.node, x: t.x, z: t.z, dx: d[0], dz: d[1], c: t.c, arbor: t.arbor });
+      }
+      tips = next.concat(branched);
+    }
+    return nodes;
+  }
+
+  /**
+   * arbor_synapses (N3, neurogenesis/stages/arbors.py) from axon nodes to the somata of `dst` {ids, x, z}: every
+   * (node, cell) pair closer than contact_distance is a synapse with probability p_contact, keeping the closest per
+   * (pre cell, post cell); delay = round(axonal path length from the soma / velocity), in [1, max_delay]; weight w
+   * (negative for an inhibitory pre cell). `use(node)` selects the pre nodes. Candidates come from the target cells
+   * binned along x (bins of the contact distance), one draw per candidate in a fixed order (node, then bin): O(nodes).
+   */
+  function arborSynapses(nodes, preIds, preInh, dst, p, rng, use) {
+    const n = nodes.x.length, path = new Float64Array(n), r = p.contact_distance, r2 = r * r;
+    for (let i = 0; i < n; i++) {
+      const q = nodes.parent[i];
+      if (q >= 0) path[i] = path[q] + Math.hypot(nodes.x[i] - nodes.x[q], nodes.z[i] - nodes.z[q]);
+    }
+    const bins = new Map();
+    for (let b = 0; b < dst.x.length; b++) {
+      const k = Math.floor(dst.x[b] / r);
+      if (!bins.has(k)) bins.set(k, []);
+      bins.get(k).push(b);
+    }
+    const best = new Map(); // pre cell * |dst| + post -> [distance^2, node]
+    for (let i = 0; i < n; i++) {
+      if (nodes.parent[i] < 0 || (use && !use(i))) continue;
+      const k = Math.floor(nodes.x[i] / r);
+      for (let d = -1; d <= 1; d++) {
+        const cand = bins.get(k + d);
+        if (!cand) continue;
+        for (const b of cand) {
+          const dx = dst.x[b] - nodes.x[i], dz = dst.z[b] - nodes.z[i], d2 = dx * dx + dz * dz;
+          if (d2 > r2 || preIds[nodes.cell[i]] === dst.ids[b] || rng.random() >= p.p_contact) continue;
+          const key = nodes.cell[i] * dst.x.length + b, cur = best.get(key);
+          if (!cur || d2 < cur[0]) best.set(key, [d2, i]);
+        }
+      }
+    }
+    const out = { pre: [], post: [], weight: [], delay: [], node: [] };
+    Array.from(best.keys()).sort(function (a, b) { return a - b; }).forEach(function (key) {
+      const i = best.get(key)[1], a = nodes.cell[i], b = key - a * dst.x.length;
+      out.pre.push(preIds[a]);
+      out.post.push(dst.ids[b]);
+      out.weight.push(Math.max(-p.wc, Math.min(p.wc, Math.round(p.w * (preInh[a] ? -1 : 1)))));
+      out.delay.push(Math.max(1, Math.min(p.max_delay || 31, Math.round(path[i] / p.velocity))));
+      out.node.push(i);
+    });
+    return out;
+  }
+
   // ------------------------------------------------------------------------------------------------------------
   // Front-page toy problem: a topographic sensory map grown and evolved in the browser
   // ------------------------------------------------------------------------------------------------------------
@@ -545,9 +706,13 @@
     { path: ["mge", "speed"], lo: 0.0, hi: 0.06, stage: "migration", label: "Tangential speed", fmt: 3,
       doc: "migrate (tangential, 20 sub-steps): how far interneurons travel from the MGE into the cortex." },
     { path: ["axon", "B"], lo: -1.0, hi: 3.0, stage: "axons", label: "Gradient gain B", fmt: 2,
-      doc: "grow_axons: target x = sigmoid(4 B (x_thalamus - 1/2)). Receptor-gradient gain: 0 = no map, < 0 = inverted map." },
-    { path: ["axon", "sigma"], lo: 0.02, hi: 0.25, stage: "axons", label: "Arbor spread σ", fmt: 3,
-      doc: "grow_axons: p = p0 exp(-d^2 / 2 sigma^2) around the target point in L4 (terminal arbor size)." },
+      doc: "grow_arbors direction: each axon heads for x = sigmoid(4 B (x_thalamus - 1/2)) in layer 4. Receptor-gradient gain: 0 = no map, < 0 = inverted map." },
+    { path: ["axon", "gain"], lo: -1.0, hi: 2.0, stage: "axons", label: "Receptor gain", fmt: 2,
+      doc: "grow_arbors guidance: growth-cone receptor gain for the cue released by layer-4 cells. > 0 attracts, < 0 repels (the receptor, not the cue, sets the sign)." },
+    { path: ["axon", "threshold"], lo: 0.05, hi: 3.0, stage: "axons", label: "Arrival threshold", fmt: 2,
+      doc: "grow_arbors target_threshold: cue level at which the shaft stops pathfinding and starts to arborise (confined to where the cue is above it)." },
+    { path: ["axon", "branch"], lo: 0.0, hi: 0.3, stage: "axons", label: "Arbor branching", fmt: 2,
+      doc: "grow_arbors arbor_branch_prob: branching probability per step of the terminal arbor, so its size and its number of contacts." },
     { path: ["refine", "fraction"], lo: 0.0, hi: 1.0, stage: "refinement", label: "Competition", fmt: 2,
       doc: "competitive_elimination: during spontaneous waves, an input scoring below this fraction of the best input onto the same cell is removed." },
     { path: ["syn", "w"], lo: 20, hi: 500, stage: "activity", label: "Excitatory weight", fmt: 0,
@@ -561,7 +726,7 @@
     cycle: { k: 0.1 },
     mge: { prob: 0.3, speed: 0.025 },
     migrate: { speed: 0.022, inside_out: 0.006 },
-    axon: { B: 0.0, sigma: 0.2 },
+    axon: { B: 0.0, gain: 0.3, threshold: 1.0, branch: 0.12 },
     refine: { fraction: 0.0 },
     syn: { w: 140, w_inh: 100 },
   };
@@ -571,7 +736,7 @@
     { key: "neurogenesis", label: "Neurogenesis", ops: "seed_cells → cell_cycle_clock → proliferate" },
     { key: "fate", label: "Fate", ops: "proliferate (MGE) → GABAergic fate" },
     { key: "migration", label: "Migration", ops: "migrate (radial, tangential) → mosaic" },
-    { key: "axons", label: "Axon guidance", ops: "grow_axons (chemoaffinity, lamina)" },
+    { key: "axons", label: "Axon guidance", ops: "secrete_cue → grow_arbors (shaft, then arbor) → arbor_synapses" },
     { key: "refinement", label: "Refinement", ops: "spontaneous waves → competitive_elimination" },
     { key: "activity", label: "Activity", ops: "simulate (lif_int) → decode position" },
   ];
@@ -584,7 +749,10 @@
     // migration
     migrateSteps: 20, mzDepth: 0.9,
     // thalamus (fixed scaffold) and wiring
-    thalamus: 32, thalamusDepth: -0.55, p0: 0.5, laminaSigma: 0.06, wc: 512, vThalamic: 0.12, vCortex: 0.05,
+    thalamus: 32, thalamusDepth: -0.55, wc: 512, vThalamic: 0.12, vCortex: 0.05,
+    // thalamocortical growth (C27): layer-4 cue, shaft then arbor, contacts
+    cueWidth: 0.12, cueExpressing: 0.05, cueLength: 0.05, cueCutoff: 3, axonSteps: 30, shaftStep: 0.06,
+    shaftNoise: 0.015, arborStep: 0.02, arborNoise: 0.7, branchAngle: 0.6, maxNodes: 4000, contact: 0.035, pContact: 0.8,
     ieSigma: 0.12, ieP0: 0.8, wcInh: 2000, eiSigma: 0.08, eiP0: 0.3,
     // refinement: spontaneous waves sweeping the thalamus
     waveTicks: 80, waveSweeps: 2, waveRate: 300, waveWidth: 0.06, window: 5,
@@ -697,9 +865,34 @@
     }
     const TH = group([0]), PYR = group([1]), INH = group([2]), CTX = group([1, 2]);
 
-    // 4. Axon guidance: thalamocortical chemoaffinity into L4 (lamina rule), local feedforward-inhibition circuit.
-    const tc = growAxons(TH, CTX, { B: G.axon.B, c: 0, sigma: G.axon.sigma, sigma_z: CONST.laminaSigma, p0: CONST.p0,
-      lamina: L4_DEPTH, w: G.syn.w, wc: CONST.wc, velocity: CONST.vThalamic }, Stream(seed, "grow_axons#tc"));
+    // 4. Axon guidance (C27). Pyramidal cells whose laminar identity is layer 4 release a cue (secrete_cue: expression
+    //    exp(-(z - L4)^2 / 2 w^2), cells above `cueExpressing` secrete). Each thalamic axon grows (grow_arbors) from its
+    //    cell body towards x = sigmoid(4 B (x_thalamus - 1/2)) in layer 4 (chemoaffinity), steered by the cue through
+    //    its receptor gain, as a shaft until the cue reaches the arrival threshold, then as a branching arbor confined
+    //    to where the cue is above it. Synapses where arbor nodes come close to cortical somata (arbor_synapses).
+    const src = [], amt = [];
+    for (let b = 0; b < PYR.x.length; b++) {
+      const e = Math.exp(-Math.pow(PYR.z[b] - L4_DEPTH, 2) / (2 * CONST.cueWidth * CONST.cueWidth));
+      if (e > CONST.cueExpressing) {
+        src.push([PYR.x[b], PYR.z[b]]);
+        amt.push(e);
+      }
+    }
+    const cue = CueField(src, amt, CONST.cueLength, CONST.cueCutoff);
+    const tx = TH.x.map(function (x) { return sigmoid(4 * G.axon.B * (x - 0.5)); });
+    const arbor = growArbors({ x: TH.ax, z: TH.az }, {
+      steps: CONST.axonSteps, step_length: CONST.shaftStep, angle_noise: CONST.shaftNoise, branch_prob: 0,
+      branch_angle: CONST.branchAngle,
+      direction: TH.ax.map(function (x, a) { return [tx[a] - x, L4_DEPTH - TH.az[a]]; }),
+      guidance: [{ field: cue, gain: TH.ax.map(function () { return G.axon.gain; }) }],
+      target_field: cue, target_threshold: G.axon.threshold, arbor_branch_prob: G.axon.branch,
+      arbor_step_length: CONST.arborStep, arbor_angle_noise: CONST.arborNoise, confine_to_target: true,
+      boundary: { x_min: -0.02, x_max: 1.02, z_min: CONST.thalamusDepth - 0.05, z_max: 1 }, max_nodes: CONST.maxNodes,
+    }, Stream(seed, "grow_arbors#tc"));
+    const tc = arborSynapses(arbor, TH.ids, TH.inh, CTX, { contact_distance: CONST.contact, p_contact: CONST.pContact,
+      w: G.syn.w, wc: CONST.wc, velocity: CONST.vThalamic }, Stream(seed, "arbor_synapses#tc"),
+    function (i) { return arbor.arbor[i] === 1; });
+    // Local feedforward-inhibition circuit (grow_axons, topographic rule).
     const ie = growAxons(INH, PYR, { topographic: true, sigma: CONST.ieSigma, p0: CONST.ieP0, w: G.syn.w_inh,
       wc: CONST.wcInh, velocity: CONST.vCortex }, Stream(seed, "grow_axons#ie"));
     const ei = growAxons(PYR, INH, { topographic: true, sigma: CONST.eiSigma, p0: CONST.eiP0, w: G.syn.w, wc: CONST.wc,
@@ -711,7 +904,7 @@
         grown.delay.push(s.delay[k]); grown.kind.push(kind);
       }
     });
-    rec.axons = { tx: tc.tx };
+    rec.axons = { tx: tx, arbor: arbor, cue: cue, synNode: tc.node };
 
     // Kernel parameters: pyramidal cells (regular spiking) and interneurons (fast spiking: shorter time constants).
     const kc = { threshold: [], shiftV: [], shiftS: [], mode: [], poissonHz: [], refractory: [] };
@@ -877,7 +1070,8 @@
    * Per-stage summary of a grown individual (what the page compares between the founder and the champion):
    * neurogenesis: neurons, mean birth cycle; fate: interneurons that reached the cortex (and those left in the
    * MGE); migration: fraction of pyramidal cells in L4, interneuron coverage of the sheet (tenths reached);
-   * axons: map slope (least-squares slope of the axon target x on the thalamic x) and synapses grown; refinement:
+   * axons: map slope (least-squares slope of the arbor centre x on the thalamic x, over the axons that arborised),
+   * fraction of axons that arborised and synapses grown; refinement:
    * thalamocortical synapses kept; activity: spikes per stimulus and decoding error (from `ev`).
    */
   function phenotype(dev, ev) {
@@ -889,15 +1083,28 @@
     }
     const bins = new Uint8Array(10);
     for (let i = NT + net.nPyr; i < net.N; i++) bins[Math.min(9, Math.max(0, Math.floor(c.x[i] * 10)))] = 1;
-    const tx = dev.record.axons.tx;
-    let mx = 0, my = 0, sxy = 0, sxx = 0;
-    for (let k = 0; k < NT; k++) {
-      mx += c.x[k] / NT;
-      my += tx[k] / NT;
+    // where each thalamic axon arborised: mean x of its arbor nodes (axons that never arrived have none)
+    const ar = dev.record.axons.arbor, sx = new Float64Array(NT), sn = new Float64Array(NT);
+    for (let i = 0; i < ar.x.length; i++) {
+      if (!ar.arbor[i] || ar.parent[i] < 0) continue;
+      sx[ar.cell[i]] += ar.x[i];
+      sn[ar.cell[i]]++;
     }
+    const xs = [], ys = [];
     for (let k = 0; k < NT; k++) {
-      sxy += (c.x[k] - mx) * (tx[k] - my);
-      sxx += (c.x[k] - mx) * (c.x[k] - mx);
+      if (sn[k] > 0) {
+        xs.push(c.x[k]);
+        ys.push(sx[k] / sn[k]);
+      }
+    }
+    let mx = 0, my = 0, sxy = 0, sxx = 0;
+    for (let k = 0; k < xs.length; k++) {
+      mx += xs[k] / xs.length;
+      my += ys[k] / xs.length;
+    }
+    for (let k = 0; k < xs.length; k++) {
+      sxy += (xs[k] - mx) * (ys[k] - my);
+      sxx += (xs[k] - mx) * (xs[k] - mx);
     }
     let grownTC = 0, keptTC = 0;
     for (const k of net.grown.kind) if (k === 0) grownTC++;
@@ -906,7 +1113,7 @@
       neurons: net.nPyr + net.nInh, pyramidal: net.nPyr, birth: net.nPyr ? birth / net.nPyr : 0,
       interneurons: net.nInh, inMGE: net.nMGE - net.nInh, glia: net.nGlia,
       inL4: net.nPyr ? inL4 / net.nPyr : 0, coverage: bins.reduce(function (a, b) { return a + b; }, 0) / 10,
-      slope: sxy / sxx, grownTC: grownTC, keptTC: keptTC,
+      slope: xs.length > 1 ? sxy / sxx : 0, arrived: xs.length / NT, grownTC: grownTC, keptTC: keptTC,
       spikes: ev ? ev.nSpikes : null, rmse: ev ? ev.rmse : null, accuracy: ev ? ev.accuracy : null,
       efficiency: ev ? ev.efficiency : null, fitness: ev ? ev.fitness : null,
     };
@@ -1020,7 +1227,7 @@
   }
 
   return {
-    version: "1.0.0",
+    version: "1.1.0",
     // random streams and gene coding
     Stream: Stream, hashString: hashString, INTEGER_ROOTS: INTEGER_ROOTS, getGene: getGene, setGene: setGene,
     fromUnit: fromUnit, toUnit: toUnit, seedsOf: seedsOf, sigmoid: sigmoid, deepClone: deepClone,
@@ -1029,7 +1236,8 @@
     simulate: simulate, coactivity: coactivity, competitiveLosers: competitiveLosers,
     // stages
     Tissue: Tissue, seedCells: seedCells, cellCycleClock: cellCycleClock, proliferate: proliferate, migrate: migrate,
-    mosaic: mosaic, growAxons: growAxons,
+    mosaic: mosaic, growAxons: growAxons, CueField: CueField, fieldGradient: fieldGradient, growArbors: growArbors,
+    arborSynapses: arborSynapses,
     // the front-page problem
     CortexMapDemo: {
       GENES: GENES, FOUNDER: FOUNDER, STAGES: STAGES, ZONES: ZONES, L4_DEPTH: L4_DEPTH, CONST: CONST,
