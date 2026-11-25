@@ -300,7 +300,7 @@ class PointSetField(Field):
 
 @register_field('CueField')
 class CueField(Field):
-    """Concentration of a cue released by point sources (C27): c(x) = sum_i a_i exp(-|x - p_i| / length).
+    """Concentration of a cue released by point sources (C27): ``c(x) = sum_i a_i exp(-|x - p_i| / length)``.
 
     A secreted molecule that diffuses (coefficient D) and is degraded or captured (rate k) settles to a profile whose
     decay length is length = sqrt(D / k) (Crick 1970, Nature 225:420-422); this sets how far a target-derived guidance
