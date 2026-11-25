@@ -174,6 +174,7 @@ reference/glossary
 
 background/design-principles
 background/literature
+background/cell-cues-and-target-recognition
 background/developmental-questions
 ```
 

@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased (November 2026)
+- Cues released by cells and two-phase arbor growth (C27): `secrete_cue` (`neurogenesis.stages.guidance`) makes selected
+  cells (by type or ligand expression) or their arbor terminals sources of a `CueField` (exp(−r/λ), cell-list
+  evaluation); `grow_arbors` gains `guidance` (several cues, per-cell receptor gains from expression, unit or relative
+  gradient sensing) and a pathfinding → arbor switch at a target threshold (`target_field`, `arbor_*`,
+  `confine_to_target`). Off by default; existing networks unchanged (`tests/test_cell_cues.py`). Rationale and
+  references: `docs/background/cell-cues-and-target-recognition.md`.
 - `neurogenesis.spiking.currents`: slow intrinsic currents without Hodgkin–Huxley gates, given to any model as external
   current: `t_current` (low-threshold burst current, integrate-and-fire-or-burst form) and `recovery_current` (one linear
   recovery variable: sag, resonance, adaptation). Zero with neutral parameters (`tests/test_currents.py`,

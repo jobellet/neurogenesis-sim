@@ -361,6 +361,15 @@ compartment changes); `read_swc` / `write_swc` for SWC files (`scale` converts u
 | `stop_field`, `boundary` | none | a step into `stop_field` > 0 or out of the geometry stops the tip |
 | `cells`, `soma_radius`, `max_nodes` | all, 0, 10⁶ | `{region, cell_type}` selector; radius of new nodes; bound on new nodes |
 | `maturation_gain`, `maturation_switch`, `maturation` | 0, none, 0 | coupling to chloride maturation (C21): `step_length` and `branch_prob` are multiplied by max(0, 1 − gain · k), with k in [0, 1] computed as in `transporter_switch` from `maturation_switch` (a dict of its `age`, `clock`, `now`, `midpoint`, `width`, `activity`, `activity_gain`) or given as `maturation` (per cell or scalar); depolarising GABA promotes dendritic growth and the KCC2 switch slows it (Cancedda et al. 2007, J Neurosci; Ge et al. 2006, Nature). Gain 0 = off |
+| `guidance` | none | list of cues {`field`, `gain`, `sensing`, `saturation`} (C27): each tip turns by gain × the field's gradient; `gain` per cell, a `Param` or {"expression": k, "scale": s} (receptor level; its sign is attraction or repulsion); `sensing` `"unit"` (direction only, default) or `"relative"` (∇c / (c + saturation)) |
+| `target_field`, `target_threshold` | none, 0 | two-phase growth (C27): a tip is a pathfinding shaft until it reaches `target_field` ≥ threshold, then it and its branches arborise with `arbor_branch_prob`, `arbor_step_length`, `arbor_angle_noise`, `arbor_guidance` (defaults: the pathfinding values, no cues); `confine_to_target` (True) stops arbor tips that would leave the target region |
+
+**`secrete_cue` (C27, `neurogenesis/stages/guidance.py`).** Selected cells (`cells`: region, cell_type and/or
+`expressing` channel above `threshold`) release a cue; the stage stores it as the `CueField` `name` in the run's fields.
+`source` `"soma"` (one source per cell, default) or `"terminals"` / `"nodes"` (terminal or all arbor nodes of
+`compartment`, default axon: release from boutons or varicosities). `amount` per cell (a `Param` or {"expression": k,
+"scale": s}), `length` (decay length √(D/k)), `cutoff` (5 lengths), `mode` `"set"` or `"add"` (same length). No
+randomness; no `name` = no-op; O(sources). Rationale and references: `docs/background/cell-cues-and-target-recognition.md`.
 
 **`arbor_synapses` (N3).** Synapses from geometric proximity (Peters' rule): axonal nodes (`pre_compartments`,
 default axon and neurite) within `contact_distance` of dendritic nodes (`post_compartments`, default dendrite, neurite,
@@ -492,6 +501,9 @@ each field to the run's genome (`Field.bind`), so `Param` values inside a field 
   field), `DistanceToBoundary` (distance to a geometry's or a label region's boundary, optionally signed, grid-based
   with error under one spacing). Composite fields pass `bind(genome)` to their sub-fields, and
   `collect_project_genes` finds `Gene`s inside field definitions. Large operations work in blocks of at most 2²⁰ pairs.
+- **`CueField(points, amounts, length, cutoff=5)`** (C27, `maps.py`): concentration of a cue released by point sources,
+  Σ a_i exp(−r_i / length) (steady state of diffusion with degradation, 1/r factor dropped), sources beyond `cutoff`
+  lengths ignored, evaluated through the cell list; written by `secrete_cue`, JSON round trip.
 
 ## Sparse guidance (D2, `neurogenesis/development/sparse_guidance.py`)
 `sparse_guidance(ctx, plan, rng, c=5.0, exact=False)` returns `(pre, post, p)` for one projection. With `exact=True` it

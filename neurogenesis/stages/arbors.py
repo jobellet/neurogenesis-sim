@@ -63,6 +63,27 @@ class GrowArbors:
     are multiplied by max(0, 1 - g k), with k in [0, 1] its maturation: computed as in `transporter_switch` from
     `maturation_switch` (a dict with that stage's `age`, `clock`, `now`, `midpoint`, `width`, `activity`,
     `activity_gain`), or given directly as `maturation` (a `Param`, per cell or scalar).
+
+    Guidance by several cues through receptors (C27, off by default). `guidance` is a list of {"field", "gain",
+    "sensing", "saturation"}: each tip turns by gain x the gradient of that field (e.g. a `CueField` from
+    `secrete_cue`). The gain is per cell, a `Param` or {"expression": k, "scale": s}: it is the growth cone's receptor,
+    so the same cue attracts cells with one receptor and repels cells with another (netrin-1 attracts through DCC and,
+    with UNC5, repels; Hong et al. 1999, Cell 97:927-941; the receptor, not the cue, sets the direction: Bashaw & Klein
+    2010, Cold Spring Harb Perspect Biol 2:a001941). `sensing: "unit"` (default) uses the gradient's direction only;
+    `"relative"` uses grad c / (c + saturation): growth cones detect a fractional concentration change across their
+    width, and their response falls where the concentration is far above the receptor's dissociation constant
+    (Goodhill & Urbach 1999, J Neurobiol 41:230-241; Rosoff et al. 2004, Nat Neurosci 7:678-682).
+    Two growth phases (C27, off by default): with `target_field` (a field name) and `target_threshold`, a tip grows as a
+    pathfinding shaft (the parameters above, e.g. `branch_prob` 0) until it reaches a point where the field is at or
+    above the threshold; from there it and its branches arborise: `arbor_branch_prob`, `arbor_step_length`,
+    `arbor_angle_noise` and `arbor_guidance` (default: none, local exploration) replace their pathfinding values, and
+    with `confine_to_target` (default True) a step that would leave the target region stops the tip. Retinal axons
+    extend unbranched to the tectum and branch there, where target-derived BDNF adds branches (Cohen-Cory & Fraser 1995,
+    Nature 378:192-196; overshoot and later interstitial branching: Yates et al. 2001, J Neurosci 21:8548-8563, not
+    modelled); target cells give a stop signal (Baird et al. 1992, J Neurosci 12:619-634). The same applies to
+    dendrites whose elaboration needs a local (e.g. afferent-derived) signal (McAllister et al. 1995, Neuron
+    15:791-803). Tips that start inside the target region arborise from the first step. With none of these keys, the
+    growth (and its random draws) is unchanged.
     """
 
     @classmethod
@@ -86,6 +107,29 @@ class GrowArbors:
         step_len, branch_p, branch_a = val("step_length", 1.0), val("branch_prob", 0.0), val("branch_angle", 0.5)
         noise, stop_p, retract_p = val("angle_noise", 0.2), val("stop_prob", 0.0), val("retraction_prob", 0.0)
         attraction = val("attraction", 0.0)
+        from neurogenesis.stages.guidance import cell_gain
+        from neurogenesis.stages.migration import _field_gradient
+
+        def guidance_list(spec):
+            out = []
+            for g in (spec or []):
+                f = fields[str(resolve(g["field"], genome, fields))]
+                gain = cell_gain(g.get("gain", 1.0), tissue, cells, genome, fields)
+                sensing = str(g.get("sensing", "unit"))
+                if sensing not in ("unit", "relative"):
+                    raise ValueError(f"grow_arbors: unknown sensing {sensing!r}")
+                out.append((f, gain, sensing, float(resolve(g.get("saturation", 1.0), genome, fields))))
+            return out
+        guid = guidance_list(params.get("guidance"))
+        tgt = params.get("target_field")
+        tgt = fields[str(resolve(tgt, genome, fields))] if tgt is not None else None
+        if tgt is not None:
+            thr = float(resolve(params.get("target_threshold", 0.0), genome, fields))
+            a_branch = val("arbor_branch_prob", params.get("branch_prob", 0.0))
+            a_step = val("arbor_step_length", params.get("step_length", 1.0))
+            a_noise = val("arbor_angle_noise", params.get("angle_noise", 0.2))
+            a_guid = guidance_list(params.get("arbor_guidance"))
+            confine = bool(resolve(params.get("confine_to_target", True), genome, fields))
         mat_gain = val("maturation_gain", 0.0)
         if np.any(mat_gain != 0):
             if params.get("maturation_switch") is not None:
@@ -132,38 +176,67 @@ class GrowArbors:
             dv = np.asarray(resolve(d0, genome, fields, positions=pos), dtype=np.float64)
             tip_dir = _unit(np.broadcast_to(dv, (len(cells), 3))[tip_cell_local].copy())
         h = 1e-3
+        tval = lambda x: np.asarray(tgt.values(x), dtype=float).reshape(len(x), -1)[:, 0]
+        phase = (tval(tip_pos) >= thr) if tgt is not None else np.zeros(len(tip_node), bool)
+
+        def steer(tdir, tpos, cc, glist, sel):
+            for f, gain, sensing, sat in glist:
+                k = sel & (gain[cc] != 0)
+                if not np.any(k):
+                    continue
+                g = _field_gradient(f, tpos[k], h)
+                if sensing == "unit":
+                    g = _unit(g)
+                else:
+                    g = g / (np.asarray(f.values(tpos[k]), dtype=float).reshape(-1, 1)[:, :1] + sat)
+                tdir[k] = _unit(tdir[k] + gain[cc[k]][:, None] * g)
+            return tdir
+
         for _ in range(steps):
             if len(tip_node) == 0 or count - base >= max_nodes:
                 break
             c = tip_cell_local
             alive_tip = rng.random(len(c)) >= stop_p[c]
             tip_node, tip_pos, tip_dir, c = tip_node[alive_tip], tip_pos[alive_tip], tip_dir[alive_tip], c[alive_tip]
-            tip_dir = _unit(tip_dir + rng.standard_normal(tip_dir.shape) * noise[c][:, None])
+            phase = phase[alive_tip]
+            nz = noise[c] if tgt is None else np.where(phase, a_noise[c], noise[c])
+            tip_dir = _unit(tip_dir + rng.standard_normal(tip_dir.shape) * nz[:, None])
             if field_name is not None and np.any(attraction[c] != 0):
-                from neurogenesis.stages.migration import _field_gradient
                 g = _unit(_field_gradient(fields[field_name], tip_pos, h))
                 tip_dir = _unit(tip_dir + attraction[c][:, None] * g)
-            new_pos = tip_pos + step_len[c][:, None] * tip_dir
+            if guid:
+                tip_dir = steer(tip_dir, tip_pos, c, guid, ~phase)
+            if tgt is not None and a_guid:
+                tip_dir = steer(tip_dir, tip_pos, c, a_guid, phase)
+            sl = step_len[c] if tgt is None else np.where(phase, a_step[c], step_len[c])
+            new_pos = tip_pos + sl[:, None] * tip_dir
             ok = np.ones(len(c), bool)
             if hasattr(geom, "contains"):
                 ok &= geom.contains(new_pos)
             if stop_name is not None:
                 sv = np.asarray(fields[stop_name].values(new_pos), dtype=float)
                 ok &= ~((sv[:, 0] if sv.ndim == 2 else sv) > 0)
+            if tgt is not None:
+                inside = tval(new_pos) >= thr
+                if confine:
+                    ok &= ~(phase & ~inside)
+                phase = phase | inside
             ok[max(0, max_nodes - (count - base)):] = False
-            tip_node, new_pos, tip_dir, c = tip_node[ok], new_pos[ok], tip_dir[ok], c[ok]
+            tip_node, new_pos, tip_dir, c, phase = tip_node[ok], new_pos[ok], tip_dir[ok], c[ok], phase[ok]
             new_idx = count + np.arange(len(c))
             xyz.append(new_pos.astype(np.float32))
             parent.append(tip_node)
             cell_of.append(cells[c])
             compart.append(np.full(len(c), comp, np.int64))
             count += len(c)
-            br = rng.random(len(c)) < branch_p[c]
+            bp = branch_p[c] if tgt is None else np.where(phase, a_branch[c], branch_p[c])
+            br = rng.random(len(c)) < bp
             br_dir = _rotate(tip_dir[br], branch_a[c[br]], rng)
             tip_node = np.concatenate([new_idx, new_idx[br]])
             tip_pos = np.concatenate([new_pos, new_pos[br]])
             tip_dir = np.concatenate([tip_dir, br_dir])
             tip_cell_local = np.concatenate([c, c[br]])
+            phase = np.concatenate([phase, phase[br]])
 
         # parents of the new nodes are global indices (soma nodes and new nodes are numbered from `base`)
         merged = ArborStore(np.concatenate([store.xyz] + xyz),

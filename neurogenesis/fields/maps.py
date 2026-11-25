@@ -296,3 +296,58 @@ class PointSetField(Field):
     def from_dict(cls, d: Dict[str, Any]) -> 'Field':
         return cls(points=d.get('points'), pattern=d.get('pattern'), bounds=d.get('bounds'), spacing=d.get('spacing'),
                    jitter=d.get('jitter', 0.0), radius=d.get('radius'), seed=d.get('seed', 0))
+
+
+@register_field('CueField')
+class CueField(Field):
+    """Concentration of a cue released by point sources (C27): c(x) = sum_i a_i exp(-|x - p_i| / length).
+
+    A secreted molecule that diffuses (coefficient D) and is degraded or captured (rate k) settles to a profile whose
+    decay length is length = sqrt(D / k) (Crick 1970, Nature 225:420-422); this sets how far a target-derived guidance
+    cue acts (Goodhill 1998, Trends Neurosci 21:226-231). The three-dimensional point-source steady state is
+    exp(-r / length) / r; its 1/r factor, singular at the source and changing little over one length, is dropped (a
+    source has the size of a soma or a bouton). A membrane-bound (contact) cue is the limit of a length about one cell
+    diameter. Sources further than `cutoff` lengths are ignored (relative error below exp(-cutoff)); evaluation goes
+    through the cell list over sources, O(queries x sources within the cutoff), no dense array.
+    `points` (M, 3), `amounts` (M,) (default 1), `length` > 0; no sources gives 0 everywhere.
+    """
+
+    def __init__(self, points: Any, amounts: Any = None, length: float = 1.0, cutoff: float = 5.0):
+        pts = np.atleast_2d(np.asarray(points if points is not None else np.zeros((0, 3)), dtype=float))
+        if pts.size == 0:
+            pts = np.zeros((0, 3))
+        if pts.shape[1] < 3:
+            pts = np.concatenate([pts, np.zeros((len(pts), 3 - pts.shape[1]))], axis=1)
+        self.points = pts.reshape(-1, 3)
+        self.amounts = (np.ones(len(self.points)) if amounts is None
+                        else np.broadcast_to(np.asarray(amounts, dtype=float), (len(self.points),)).copy())
+        self.length, self.cutoff = float(length), float(cutoff)
+        if self.length <= 0:
+            raise ValueError("CueField: length must be positive")
+        self._cl = None
+
+    def values(self, points: np.ndarray) -> np.ndarray:
+        from neurogenesis.spatial import CellList
+        q = np.asarray(points, dtype=float)
+        shape = q.shape[:-1]
+        q = q.reshape(-1, q.shape[-1])
+        if q.shape[1] < 3:
+            q = np.concatenate([q, np.zeros((len(q), 3 - q.shape[1]))], axis=1)
+        out = np.zeros(len(q))
+        if len(self.points) == 0 or len(q) == 0:
+            return out.reshape(shape)
+        r = self.cutoff * self.length
+        if self._cl is None:
+            self._cl = CellList(self.points, r)
+        qi, pj, d = self._cl.query_radius(q, r, return_distances=True)
+        out += np.bincount(np.asarray(qi), weights=self.amounts[np.asarray(pj)] * np.exp(-np.asarray(d) / self.length),
+                           minlength=len(q))
+        return out.reshape(shape)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {'type': 'CueField', 'points': self.points.tolist(), 'amounts': self.amounts.tolist(),
+                'length': self.length, 'cutoff': self.cutoff}
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> 'Field':
+        return cls(points=d.get('points'), amounts=d.get('amounts'), length=d.get('length', 1.0), cutoff=d.get('cutoff', 5.0))
