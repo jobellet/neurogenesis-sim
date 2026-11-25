@@ -34,6 +34,9 @@ def _rotate(d: np.ndarray, angle: np.ndarray, rng: np.random.Generator) -> np.nd
 
 
 def _select(tissue: Tissue, sel) -> np.ndarray:
+    """Alive cells matching a {region, cell_type} selector. `run_schedule` hands dict parameters over as `Const(dict)`;
+    both forms are accepted (before 2026-11-25 the wrapped form was ignored and every cell was selected)."""
+    sel = getattr(sel, "value", sel)
     mask = tissue.alive.copy()
     if isinstance(sel, dict):
         for key in ("region", "cell_type"):

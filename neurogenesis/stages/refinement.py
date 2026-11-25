@@ -245,6 +245,9 @@ class RefineByActivityStage:
         restore_modes = bool(resolve(params.get("restore_modes", False), genome, fields))
         saved_modes = (tissue.mode.copy(), tissue.poisson_hz.copy()) if restore_modes else None
         sources = resolve(params.get("sources", params.get("driver_cells", None)), genome, fields)
+        if isinstance(sources, dict):          # a {region, cell_type} selector: its alive cells (as indices)
+            from neurogenesis.stages.arbors import _select
+            sources = [int(tissue.cell_id[i]) for i in _select(tissue, sources)]
         if sources is not None and "waves" not in params:
             id_to_idx = {int(cid): idx for idx, cid in enumerate(tissue.cell_id)}
             src_list = sources if isinstance(sources, (list, tuple, np.ndarray)) else [sources]
@@ -301,6 +304,7 @@ class RefineByActivityStage:
 
             # Cells the waves reach: all, or those selected by `cells` ({"region": ..., "cell_type": ...})
             reached = np.ones(N_cells, dtype=bool)
+            w_cells = getattr(w_cells, "value", w_cells)
             if isinstance(w_cells, dict):
                 for key in ("region", "cell_type"):
                     if key in w_cells:

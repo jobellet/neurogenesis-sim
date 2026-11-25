@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased (November 2026)
+- Fix: cell selectors given to `grow_arbors` (`cells`), `secrete_cue` (`cells`) and `refine_by_activity` (wave `cells`)
+  through `run_schedule` arrive as `Const(dict)` and were ignored (every cell selected); they now select. `refine_by_activity`
+  `sources` also accepts a {region, cell_type} selector (before: cell ids only). Projects that relied on the old behaviour
+  get it back by omitting the selector (`tests/test_schedule_selectors.py`).
 - Cues released by cells and two-phase arbor growth (C27): `secrete_cue` (`neurogenesis.stages.guidance`) makes selected
   cells (by type or ligand expression) or their arbor terminals sources of a `CueField` (exp(−r/λ), cell-list
   evaluation); `grow_arbors` gains `guidance` (several cues, per-cell receptor gains from expression, unit or relative

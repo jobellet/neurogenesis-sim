@@ -36,7 +36,9 @@ def cell_gain(spec: Any, tissue: Tissue, cells: np.ndarray, genome: Dict[str, An
 
 
 def select_cells(tissue: Tissue, sel: Any) -> np.ndarray:
-    """Alive cells matching {"region": [...], "cell_type": [...], "expressing": k, "threshold": t} (all keys optional)."""
+    """Alive cells matching {"region": [...], "cell_type": [...], "expressing": k, "threshold": t} (all keys optional);
+    also accepts the `Const(dict)` form in which `run_schedule` hands dict parameters over."""
+    sel = getattr(sel, "value", sel)
     mask = tissue.alive.copy()
     if isinstance(sel, dict):
         for key in ("region", "cell_type"):
