@@ -1,10 +1,9 @@
 # Changelog
 
 ## Unreleased (November 2026)
-- Medium-term memory mechanisms (C28): `random_projection` stage (sparse random expansion, the dentate-gyrus / mushroom-
-  body index), `BTSPRule` (behavioural-timescale, one-shot, weight-dependent bidirectional plasticity) and
-  `ConsolidationRule` (fast + slow synaptic components with gated capture). Off by default (`tests/test_memory_mechanisms.py`).
-  Rationale and linked references: `docs/background/memory-mechanisms.md`.
+- Three generic mechanisms (C28): `random_projection` stage (random sparse convergence, optional fixed `plastic` mask),
+  `BTSPRule` (plateau-driven, seconds-wide, weight-dependent bidirectional plasticity) and `ConsolidationRule` (fast + slow
+  synaptic components with gated capture: tagging and capture). Off by default (`tests/test_convergence_and_synaptic_rules.py`).
 - Front-page playground: thalamic axons now grow with the C27 options of `grow_arbors` instead of jumping to a target
   point. Layer-4 cells release a cue (`secrete_cue`); each axon heads for its chemoaffinity target, turns up the cue's
   gradient with an evolvable receptor gain (negative repels), switches from shaft to branching arbor at an evolvable

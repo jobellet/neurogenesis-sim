@@ -1,12 +1,9 @@
-"""Sparse random expansion (C28): `random_projection` connects each target cell to `fan_in` source cells drawn at random.
+"""Random sparse convergence (C28): `random_projection` connects each target cell to `fan_in` source cells drawn at random.
 
-With many targets, a small fan-in and strong shared inhibition among the targets, this is the expansion motif of the
-fly mushroom body and the dentate gyrus: each input pattern gets a sparse, high-dimensional code (a "tag" or index).
-In the fly it implements a variant of locality-sensitive hashing (Kenyon cells sample ~6 of 50 projection neurons;
-Dasgupta, Stevens & Navlakha 2017, Science 358:793-796); in the hippocampus, sparse dentate codes separate similar
-patterns before CA3 stores them (Marr 1971, Phil Trans R Soc B 262:23-81; Treves & Rolls 1994, Hippocampus 4:374-391;
-Leutgeb et al. 2007, Science 315:961-966). The sparsity of the code is set by the inhibition among the targets, which
-this stage does not build (grow it with other stages, or connect the targets to inhibitory cells by hand).
+Anatomical wiring rule: some target populations receive a few inputs drawn without structure from a source population,
+e.g. each Kenyon cell of the fly mushroom body receives about 7 projection-neuron inputs with no detectable pattern
+(Caron, Ruta, Abbott & Axel 2013, Nature 497:113-117). This stage builds only the convergence; any inhibition among the
+targets is grown or wired by other stages.
 """
 from __future__ import annotations
 

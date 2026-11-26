@@ -373,10 +373,11 @@ randomness; no `name` = no-op; O(sources). Rationale and references: `docs/backg
 
 **`random_projection` (C28, `neurogenesis/stages/projection.py`).** Each selected target receives synapses from
 `fan_in` distinct sources drawn at random (`sources`, `targets`: selectors; `weight`, sign = synapse sign; `delay`;
-`allow_self` False). The expansion motif of the dentate gyrus and the fly mushroom body (sparse index, hashing); the
-sparsity comes from inhibition among the targets, built separately. `fan_in` 0 = no-op. Uses a targets x sources key
-array (populations up to a few thousand). Plasticity rules of the same task: `BTSPRule` and `ConsolidationRule` in
-`neurogenesis/spiking/plasticity.py`. Rationale and references: `docs/background/memory-mechanisms.md`.
+`allow_self` False, `plastic` unset or False for a fixed projection). Random convergence as observed for Kenyon cells
+(Caron et al. 2013, Nature); inhibition among the targets is built by other stages. `fan_in` 0 = no-op. Uses a targets x
+sources key array (populations up to a few thousand). Synaptic mechanisms of the same task: `BTSPRule` (plateau-driven,
+seconds-wide, bidirectional) and `ConsolidationRule` (tagging and capture into a slow component) in
+`neurogenesis/spiking/plasticity.py`.
 
 **`arbor_synapses` (N3).** Synapses from geometric proximity (Peters' rule): axonal nodes (`pre_compartments`,
 default axon and neurite) within `contact_distance` of dendritic nodes (`post_compartments`, default dendrite, neurite,

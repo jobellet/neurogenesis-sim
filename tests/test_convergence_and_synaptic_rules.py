@@ -1,4 +1,4 @@
-"""C28: sparse random expansion (`random_projection`), BTSPRule, ConsolidationRule."""
+"""C28: random sparse convergence (`random_projection`), BTSPRule, ConsolidationRule."""
 import tracemalloc
 
 import jax.numpy as jnp
