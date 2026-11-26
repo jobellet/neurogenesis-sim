@@ -120,3 +120,12 @@ def test_consolidation_off_fast_decay_and_capture():
     for _ in range(1000):
         s, u = gated.step(s, u, jnp.asarray([0.0]), gate=0.0)
     assert abs(float(gated.weight(s, u)[0]) - 100.0) < 0.01                 # no capture signal: nothing kept
+
+
+def test_random_projection_plastic_mask():
+    p = {"sources": {"cell_type": [0]}, "targets": {"cell_type": [1]}, "fan_in": 3, "plastic": False}
+    t = _tissue(10, 5)
+    t.connectivity = t.connectivity.append([0], [10], [7], [1])              # an earlier synapse (no mask)
+    c = _run(t, p).connectivity
+    assert c.plastic is not None and bool(c.plastic[0]) and not c.plastic[1:].any() and len(c.pre) == 1 + 15
+    assert _run(_tissue(10, 5), dict(p, plastic=None)).connectivity.plastic is None

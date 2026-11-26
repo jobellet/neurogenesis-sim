@@ -26,7 +26,9 @@ class RandomProjection:
     (all sources if there are fewer). `sources`, `targets`: selectors {region, cell_type, expressing, threshold}. The draw
     uses a targets x sources array of keys: meant for populations up to a few thousand cells (2048 x 2048 = 32 MB).
     `weight` (a `Param`, toolbox units; its sign is the synapse sign), `delay` (ticks, 1..MAX_DELAY_TICKS),
-    `allow_self` (default False). Randomness: one stream (the stage's). O(targets x fan_in).
+    `allow_self` (default False), `plastic` (default: unset; False marks the new synapses with the K6 `plastic` mask, a
+    fixed expansion that plasticity stages skip and that downstream code can tell apart from synapses made by contact).
+    Randomness: one stream (the stage's). O(targets x fan_in).
     Neutral default: `fan_in` 0 (or no sources or targets) = no-op.
     """
 
@@ -63,6 +65,10 @@ class RandomProjection:
         if not allow_self:
             ok = pre != post
             pre, post = pre[ok], post[ok]
+        plastic = params.get("plastic")
+        extra = {}
+        if plastic is not None:
+            extra["plastic"] = np.full(len(pre), bool(resolve(plastic, genome, fields)), np.bool_)
         tissue.connectivity = tissue.connectivity.append(pre, post, np.full(len(pre), w, np.int32),
-                                                         np.full(len(pre), d, np.int32))
+                                                         np.full(len(pre), d, np.int32), **extra)
         return tissue

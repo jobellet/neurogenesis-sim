@@ -289,7 +289,7 @@ sources, listed below the table.
 | C24 | done: `tissue_expand` in `neurogenesis/stages/expansion.py`, dilation by `1 + kappa * N_new / N_total` about a centre along chosen axes; optional delay recompute |
 | C18 | done: `partner_select` in `neurogenesis/stages/partner.py` (#89) |
 | C27 | done: `secrete_cue` and `CueField` in `neurogenesis/stages/guidance.py` / `fields/maps.py`; `grow_arbors` `guidance` (several cues, receptor gains from expression, unit or relative sensing) and two-phase growth (`target_field`, `arbor_*`, `confine_to_target`); tests `tests/test_cell_cues.py` |
-| C28 | done: `random_projection` (`neurogenesis/stages/projection.py`), `BTSPRule` and `ConsolidationRule` (`neurogenesis/spiking/plasticity.py`); tests `tests/test_memory_mechanisms.py` |
+| C28 | done: `random_projection` (`neurogenesis/stages/projection.py`, optional fixed `plastic` mask), `BTSPRule` and `ConsolidationRule` (`neurogenesis/spiking/plasticity.py`); tests `tests/test_memory_mechanisms.py` |
 | C20 | not done |
 | C26 | not done (deferred: needs a develop / simulate loop that keeps neuron indices stable across recompiles) |
 
