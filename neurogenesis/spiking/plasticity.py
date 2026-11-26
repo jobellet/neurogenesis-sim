@@ -1,6 +1,7 @@
 """Plasticity rules (E1) on struct-of-arrays synapses, in JAX.
 
-`STDPRule`: pair-based spike-timing-dependent plasticity with pre / post traces, hard or soft bounds, optional integer
+`BTSPRule` (behavioural-timescale, one-shot, bidirectional) and `ConsolidationRule` (fast + slow components,
+tagging and capture), C28. `STDPRule`: pair-based spike-timing-dependent plasticity with pre / post traces, hard or soft bounds, optional integer
 traces (Bi, 1998, Journal of Neuroscience; Song, 2000, Nature Neuroscience). `HebbianRule`: Hebbian growth
 with subtractive or multiplicative normalisation (Miller, 1994, Neural Computation) or Oja's rule (Oja, 1982,
 Journal of Mathematical Biology). `ThreeFactorRule`: eligibility trace times a
@@ -297,3 +298,83 @@ class ThreeFactorRule:
         bytes_cost = num_synapses * 4
         ops_cost = num_synapses * ticks * 6
         return (bytes_cost, ops_cost)
+
+
+class BTSPRule:
+    """Behavioural-timescale synaptic plasticity (C28): one-shot, seconds-wide, weight-dependent and bidirectional.
+
+    A dendritic plateau potential in a postsynaptic cell potentiates the inputs that were active seconds before or after
+    it, so that a place field forms in a single trial (Bittner et al. 2017, Science 357:1033-1036); the same event
+    depresses inputs that are already strong, which moves existing fields (Milstein et al. 2021, eLife 10:e73046).
+    Model (after Milstein et al. 2021): a presynaptic eligibility trace ET (each arriving spike adds 1, decay `tau_et`
+    ms) and a postsynaptic instructive signal IS (each plateau adds 1, decay `tau_is` ms); per tick
+        dw = eta * ET * IS[post] * (k_plus * (w_max - w) - k_minus * w)
+    so the weight moves towards w* = k_plus w_max / (k_plus + k_minus): weak inputs grow, strong ones shrink. Plateaus are
+    given by the caller (e.g. a dendritic threshold, an instructive input, or a neuromodulator burst). `eta` 0 = no-op.
+    Weights keep their sign (Dale): the rule acts on magnitudes.
+    """
+
+    def __init__(self, eta: float = 0.0, tau_et: float = 1000.0, tau_is: float = 1000.0, k_plus: float = 1.0,
+                 k_minus: float = 0.5, w_max: float = 1000.0):
+        self.eta, self.k_plus, self.k_minus, self.w_max = eta, k_plus, k_minus, w_max
+        self.tau_et, self.tau_is = tau_et, tau_is
+        self.decay_et = float(jnp.exp(-1.0 / tau_et)) if tau_et > 0 else 0.0
+        self.decay_is = float(jnp.exp(-1.0 / tau_is)) if tau_is > 0 else 0.0
+
+    def init_state(self, num_neurons: int, num_synapses: int) -> Tuple[jnp.ndarray, jnp.ndarray]:
+        """(ET per synapse, IS per neuron)."""
+        return jnp.zeros(num_synapses, jnp.float32), jnp.zeros(num_neurons, jnp.float32)
+
+    def step(self, weights: jnp.ndarray, post: jnp.ndarray, arrivals_pre: jnp.ndarray, plateau_post: jnp.ndarray,
+             et: jnp.ndarray, is_: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        """One tick: arrivals_pre (E,) spikes arriving at each synapse; plateau_post (N,) plateau events."""
+        et = et * self.decay_et + arrivals_pre
+        is_ = is_ * self.decay_is + plateau_post
+        mag = jnp.abs(weights)
+        dmag = self.eta * et * is_[post] * (self.k_plus * (self.w_max - mag) - self.k_minus * mag)
+        mag = jnp.clip(mag + dmag, 0.0, self.w_max)
+        return jnp.sign(weights) * mag + jnp.where(weights == 0, mag, 0.0), et, is_
+
+    def fixed_point(self) -> float:
+        """Weight towards which repeated pairings drive a synapse."""
+        return self.k_plus * self.w_max / (self.k_plus + self.k_minus)
+
+    def declared_cost(self, num_neurons: int, num_synapses: int, ticks: int) -> Tuple[int, int]:
+        return num_synapses * 8 + num_neurons * 4, num_synapses * ticks * 10
+
+
+class ConsolidationRule:
+    """Two-timescale synapse with tagging and capture (C28): a fast, labile component that decays, and a slow component
+    that captures it.
+
+    Early potentiation only tags a synapse; it becomes lasting if plasticity-related products arrive while the tag is
+    there (synaptic tagging and capture: Frey & Morris 1997, Nature 385:533-536). Synapses with several internal
+    variables at different time scales keep many more memories than one-variable synapses (Fusi, Drew & Abbott 2005,
+    Neuron 45:599-611; Benna & Fusi 2016, Nat Neurosci 19:1697-1706). Model: every change dw from another rule (STDP,
+    three-factor, BTSP) goes to the fast component u; per tick u decays with `tau_fast` ms and a fraction `rate` x gate
+    of u moves to the slow component s (gate: 1, or a per-synapse / per-cell capture signal such as dopamine);
+    the weight used by the network is w = s + u. With `tau_fast` <= 0 the rule is off: dw goes straight to s.
+    """
+
+    def __init__(self, tau_fast: float = 0.0, rate: float = 0.0):
+        self.tau_fast, self.rate = tau_fast, rate
+        self.decay = float(jnp.exp(-1.0 / tau_fast)) if tau_fast > 0 else 0.0
+
+    def init_state(self, weights: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray]:
+        """(slow, fast): the initial weights are all slow."""
+        return jnp.asarray(weights, jnp.float32), jnp.zeros_like(jnp.asarray(weights, jnp.float32))
+
+    def step(self, slow: jnp.ndarray, fast: jnp.ndarray, dw: jnp.ndarray,
+             gate: Union[float, jnp.ndarray] = 1.0) -> Tuple[jnp.ndarray, jnp.ndarray]:
+        if self.tau_fast <= 0:
+            return slow + dw, fast
+        fast = fast + dw
+        move = self.rate * gate * fast
+        return slow + move, (fast - move) * self.decay
+
+    @staticmethod
+    def weight(slow: jnp.ndarray, fast: jnp.ndarray) -> jnp.ndarray:
+        return slow + fast
+
+    def declared_cost(self, num_neurons: int, num_synapses: int, ticks: int) -> Tuple[int, int]:
+        return num_synapses * 8, num_synapses * ticks * 5

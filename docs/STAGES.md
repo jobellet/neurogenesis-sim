@@ -371,6 +371,13 @@ compartment changes); `read_swc` / `write_swc` for SWC files (`scale` converts u
 "scale": s}), `length` (decay length √(D/k)), `cutoff` (5 lengths), `mode` `"set"` or `"add"` (same length). No
 randomness; no `name` = no-op; O(sources). Rationale and references: `docs/background/cell-cues-and-target-recognition.md`.
 
+**`random_projection` (C28, `neurogenesis/stages/projection.py`).** Each selected target receives synapses from
+`fan_in` distinct sources drawn at random (`sources`, `targets`: selectors; `weight`, sign = synapse sign; `delay`;
+`allow_self` False). The expansion motif of the dentate gyrus and the fly mushroom body (sparse index, hashing); the
+sparsity comes from inhibition among the targets, built separately. `fan_in` 0 = no-op. Uses a targets x sources key
+array (populations up to a few thousand). Plasticity rules of the same task: `BTSPRule` and `ConsolidationRule` in
+`neurogenesis/spiking/plasticity.py`. Rationale and references: `docs/background/memory-mechanisms.md`.
+
 **`arbor_synapses` (N3).** Synapses from geometric proximity (Peters' rule): axonal nodes (`pre_compartments`,
 default axon and neurite) within `contact_distance` of dendritic nodes (`post_compartments`, default dendrite, neurite,
 soma) of another cell, found through the cell list over nodes. Each contact is kept with `p_contact` (1.0), at most
