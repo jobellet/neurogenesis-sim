@@ -20,6 +20,8 @@ import { Inspector } from './ui/Inspector';
 import { RasterCanvas } from './ui/RasterCanvas';
 import { DEFAULT_SEED, stepKernel } from './sim/kernel';
 import { loadPresetNetwork } from './sim/presets';
+import { parseHidden } from './ui/puzzle';
+import { activitySummary, createStatusRegion, installKeyboardShortcuts } from './ui/a11y';
 
 // 1. Allocate Simulation Memory (SharedArrayBuffer when available, ArrayBuffer fallback)
 const simMem: SharedSimulationMemory = createSharedSimulationMemory();
@@ -92,6 +94,7 @@ const appContainer = document.getElementById('app') || document.body;
 
 sceneManager = new SceneManager(appContainer, simMem);
 const inspector = new Inspector(appContainer, simMem, spatialHash);
+inspector.hiddenParams = parseHidden(window.location.search);   // puzzle mode (?hide=...)
 const rasterCanvas = new RasterCanvas(appContainer, simMem);
 import { PopulationFilter } from "./ui/PopulationFilter";
 const popFilter = new PopulationFilter(appContainer, simMem);
@@ -610,7 +613,63 @@ if (requestedPreset && requestedPreset !== 'column') {
     });
 }
 
-// Open Simulation Setup Modal on initial startup unless in automated test mode or preset requested
-if (!window.location.search.includes('no-modal') && !window.location.search.includes('test=1') && !urlParams.has('preset')) {
+// ?network=<url>: open a network JSON (as written by SNNNetwork.save_json) from a link, e.g. from a docs page.
+const requestedNetwork = urlParams.get('network');
+if (requestedNetwork) {
+  fetch(requestedNetwork)
+    .then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    })
+    .then((net) => {
+      if (!net || !Array.isArray(net.neurons)) throw new Error('the file has no "neurons" list');
+      importNetwork(net as SerializedNetwork);
+    })
+    .catch((err) => {
+      console.error(`[Main] Failed to load network '${requestedNetwork}':`, err);
+      alert(`Could not load the network ${requestedNetwork}: ${err.message ?? err}`);
+    });
+}
+
+// Accessibility: labelled canvases, a text summary of the activity, keyboard shortcuts
+document.querySelectorAll('canvas').forEach((c) => {
+  if (!c.getAttribute('aria-label')) {
+    c.setAttribute('role', 'img');
+    c.setAttribute('aria-label', c.classList.contains('raster-plot-canvas') ? 'Spike raster of the population'
+      : '3D view of the network: neurons coloured by role and sign');
+  }
+});
+const statusEl = createStatusRegion(document.body);
+let lastSpikes = safeLoad(simMem.control, ControlIndex.TOTAL_SPIKES);
+let lastTick = safeLoad(simMem.control, ControlIndex.SIM_TICK);
+setInterval(() => {
+  const spikes = safeLoad(simMem.control, ControlIndex.TOTAL_SPIKES);
+  const tick = safeLoad(simMem.control, ControlIndex.SIM_TICK);
+  statusEl.textContent = activitySummary(safeLoad(simMem.control, ControlIndex.NUM_NEURONS),
+    safeLoad(simMem.control, ControlIndex.NUM_SYNAPSES), Math.max(0, spikes - lastSpikes), Math.max(0, tick - lastTick),
+    safeLoad(simMem.control, ControlIndex.IS_RUNNING) === 1);
+  lastSpikes = spikes;
+  lastTick = tick;
+}, 5000);
+installKeyboardShortcuts({
+  togglePlay: () => (document.getElementById('btn-play-pause') as HTMLButtonElement | null)?.click(),
+  step: () => (document.getElementById('btn-step') as HTMLButtonElement | null)?.click(),
+  selectRelative: (delta: number) => {
+    const n = safeLoad(simMem.control, ControlIndex.NUM_NEURONS);
+    if (n === 0) return;
+    const cur = safeLoad(simMem.control, ControlIndex.SELECTED_NEURON);
+    const next = cur < 0 ? 0 : (cur + delta + n) % n;
+    safeStore(simMem.control, ControlIndex.SELECTED_NEURON, next);
+    sceneManager.onNeuronSelected?.(next);
+  },
+  deselect: () => {
+    safeStore(simMem.control, ControlIndex.SELECTED_NEURON, -1);
+    sceneManager.onNeuronSelected?.(null);
+  },
+});
+
+// Open Simulation Setup Modal on initial startup unless in automated test mode, or a preset or network is requested
+if (!window.location.search.includes('no-modal') && !window.location.search.includes('test=1') && !urlParams.has('preset')
+    && !requestedNetwork) {
   inspector.openStartupModal();
 }

@@ -41,7 +41,10 @@ def init_state(net, seed=12345):
     return st
 
 
-def tick(net, st, ext):
+def tick(net, st, ext, n_substeps=None):
+    """One 1 ms tick; `n_substeps` (default: the model's `substeps`) sets the integration step to 1 / n_substeps ms
+    (used by `analysis.cells.step_convergence`)."""
+    n_sub, dt = (substeps, DT) if n_substeps is None else (int(n_substeps), 1.0 / int(n_substeps))
     net = {k: jnp.asarray(x) for k, x in net.items()}
     gl = 1.0 / (2.0 ** net["shift_v"].astype(jnp.float32))
     gc = 0.5 * gl
@@ -51,24 +54,24 @@ def tick(net, st, ext):
     vs, vd, ie, ii = st["vs"], st["vd"], st["i_exc"], st["i_inh"]
     in_refr = st["refr"] > 0
     crossed = jnp.zeros(vs.shape, bool)
-    decay = jnp.exp(-DT / tau_s)
+    decay = jnp.exp(-dt / tau_s)
     cond_mode = "e_rev" in net
     if cond_mode:
         ge = st["g_exc"]
         gi = st["g_inh"]
         gerev = st["g_exc_rev"]
         girev = st["g_inh_rev"]
-    for _ in range(substeps):
+    for _ in range(n_sub):
         dvs = -gl * (vs - EL) - gc * (vs - vd) + i_ext + ii
         dvd = -gl * (vd - EL) - gc * (vd - vs) + ie
         if cond_mode:
-            vs_next = (vs + DT * (dvs + girev)) / (1.0 + DT * gi)
-            vd_next = (vd + DT * (dvd + gerev)) / (1.0 + DT * ge)
+            vs_next = (vs + dt * (dvs + girev)) / (1.0 + dt * gi)
+            vd_next = (vd + dt * (dvd + gerev)) / (1.0 + dt * ge)
             vs = jnp.where(in_refr, V_RESET, vs_next)
             vd = vd_next
         else:
-            vs = jnp.where(in_refr, V_RESET, vs + DT * dvs)
-            vd = vd + DT * dvd
+            vs = jnp.where(in_refr, V_RESET, vs + dt * dvs)
+            vd = vd + dt * dvd
         crossed = crossed | ((vs >= theta) & ~in_refr)
         vs = jnp.where(crossed, V_RESET, vs)
         ie, ii = ie * decay, ii * decay

@@ -293,7 +293,7 @@ sources, listed below the table.
 | C28 | done: `random_projection` (`neurogenesis/stages/projection.py`, optional fixed `plastic` mask), `BTSPRule` and `ConsolidationRule` (`neurogenesis/spiking/plasticity.py`); tests `tests/test_convergence_and_synaptic_rules.py` |
 | C29 | not done |
 | C20 | not done |
-| C26 | not done (deferred: needs a develop / simulate loop that keeps neuron indices stable across recompiles) |
+| C26 | partial: simulation state files (`neurogenesis.spiking.state`: save / load / extend, exact pause and resume) and the stem-cell options of `proliferate` (resting cells, division budget) done; design note below; the develop / simulate loop itself is not done |
 
 **Order and priorities.** C14 → C15 first (they make birth-order-dependent layering emerge in G2.3, instead of being
 imposed); C21, C22, C23 next (they use existing P3 / P4 and C11); C18 and C24 independent; C16, C17, C19 after N2 / N3;
@@ -405,6 +405,19 @@ field or fit can replace; values are about the cited species and ages, and resul
   by `1 + κ · N_new / N_total`, with κ and the axes as `Param`s; the existing `min_distance` collisions of `migrate`
   (cell list) handle local overlaps. Acceptance test: with κ chosen to give × 5 per tangential axis over CC1–CC8, the
   cell density stays bounded while the count grows.
+- **C26 `adult_neurogenesis`** — design note (stable indices across recompiles).
+  - New cells get new indices at the end; nobody is renumbered. Dead cells keep their index and are marked dead.
+  - Dead and not-yet-born cells are silent: no synapses (and for `lif_int` a threshold above the ±2048 clamp), so the
+    kernels do not change. Random lesions in validation assays already silence cells this way.
+  - New synapses are appended; removed ones are only marked (weight 0), so per-synapse state keeps its index.
+  - Reserve capacity (padding, as `batch.stack` does) so that JAX compiles the kernel once for all blocks.
+  - Renumber only on purpose (`freeze`), returning the old → new map for every state array.
+  - Between blocks the kernel state is carried with `neurogenesis.spiking.state.extend_state` (old cells keep their
+    state, new cells start at rest); a block can be saved and resumed with `save_state` / `load_state`
+    (format `neurogenesis-simstate` 1, checked against the network fingerprint). Structural plasticity during simulation
+    is an established method (Butz & van Ooyen 2013; NEST: Diaz-Pier et al. 2016).
+  - Niche cells use the `proliferate` options `rest_channel` / `activation_prob` (resting stem cells, Urbán et al.
+    2019) and `budget` (a limited series of divisions, Encinas et al. 2011).
 - **C20 `gap_junction_couple`** — deferred. Bidirectional, instantaneous coupling (`I = g (V_i − V_j)`) does not fit
   the kernels' causal, delayed event scheme without an implicit solver or substeps, which would cost an order of
   magnitude and touch all four bit-identical kernels (K5). Interim approximation, no kernel change: reciprocal
@@ -498,7 +511,10 @@ field or fit can replace; values are about the cited species and ages, and resul
 - A declarative assay description (stimuli, readout, metric, gate), stored in modules and rerun by `neurogenesis validate module.json`.
 - Knockout assays included.
 - **Status:** done: `neurogenesis.validation` and `python -m neurogenesis validate module.json` (stimuli per region,
-  rate or fraction-active readout, metrics, gates, pass fraction, knockouts).
+  rate or fraction-active readout, metrics, gates, pass fraction, knockouts). Optional checks, off by default: `reset`
+  (each stimulus from rest), `order_check` (reverse order, fails above a tolerance), `control` (matched control from the
+  same seeds, per-seed effect with a gate) and `lesion` (random fraction of cells or synapses silenced, own random
+  stream); `tests/test_validation_checks.py`.
 
 ### Phase F: Browser Viewer & Web Demo (viz/, TypeScript + three.js)
 
@@ -791,7 +807,10 @@ documentation site, so anyone can grow and simulate a circuit without installing
   `lif_int` kernel (identical spikes to the Python reference), the gene coding, `coactivity`, competitive elimination
   and 2D versions of six stages grows and evolves a toy cortical map (best offspring per generation), founder and
   champion animated stage by stage; equivalence with Python in `tests/test_docs_playground.py`, described in
-  `docs/getting-started/playground.md`. Not done: the 3D viewer (`viz/`) with preset projects on the site.
+  `docs/getting-started/playground.md`. The 3D viewer opens any network JSON from a link (`?network=<url>`), has a
+  puzzle mode that hides chosen neuron parameters for students to find by experiment (`?hide=shift_v,threshold`), text
+  labels for screen readers, a spoken activity summary and keyboard control. Not done: preset projects linked from each
+  docs page.
 
 **J13. Citable releases.** `CITATION.cff`, a Zenodo DOI per tagged release, and a JOSS paper (`paper.md`) once the
 repository is public.

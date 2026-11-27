@@ -139,3 +139,15 @@ def test_multi_channel_synaptic_currents(tmp_path):
     net2.synapse_arrays["channel"] = np.array([0], dtype=np.int32)
     counts_fast = simulate_counts([net2], [np.zeros((1, 2), np.int32)], ticks=100, model="lif_int")[0]
     assert counts_slow[0, 1] >= counts_fast[0, 1]
+
+
+def test_tabulated_hodgkin_huxley_matches_hh():
+    """`hh_table` (gates from tables) keeps the f-I curve of `hh` within 2 Hz and the same onset of repetitive firing."""
+    units = np.round(np.arange(6.0, 11.01, 0.2) / hh.SCALE).astype(int)
+    f = fi_curve(units, model="hh") * 1000
+    ft = fi_curve(units, model="hh_table") * 1000
+    assert np.max(np.abs(f - ft)) <= 2.0
+    assert np.argmax(f > 20) == np.argmax(ft > 20)
+    from neurogenesis.spiking.models import hh_table
+    t = hh_table.tables(hh.DT)
+    assert t.shape[0] == 6 and np.all((t >= 0) & (t <= 1))           # x_inf and exp(-dt (a + b)) lie in [0, 1]

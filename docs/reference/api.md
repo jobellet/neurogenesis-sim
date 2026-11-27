@@ -84,6 +84,9 @@ Generated from the docstrings of the installed package.
 
 .. automodule:: neurogenesis.spiking.surrogate
    :members: run_differentiable
+
+.. automodule:: neurogenesis.spiking.state
+   :members: save_state, load_state, extend_state, network_fingerprint
 ```
 
 ## Cost

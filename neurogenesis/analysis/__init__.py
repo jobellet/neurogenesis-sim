@@ -16,8 +16,8 @@ Development lives in `neurogenesis.stages` / `neurogenesis.development`, simulat
 (see docs/reference/layout.md).
 """
 from . import cells, connectome, criticality, geometry, morphology, structure
-from .cells import fi_curve
+from .cells import fi_curve, spike_raster, step_convergence
 from .structure import connection_lengths, modularity, nearest_neighbour_regularity, within_group_fraction
 
-__all__ = ["cells", "connectome", "criticality", "geometry", "morphology", "structure", "fi_curve", "nearest_neighbour_regularity", "connection_lengths",
+__all__ = ["cells", "connectome", "criticality", "geometry", "morphology", "structure", "fi_curve", "spike_raster", "step_convergence", "nearest_neighbour_regularity", "connection_lengths",
            "within_group_fraction", "modularity"]

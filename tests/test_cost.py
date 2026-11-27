@@ -32,7 +32,7 @@ def test_networks_that_cannot_fit_are_refused_before_allocation():
 def test_time_estimate_matches_measured_time():
     net = cost._random_network(3000, 120000, seed=3)
     ext = np.random.default_rng(0).integers(0, 40, (1, 3000)).astype(np.int32)
-    for model in ("lif_int", "hh"):
+    for model in ("lif_int", "hh", "hh_table"):
         est = cost.estimate(model, 3000, 120000, 100)
         simulate_counts([net], [ext], ticks=100, model=model, check_cost=False)
         t0 = time.perf_counter()

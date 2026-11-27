@@ -51,11 +51,21 @@ cost assumes `N = 100` (or `max_cells`) unless `N` is a constant.
 | `daughter_type` | none | cell type of the new daughter in an asymmetric division; the mother keeps its type (Götz & Huttner 2005, Nat Rev Mol Cell Biol) |
 | `expression_noise` | 0.0 | standard deviation of Gaussian noise added to both daughters' expression, clipped at 0 |
 | `birth_stage` | none | birth stage given to new daughters; if absent, one more than the latest alive `birth_stage` |
+| `crowding_radius` | none (0) | contact inhibition: radius (space units) within which alive neighbours are counted (cell list); 0 or absent is neutral |
+| `crowding_k`, `crowding_min` | 6, 0.0 | `prob` is multiplied by 1 − (1 − `crowding_min`) · min(n / `crowding_k`, 1) for n neighbours (Eagle & Levine 1967; Streichan et al. 2014; as in Sipahi & Zupanc 2018) |
+| `rest_channel` | none | expression channel holding the resting (quiescent) state: 0 active, r ≥ 1 resting for r − 1 calls; resting cells do not divide |
+| `activation_prob`, `min_rest` | 0.0, 0 | resting cells that have rested `min_rest` calls wake with probability `activation_prob` and may divide in the same call (Urbán et al. 2019) |
+| `rest_after_division` | 0.0 | probability that the mother row returns to rest after dividing |
+| `budget`, `budget_channel` | none | division budget: the channel counts divisions (mother and symmetric daughter + 1, asymmetric daughter 0); cells that reach `budget` leave the cycle (Encinas et al. 2011) |
+| `budget_types` | all | cell types the budget applies to (e.g. progenitors only, not the stem cell) |
 
 Daughters copy the mother's region, expression, sign, `cycling` (`True` by default for cells from `seed_cells` and
 `proliferate`) and neuron parameters and record `parent_id` and `clone_id`; both daughters get `generation = mother's + 1`
 (`Tissue.generation`). Dead cells and postmitotic cells (`cycling == False`, e.g. from `place_by_hand` or
-`cell_cycle_clock`) do not divide.
+`cell_cycle_clock`) do not divide. The state channels of `rest_channel` and `budget_channel` are left out of
+`expression_noise`, and an appended daughter is always active. All the options are off when absent and then draw no
+random numbers, so existing networks are unchanged (`tests/test_proliferate_options.py`). With crowding and
+`crowding_min = 0`, only cells near the border divide and growth slows from exponential to a moving front.
 
 **`apoptosis` (C3).** Kills cells, then compacts the tissue (connectivity re-indexed).
 | Param | Default | Meaning |
