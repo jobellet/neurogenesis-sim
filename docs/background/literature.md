@@ -23,6 +23,9 @@ publisher's record before citing it.
 | SONATA, NeuroML 2, PyNN, NIR | describing networks independently of a simulator | interchange formats, not development; targets of the exporters |
 | Connectome-Manipulator | rewiring, fitting and transplanting connectomes of SONATA circuits | operates on given circuits; can serve as a baseline for, and manipulate, grown circuits written as SONATA |
 | NEAT, HyperNEAT, ES-HyperNEAT, NDPs | evolving networks through (indirect) encodings | abstract encodings; no biological geometry, cell types, stages or spiking biophysics |
+| GENESIS, MOOSE | detailed compartmental neurons, networks and chemical signalling, built from scripted objects; GENESIS was one of the first systems made for sharing model components (Wilson et al. 1989; Bower & Beeman 1998; Cornelis et al. 2012; Ray & Bhalla 2008) | networks are specified, not developed; shared parts are model code, not grown circuits with a genome and validation. Code: [genesis-sim/genesis-2.4](https://github.com/genesis-sim/genesis-2.4), [BhallaLab/moose-core](https://github.com/BhallaLab/moose-core) |
+| Neurosim | teaching cellular and small-network electrophysiology: Hodgkin–Huxley, single channels, cables, small circuits, Wilson–Cowan populations (Heitler 2022) | hand-built circuits for teaching; no development, genomes or export; commercial Windows program |
+| Neurosphere Simulator | teaching stem-cell-driven tissue growth with a 2D stochastic cellular automaton (Sipahi & Zupanc 2018; Zupanc et al. 2021) | growth only (division, death, resting stem cells, contact inhibition); no neurons, wiring or spikes |
 | Connectome-constrained models | simulating measured wiring diagrams | wiring taken as given; neurogenesis-sim asks how development could produce its statistics |
 
 ## Models of neural development
@@ -55,6 +58,10 @@ publisher's record before citing it.
   agent-based simulation. *Bioinformatics* 38:453–460.
 - De Schutter E (2023). Efficient simulation of neural development using shared memory parallelization. *Frontiers
   in Neuroinformatics* 17:1212384. doi:10.3389/fninf.2023.1212384 (NeuroDevSim)
+- Sipahi R, Zupanc GKH (2018). Stochastic cellular automata model of neurosphere growth: roles of proliferative
+  potential, contact inhibition, cell death, and phagocytosis. *Journal of Theoretical Biology* 445:151–165.
+- Zupanc GKH, Lehotzky D, Tripp IP (2021). The Neurosphere Simulator: an educational online tool for modeling neural
+  stem cell behavior and tissue growth. *Developmental Biology* 469:80–85. doi:10.1016/j.ydbio.2020.09.016
 
 ## Activity-dependent development
 - Wong ROL (1999). Retinal waves and visual system development. *Annual Review of Neuroscience* 22:29–47.
@@ -100,6 +107,16 @@ publisher's record before citing it.
 - Izhikevich EM (2003). Simple model of spiking neurons. *IEEE Transactions on Neural Networks* 14:1569–1572.
 - Gerstner W, Kistler WM, Naud R, Paninski L (2014). *Neuronal Dynamics.* Cambridge University Press.
 - Hines ML, Carnevale NT (1997). The NEURON simulation environment. *Neural Computation* 9:1179–1209.
+- Wilson MA, Bhalla US, Uhley JD, Bower JM (1989). GENESIS: a system for simulating neural networks. *Advances in
+  Neural Information Processing Systems* 1:485–492.
+- Bower JM, Beeman D (1998). *The Book of GENESIS: Exploring Realistic Neural Models with the GEneral NEural
+  SImulation System*, 2nd ed. Springer, New York.
+- Ray S, Bhalla US (2008). PyMOOSE: interoperable scripting in Python for MOOSE. *Frontiers in Neuroinformatics*
+  2:6. doi:10.3389/neuro.11.006.2008
+- Cornelis H, Rodriguez AL, Coop AD, Bower JM (2012). Python as a federation tool for GENESIS 3.0. *PLoS ONE*
+  7:e29018. doi:10.1371/journal.pone.0029018
+- Brette R, Rudolph M, Carnevale T, et al. (2007). Simulation of networks of spiking neurons: a review of tools and
+  strategies. *Journal of Computational Neuroscience* 23:349–398. doi:10.1007/s10827-007-0038-6
 - Gewaltig MO, Diesmann M (2007). NEST (NEural Simulation Tool). *Scholarpedia* 2:1430.
 - Davison AP, Brüderle D, Eppler J, et al. (2009). PyNN: a common interface for neuronal network simulators.
   *Frontiers in Neuroinformatics* 2:11. doi:10.3389/neuro.11.011.2008 (online 2008)
@@ -112,6 +129,12 @@ publisher's record before citing it.
   network models. *PLoS Computational Biology* 16:e1007696.
 - Eshraghian JK, Ward M, Neftci EO, et al. (2023). Training spiking neural networks using lessons from deep learning.
   *Proceedings of the IEEE* 111:1016–1054.
+
+## Teaching with simulations
+- de Jong T, Linn MC, Zacharia ZC (2013). Physical and virtual laboratories in science and engineering education.
+  *Science* 340:305–308.
+- Heitler B (2022). Neurosim: some thoughts on using computer simulation in teaching electrophysiology. *Journal of
+  Undergraduate Neuroscience Education* 20:A284–A291. doi:10.59390/JGIP5297
 
 ## Connectomes and connectome-constrained models
 - Peters A, Feldman ML (1976). The projection of the lateral geniculate nucleus to area 17 of the rat cerebral

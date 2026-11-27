@@ -175,6 +175,36 @@ class SeedCells:
         )
         return tissue
 
+def _channel_index(tissue: Tissue, name, what: str):
+    """Column of a named expression channel, or None when `name` is None."""
+    if name is None:
+        return None
+    if name not in tissue.expression_names:
+        raise ValueError(f"proliferate: {what} '{name}' is not an expression channel ({tissue.expression_names}).")
+    return tissue.expression_names.index(name)
+
+
+def _crowding_factor(tissue: Tissue, params: Dict[str, Any], genome, fields):
+    """Per-cell factor on the division probability from the alive-neighbour count (1 when crowding is off)."""
+    radius = params.get("crowding_radius", None)
+    r = 0.0 if radius is None else float(resolve(radius, genome, fields))
+    N = len(tissue.alive)
+    if r <= 0.0:
+        return np.ones(N)
+    k = float(resolve(params.get("crowding_k", 6), genome, fields))
+    floor = float(resolve(params.get("crowding_min", 0.0), genome, fields))
+    if k <= 0:
+        raise ValueError("proliferate: crowding_k must be > 0.")
+    alive = np.where(tissue.alive)[0]
+    counts = np.zeros(N)
+    if len(alive) > 1:
+        pos = tissue.positions[alive]
+        src, dst = CellList(pos, cutoff=r).query_radius(pos, r)
+        keep = src != dst
+        counts[alive] = np.bincount(src[keep], minlength=len(alive))
+    return 1.0 - (1.0 - floor) * np.minimum(counts / k, 1.0)
+
+
 @register_stage("proliferate")
 class Proliferate:
     """Cell division: each cycling alive cell divides with probability `prob` (a `Param`, per cell).
@@ -192,6 +222,20 @@ class Proliferate:
       asymmetric neurogenic divisions of neural progenitors (Götz & Huttner, 2005, Nat Rev Mol Cell Biol).
     - `expression_noise`: std of Gaussian noise added to both daughters' expression channels, clipped at 0.
     - `new_type`: cell type of every appended daughter of a symmetric division.
+    - `crowding_radius`, `crowding_k`, `crowding_min`: contact inhibition of division. `prob` is multiplied by
+      1 - (1 - crowding_min) * min(n / crowding_k, 1), where n counts alive neighbours within `crowding_radius`
+      (cell list, O(N)). Crowded cells divide less (Eagle & Levine 1967, Nature; Streichan et al. 2014, PNAS),
+      as in cellular automata of neurosphere growth (Sipahi & Zupanc 2018, J Theor Biol). Radius 0 is neutral.
+    - `rest_channel`, `activation_prob`, `min_rest`, `rest_after_division`: resting (quiescent) stem cells. The
+      named expression channel holds 0 for an active cell and r >= 1 for a cell resting for r - 1 calls. Resting
+      cells do not divide; once they have rested `min_rest` calls they wake with probability `activation_prob`
+      (and may divide in the same call); the mother row of a division returns to rest with probability
+      `rest_after_division` (Urbán et al. 2019, Neuron). Absent channel is neutral.
+    - `budget`, `budget_channel`, `budget_types`: a division budget. The named channel counts divisions; the mother
+      row and a symmetric daughter count one more, an asymmetric daughter starts at 0. Cells of `budget_types`
+      (default all) whose count reaches `budget` leave the cycle (`cycling = False`), like the limited division
+      series of activated adult neural stem cells (Encinas et al. 2011, Cell Stem Cell). Absent budget is neutral.
+    The state channels are excluded from `expression_noise`, and an appended daughter is always active.
 
     Linear O(N) work and allocation, no loops over cells.
     """
@@ -207,6 +251,11 @@ class Proliferate:
         # add_cells reallocates every per-cell array (N + M rows); measured peak is 1.1-1.7x this.
         bytes_cost = (N + M) * cls.BYTES_PER_CELL
         ops_cost = N * 10 + M * 20
+        if params.get("crowding_radius") is not None:
+            k = float(worst_case(params.get("crowding_k"), 6.0))
+            neighbour_bytes, neighbour_ops = CellList.declared_cost(N, N, max(k, 1.0) * 4)
+            bytes_cost = max(bytes_cost, neighbour_bytes)
+            ops_cost += neighbour_ops
         return bytes_cost, ops_cost
 
     def run(self, tissue: Tissue, params: Dict[str, Any], genome: Dict[str, Any], fields: Dict[str, Any], rng: np.random.Generator) -> Tissue:
@@ -225,6 +274,23 @@ class Proliferate:
             prob = np.full(N, prob)
         else:
             prob = np.asarray(prob)
+        prob = prob * _crowding_factor(tissue, params, genome, fields)
+
+        rest_col = _channel_index(tissue, params.get("rest_channel"), "rest_channel")
+        if rest_col is not None:
+            rest = tissue.expression[:, rest_col]
+            resting = tissue.alive & (rest >= 1.0)
+            act = float(resolve(params.get("activation_prob", 0.0), genome, fields))
+            min_rest = float(resolve(params.get("min_rest", 0), genome, fields))
+            wake = resting & (rest - 1.0 >= min_rest) & (rng.random(N) < act)
+            rest[resting & ~wake] += 1.0
+            rest[wake] = 0.0
+            prob = np.where(rest >= 1.0, 0.0, prob)
+
+        budget_col = _channel_index(tissue, params.get("budget_channel"), "budget_channel")
+        budget = params.get("budget", None)
+        if budget is not None and budget_col is None:
+            raise ValueError("proliferate: 'budget' needs 'budget_channel' (an expression channel).")
 
         clock_mask = getattr(tissue, "_clock_cycle_mask", None)
         if clock_mask is not None and len(clock_mask) == N:
@@ -283,14 +349,37 @@ class Proliferate:
                 resolve(daughter_type_param, genome, fields, positions=daughter_positions), dtype=np.int32), (M,))
             asymmetric = rng.random(M) < asym
             cell_type = np.where(asymmetric, daughter_type, cell_type).astype(np.int32)
+        else:
+            asymmetric = np.zeros(M, dtype=bool)
 
         K = tissue.expression.shape[1]
         expression = tissue.expression[div_indices].copy() if K > 0 else np.zeros((M, 0), dtype=np.float32)
         noise = float(resolve(params.get("expression_noise", 0.0), genome, fields))
         if noise > 0.0 and K > 0:
             eps = (rng.standard_normal((2, M, K)) * noise).astype(np.float32)
+            for col in (rest_col, budget_col):
+                if col is not None:
+                    eps[:, :, col] = 0.0
             tissue.expression[div_indices] = np.maximum(expression + eps[0], 0.0)
             expression = np.maximum(expression + eps[1], 0.0)
+
+        cycling = tissue.cycling[div_indices].copy()
+        if rest_col is not None:
+            expression[:, rest_col] = 0.0
+            back = float(resolve(params.get("rest_after_division", 0.0), genome, fields))
+            if back > 0.0:
+                tissue.expression[div_indices[rng.random(M) < back], rest_col] = 1.0
+        if budget_col is not None:
+            count = tissue.expression[div_indices, budget_col] + 1.0
+            tissue.expression[div_indices, budget_col] = count
+            expression[:, budget_col] = np.where(asymmetric, 0.0, count)
+            if budget is not None:
+                limit = float(resolve(budget, genome, fields))
+                types = params.get("budget_types", None)
+                mother_in = np.ones(M, bool) if types is None else np.isin(tissue.cell_type[div_indices], types)
+                daughter_in = np.ones(M, bool) if types is None else np.isin(cell_type, types)
+                tissue.cycling[div_indices[mother_in & (count >= limit)]] = False
+                cycling &= ~(daughter_in & (expression[:, budget_col] >= limit))
 
         tissue.generation[div_indices] = generation
 
@@ -301,7 +390,7 @@ class Proliferate:
             clone_id=parent_clones,
             birth_stage=birth_stage,
             generation=generation,
-            cycling=tissue.cycling[div_indices].copy(),
+            cycling=cycling,
             birth_time=tissue.birth_time[div_indices].copy(),
             cell_type=cell_type,
             region=tissue.region[div_indices].copy(),

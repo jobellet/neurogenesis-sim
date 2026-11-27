@@ -11,6 +11,12 @@
 - **Development and evolution:** grow the same genome with different seeds; evolve a projection and see robustness
   across seeds matter.
 
+- **Puzzles:** the viewer hides chosen neuron parameters (`?hide=shift_v,refractory,threshold`); students find them by
+  experiment and check their guess, then see how `python -m neurogenesis fit` recovers a parameter from data.
+- **Textbook phenomena:** strength–duration curve, type I / II onset, accommodation, rebound, summation, lateral
+  inhibition, coincidence detection, persistent activity, as small tested experiments
+  ({doc}`../reference/neuron-models` scoreboard; `tests/test_textbook_phenomena.py`).
+
 ## Zero-install 2-hour practical (no local setup required)
 Students can complete the full practical in a browser using the front-page playground, the embedded 3D viewer, or the
 **Open In Colab** badge at the top of this page.
@@ -64,6 +70,22 @@ every seed.
 
 </details>
 
+### Part 3b (optional, 20 min) — Puzzle: find a hidden parameter
+1. Open the viewer with a network and hidden values, for example
+   [`?preset=column&no-modal&hide=shift_v,threshold`](../_static/viewer/index.html?preset=column&no-modal&hide=shift_v,threshold);
+   any network JSON can be opened from a link with `?network=<url>`.
+2. Select a neuron (or press `]`), stimulate it, watch the voltage trace and the raster, and enter a guess in the
+   puzzle box. Keyboard: Space runs or pauses, `S` steps, `[` / `]` select neurons, Escape deselects.
+
+<details>
+<summary>Solution / expected observation</summary>
+
+A faster leak (smaller `shift_v`) makes the voltage fall back sooner between inputs; a higher threshold needs more
+summed input before a spike. Different values can give the same activity (Prinz, Bucher & Marder 2004), so more than
+one guess may be consistent with what you see: a good reason to fit parameters to several kinds of data.
+
+</details>
+
 ### Part 4 (30 min) — Evolving a genome across fresh developmental seeds
 1. Open the {doc}`../getting-started/playground` on the front page (`docs/index.html`) or run its Python equivalent.
 2. Click **Step** and **Evolve** to watch the generation-by-generation champion, then toggle **New seed** and drag the
@@ -77,3 +99,9 @@ gradient gain `B` rises consistently across runs, lifting held-out fitness from 
 generations.
 
 </details>
+
+## A caution for every simulation
+Simulations always "work" and give clean results; real experiments do not. And a model that reproduces a recording
+does not prove that the real system uses the model's mechanism: Hodgkin and Huxley (1952) wrote that the success of
+their equations was no evidence for the mechanism they had in mind (quoted in this context by Heitler 2022). Virtual
+labs teach concepts about as well as physical labs, but not experimental skills (de Jong, Linn & Zacharia 2013).

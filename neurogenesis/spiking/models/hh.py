@@ -38,6 +38,15 @@ def _rates(v):
     return am, bm, ah, bh, an, bn
 
 
+def exact_gates(v, m, h, n, dt):
+    """Exponential Euler update of the three gates over dt ms (Rush & Larsen 1978, IEEE Trans Biomed Eng)."""
+    am, bm, ah, bh, an, bn = _rates(v)
+    m = am / (am + bm) + (m - am / (am + bm)) * jnp.exp(-dt * (am + bm))
+    h = ah / (ah + bh) + (h - ah / (ah + bh)) * jnp.exp(-dt * (ah + bh))
+    n = an / (an + bn) + (n - an / (an + bn)) * jnp.exp(-dt * (an + bn))
+    return m, h, n
+
+
 def init_state(net, seed=12345):
     import numpy as np
     N = np.shape(net["mode"])[-1]
@@ -53,27 +62,28 @@ def init_state(net, seed=12345):
     return st
 
 
-def tick(net, st, ext):
+def tick(net, st, ext, n_substeps=None, gates=None):
+    """One 1 ms tick; `n_substeps` (default: the model's `substeps`) sets the integration step to 1 / n_substeps ms
+    (used by `analysis.cells.step_convergence`); `gates(v, m, h, n, dt)` replaces the exact gate update (`hh_table`)."""
+    gates = exact_gates if gates is None else gates
+    n_sub, dt = (substeps, DT) if n_substeps is None else (int(n_substeps), 1.0 / int(n_substeps))
     net = {k: jnp.asarray(x) for k, x in net.items()}
     tau_s = 2.0 ** net["shift_s"].astype(jnp.float32)
     i_ext = SCALE * ext.astype(jnp.float32)
     v, m, h, n, isyn = st["v"], st["m"], st["h"], st["n"], st["i_syn"]
-    decay = jnp.exp(-DT / tau_s)
+    decay = jnp.exp(-dt / tau_s)
     crossed = jnp.zeros(v.shape, bool)
     cond_mode = "e_rev" in net
     if cond_mode:
         g = st["g_syn"]
         grev = st["g_syn_rev"]
-    for _ in range(substeps):
-        am, bm, ah, bh, an, bn = _rates(v)
-        m = am / (am + bm) + (m - am / (am + bm)) * jnp.exp(-DT * (am + bm))
-        h = ah / (ah + bh) + (h - ah / (ah + bh)) * jnp.exp(-DT * (ah + bh))
-        n = an / (an + bn) + (n - an / (an + bn)) * jnp.exp(-DT * (an + bn))
+    for _ in range(n_sub):
+        m, h, n = gates(v, m, h, n, dt)
         i_ion = G_NA * m ** 3 * h * (v - E_NA) + G_K * n ** 4 * (v - E_K) + G_L * (v - E_L)
         if cond_mode:
-            v_new = (v + DT * (-i_ion + i_ext + isyn + grev)) / (1.0 + DT * g)
+            v_new = (v + dt * (-i_ion + i_ext + isyn + grev)) / (1.0 + dt * g)
         else:
-            v_new = v + DT * (-i_ion + i_ext + isyn)
+            v_new = v + dt * (-i_ion + i_ext + isyn)
         crossed = crossed | ((v < 0.0) & (v_new >= 0.0))
         v = v_new
         isyn = isyn * decay

@@ -1,6 +1,21 @@
 # Changelog
 
 ## Unreleased (November 2026)
+- Ideas from related tools (GENESIS, Neurosim, the Neurosphere Simulator, a reward-STDP sandbox), all off by default;
+  existing networks and assays unchanged:
+  - `proliferate`: contact inhibition of division (`crowding_radius`, `crowding_k`, `crowding_min`), resting stem cells
+    (`rest_channel`, `activation_prob`, `min_rest`, `rest_after_division`) and a division budget (`budget`,
+    `budget_channel`, `budget_types`) (`tests/test_proliferate_options.py`).
+  - Validation assays: `reset`, `order_check`, matched `control` with an effect gate, random `lesion` of cells or
+    synapses (`tests/test_validation_checks.py`).
+  - `neurogenesis.spiking.state`: versioned simulation state files (`save_state`, `load_state`, `extend_state`,
+    `network_fingerprint`); pause / resume is bit-identical; a step towards C26 (design note in the roadmap).
+  - `neurogenesis.analysis`: `spike_raster` (any input over time) and `step_convergence` (step-halving check of the float
+    models); `hh` and `two_compartment` accept `n_substeps`; new model `hh_table` (tabulated gates).
+  - Textbook-phenomena tests and a scoreboard of firing features per model (`docs/NEURON_MODELS.md`).
+  - Viewer: `?network=<url>`, puzzle mode (`?hide=`), ARIA labels, an activity summary for screen readers, keyboard
+    shortcuts.
+  - Related-work page: GENESIS / MOOSE, Neurosim and the Neurosphere Simulator, with their references.
 - Three generic mechanisms (C28): `random_projection` stage (random sparse convergence, optional fixed `plastic` mask),
   `BTSPRule` (plateau-driven, seconds-wide, weight-dependent bidirectional plasticity) and `ConsolidationRule` (fast + slow
   synaptic components with gated capture: tagging and capture). Off by default (`tests/test_convergence_and_synaptic_rules.py`).

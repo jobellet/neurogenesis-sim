@@ -17,7 +17,7 @@ One module per kind of measure:
 
 | Module | Measures | Input |
 |---|---|---|
-| `cells` | single-cell responses: frequency-current curve from rest (`fi_curve`) | neuron parameters |
+| `cells` | single-cell responses: frequency-current curve from rest (`fi_curve`); spikes for any input over time (`spike_raster`); step-halving check of the float models (`step_convergence`) | neuron parameters, a network and its input |
 | `structure` | anatomy and wiring: mosaic regularity (`nearest_neighbour_regularity`), synapse lengths (`connection_lengths`), fraction of synapses inside groups such as clones (`within_group_fraction`), modularity Q of a partition (`modularity`, Leicht & Newman 2008) | positions, `pre` / `post` arrays, labels |
 | `criticality` | population dynamics: branching parameter by multistep regression (`branching_mr`, Wilting & Priesemann 2018), avalanches and their size / duration exponents (`avalanches`, `powerlaw_fit`, `powerlaw_fit_xmin`, Clauset et al. 2009), the crackling scaling relation (`crackling`), all at once (`summary`), and a driven branching process with known m for testing (`branching_process`) | spike counts per tick |
 | `connectome` | statistical connectome measures (J10) on the binary directed graph: in / out degrees and their skewness (`degrees`, `degree_stats`), reciprocity with its over-representation and the Pearson r between A_ij and A_ji (`reciprocity`), connection probability by distance (`distance_dependent_probability`, cell list) and by number of common neighbours (`common_neighbour_probability`, Perin et al. 2011), directed simplex counts (`directed_simplices`, Reimann et al. 2017), all at once (`summary`) | `pre` / `post` arrays, number of cells, positions |

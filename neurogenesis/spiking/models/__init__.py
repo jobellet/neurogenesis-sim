@@ -1,8 +1,8 @@
 """Neuron models over one shared transmission layer (synapses, delays, drivers): choose the level of biophysical detail
 per simulation; estimate its cost first with neurogenesis.cost."""
-from . import hh, lif_int, two_compartment
+from . import hh, hh_table, lif_int, two_compartment
 
-MODELS = {m.name: m for m in (lif_int, two_compartment, hh)}
+MODELS = {m.name: m for m in (lif_int, two_compartment, hh, hh_table)}
 
 
 def get_model(name):

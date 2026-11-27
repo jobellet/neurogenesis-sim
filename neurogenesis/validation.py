@@ -14,6 +14,19 @@ Each seed grows one individual (`development.grow`, with the module genome and i
 stimuli in sequence with the batched JAX kernel (`spiking.batch.simulate_counts`); the metric is computed per seed and
 gated. Defaults: ticks 100, blank 0, seeds 1000-1004 (never used in evolution, see `evolution.robust`), metric mean.
 Knockout assays compare a module with a region or projection removed (`development.grow.knockout`).
+
+Optional checks for spiking assays (all off when absent; existing assays give the same results):
+- `"reset": true`: every stimulus starts from rest. Without it the state left by one stimulus carries over to the
+  next (`simulate_counts`), as with the rest period between inputs of Diehl & Cook (2015, Front Comput Neurosci).
+- `"order_check": {"tolerance": t}`: reruns the stimuli in reverse order; reports `order_max_diff`, the largest change
+  of a per-stimulus readout, and fails the assay above `t` (readout units).
+- `"control": {"knockout": {...}, "lesion": {...}, "gate": {...}}`: a matched control grown from the same seeds and given
+  the same stimuli without the mechanism; reports `control_values`, per-seed `effect` (value - control),
+  `effect_mean`, `effect_sd`, and with `gate`, gates the effect. Knockouts show what a part is needed for, not how it
+  works (Jonas & Kording 2017, PLoS Comput Biol).
+- `"lesion": {"fraction": f, "target": "cells" | "synapses", "seed": 0}`: silences a random fraction of cells (all
+  their synapses removed, their spikes left out of the readout) or of synapses before running, from its own random
+  stream; robustness to neuron loss (Barrett, Denève & Machens 2016, eLife).
 """
 from __future__ import annotations
 
@@ -84,15 +97,101 @@ def run_assay(module, assay: Dict[str, Any]) -> Dict[str, Any]:
                     pass_fraction=frac, ok=frac >= float(assay.get("pass_fraction", 1.0)))
 
     # Spiking assay requiring simulate_counts
-    from .spiking.batch import simulate_counts
-    ticks, blank = int(assay.get("ticks", 100)), int(assay.get("blank", 0))
-    stimuli: List[Dict[str, float]] = assay.get("stimuli") or [{}]
     measure = readout.get("measure", "rate")
     if measure not in MEASURES:
         raise ValueError(f"unknown readout measure {measure!r} (use {MEASURES})")
+    metric = assay.get("metric", "mean")
+    per_stim = _spiking_readouts(module, genome, seeds, assay)
+    values = [_metric(v, metric) for v in per_stim]
+    gate = assay.get("gate", {})
+    passed = [_gate(v, gate) for v in values]
+    frac = float(np.mean(passed))
+    ok = frac >= float(assay.get("pass_fraction", 1.0))
+    result = dict(name=assay.get("name", "assay"), seeds=seeds, values=[round(v, 4) for v in values], passed=passed,
+                  pass_fraction=frac, ok=ok)
+
+    order = assay.get("order_check")
+    if order:
+        tol = float(order.get("tolerance", 0.0)) if isinstance(order, dict) else 0.0
+        reverse = _spiking_readouts(module, genome, seeds, assay, reverse=True)
+        diff = max((float(np.max(np.abs(a - b))) for a, b in zip(per_stim, reverse)), default=0.0)
+        result.update(order_max_diff=round(diff, 4), order_ok=diff <= tol)
+        result["ok"] = result["ok"] and diff <= tol
+
+    control = assay.get("control")
+    if control:
+        cgenome = module.genome
+        cko = control.get("knockout")
+        if cko:
+            cgenome = knockout(cgenome, regions=cko.get("regions", ()),
+                               projections=[tuple(p) for p in cko.get("projections", ())])
+        cassay = {k: v for k, v in assay.items() if k not in ("knockout", "lesion")}
+        if control.get("lesion"):
+            cassay["lesion"] = control["lesion"]
+        cvalues = [_metric(v, metric) for v in _spiking_readouts(module, cgenome, seeds, cassay)]
+        effect = np.asarray(values) - np.asarray(cvalues)
+        result.update(control_values=[round(v, 4) for v in cvalues], effect=[round(float(e), 4) for e in effect],
+                      effect_mean=round(float(effect.mean()), 4), effect_sd=round(float(effect.std()), 4))
+        if "gate" in control:
+            epass = [_gate(float(e), control["gate"]) for e in effect]
+            result["effect_passed"] = epass
+            result["ok"] = result["ok"] and float(np.mean(epass)) >= float(assay.get("pass_fraction", 1.0))
+    return result
+
+
+def _lesion(net, lesion: Dict[str, Any], seed: int) -> np.ndarray:
+    """Silences a random fraction of cells (all their synapses removed) or of synapses (weight 0), in place.
+
+    The draw comes from its own stream, seeded by the lesion `seed` and the individual's seed, so the same assay lesions
+    the same cells. Returns the (N,) mask of lesioned cells (all False for a synapse lesion). Cells keep their index.
+    """
+    frac = float(lesion.get("fraction", 0.0))
+    if not 0.0 <= frac <= 1.0:
+        raise ValueError("lesion fraction must be in [0, 1]")
+    target = lesion.get("target", "cells")
+    rng = np.random.default_rng([int(lesion.get("seed", 0)), int(seed)])
+    N = net.num_neurons
+    arrays = net.synapse_arrays
+    if arrays is None:
+        pre = np.array([s.pre for s in net.synapses], dtype=np.int64)
+        post = np.array([s.post for s in net.synapses], dtype=np.int64)
+    else:
+        pre, post = np.asarray(arrays["pre"], np.int64), np.asarray(arrays["post"], np.int64)
+    if target == "cells":
+        dead = np.zeros(N, dtype=bool)
+        dead[rng.choice(N, size=int(round(frac * N)), replace=False)] = True
+        cut = dead[pre] | dead[post] if len(pre) else np.zeros(0, bool)
+    elif target == "synapses":
+        dead = np.zeros(N, dtype=bool)
+        cut = np.zeros(len(pre), dtype=bool)
+        cut[rng.choice(len(pre), size=int(round(frac * len(pre))), replace=False)] = True
+    else:
+        raise ValueError(f"unknown lesion target {target!r} (use 'cells' or 'synapses')")
+    if np.any(cut):
+        if arrays is None:
+            for i in np.nonzero(cut)[0]:
+                net.synapses[i].weight = 0
+        else:
+            w = np.array(arrays["weight"], copy=True)
+            w[cut] = 0
+            arrays["weight"] = w
+    return dead
+
+
+def _spiking_readouts(module, genome, seeds, assay, reverse: bool = False) -> List[np.ndarray]:
+    """Readout per stimulus (S,) for each seed. With `reverse` the stimuli run in reverse order (results are put
+    back in the original order); with assay `reset` every stimulus starts from rest instead of from the state the
+    previous one left; an assay `lesion` silences cells or synapses first (`_lesion`)."""
+    from .spiking.batch import simulate_counts
+    ticks, blank = int(assay.get("ticks", 100)), int(assay.get("blank", 0))
+    stimuli: List[Dict[str, float]] = assay.get("stimuli") or [{}]
+    readout = assay.get("readout", {})
+    measure = readout.get("measure", "rate")
+    lesion = assay.get("lesion")
     nets, exts, outs = [], [], []
     for s in seeds:
         net = grow(module.plan, genome, s)
+        dead = _lesion(net, lesion, s) if lesion else np.zeros(net.num_neurons, bool)
         base = tonic_current(net, module.plan, genome)
         ext = np.tile(base, (len(stimuli), 1)).astype(np.int32)
         for k, stim in enumerate(stimuli):
@@ -100,22 +199,26 @@ def run_assay(module, assay: Dict[str, Any]) -> Dict[str, Any]:
                 if region in module.plan.ids:
                     ext[k, region_of(net, module.plan, region)] += int(round(current))
         nets.append(net)
-        exts.append(ext)
-        outs.append(region_of(net, module.plan, readout["region"]) if readout.get("region") in module.plan.ids else np.zeros(0, int))
-    counts = simulate_counts(nets, exts, ticks=ticks, blank=blank, model=module.neuron_model)
-    values = []
-    for i, idx in enumerate(outs):
-        c = counts[i][:, idx]                                     # (S, cells)
+        exts.append(ext[::-1] if reverse else ext)
+        idx = region_of(net, module.plan, readout["region"]) if readout.get("region") in module.plan.ids else np.zeros(0, int)
+        outs.append((np.asarray(idx), dead))
+    if assay.get("reset"):
+        parts = [simulate_counts(nets, [e[k:k + 1] for e in exts], ticks=ticks, blank=blank, model=module.neuron_model)
+                 for k in range(len(stimuli))]
+        counts = np.concatenate(parts, axis=1)
+    else:
+        counts = simulate_counts(nets, exts, ticks=ticks, blank=blank, model=module.neuron_model)
+    results = []
+    for i, (idx, dead) in enumerate(outs):
+        c = counts[i][:, idx].astype(float)                       # (S, cells)
+        if c.shape[1]:
+            c[:, dead[idx]] = 0.0                                 # lesioned cells are silent
         if measure == "rate":
             per_stim = c.mean(1) * 1000.0 / ticks if len(idx) else np.zeros(len(stimuli))
         else:
             per_stim = (c > 0).mean(1) if len(idx) else np.zeros(len(stimuli))
-        values.append(_metric(per_stim, assay.get("metric", "mean")))
-    gate = assay.get("gate", {})
-    passed = [_gate(v, gate) for v in values]
-    frac = float(np.mean(passed))
-    return dict(name=assay.get("name", "assay"), seeds=seeds, values=[round(v, 4) for v in values], passed=passed,
-                pass_fraction=frac, ok=frac >= float(assay.get("pass_fraction", 1.0)))
+        results.append(per_stim[::-1] if reverse else per_stim)
+    return results
 
 
 def validate_module(module, assays: Sequence[Dict[str, Any]] = None) -> List[Dict[str, Any]]:

@@ -5,6 +5,7 @@
  * population generator modal, and JSON import/export.
  */
 
+import { PUZZLE_LABELS, PuzzleParam, checkGuess, shown } from './puzzle';
 import {
   ControlIndex,
   CommandType,
@@ -21,6 +22,8 @@ import { SpatialHashManager } from '../sim/spatialHash';
 export class Inspector {
   private container: HTMLElement;
   public selectedNeuronId: number | null = null;
+  /** Parameters hidden in puzzle mode (`?hide=`); display only. */
+  public hiddenParams: Set<PuzzleParam> = new Set();
   public spatialHash: SpatialHashManager;
 
   // DOM Elements
@@ -139,6 +142,19 @@ export class Inspector {
     this.updateHintBanner();
     this.renderDiscoveryPanel();
     this.renderNeuronPanel();
+  }
+
+  /** Guess boxes for the hidden parameters (empty outside puzzle mode). */
+  private puzzleHtml(): string {
+    if (this.hiddenParams.size === 0) return '';
+    const rows = [...this.hiddenParams].map((p) => `
+        <div class="control-row puzzle-row">
+          <label for="guess-${p}">Your guess for the ${PUZZLE_LABELS[p]}</label>
+          <input type="number" id="guess-${p}" class="input-styled" />
+          <button class="btn btn-secondary btn-sm puzzle-check" data-param="${p}">CHECK</button>
+          <span class="puzzle-result" id="puzzle-result-${p}" role="status" aria-live="polite"></span>
+        </div>`).join('');
+    return `<div class="section-label">PUZZLE: FIND THE HIDDEN VALUES BY EXPERIMENT</div>${rows}`;
   }
 
   public setSelectedNeuron(id: number | null): void {
@@ -1228,10 +1244,10 @@ export class Inspector {
               <span class="syn-delay">${syn.delay}ms</span>
             </div>
             <div class="syn-item-weight">
-              <input type="range" class="syn-weight-slider" data-post="${syn.post}" data-delay="${syn.delay}" min="-512" max="512" step="1" value="${syn.weight}" />
+              <input type="range" class="syn-weight-slider" data-post="${syn.post}" data-delay="${syn.delay}" min="-512" max="512" step="1" value="${syn.weight}" aria-label="Weight of the synapse to neuron ${syn.post}" />
               <span class="syn-w-val ${syn.weight >= 0 ? 'text-cyan' : 'text-magenta'}">${syn.weight}</span>
             </div>
-            <button class="btn-icon btn-delete-syn" data-post="${syn.post}" title="Delete synapse">✕</button>
+            <button class="btn-icon btn-delete-syn" data-post="${syn.post}" title="Delete synapse" aria-label="Delete synapse to neuron ${syn.post}">✕</button>
           </div>
         `;
       }
@@ -1246,7 +1262,7 @@ export class Inspector {
           </div>
           <div class="panel-header-actions">
             <button id="btn-delete-neuron" class="btn btn-danger btn-sm" title="Delete this neuron">DELETE</button>
-            <button id="btn-close-inspector" class="btn-icon" title="Deselect">✕</button>
+            <button id="btn-close-inspector" class="btn-icon" title="Deselect" aria-label="Deselect neuron">✕</button>
           </div>
         </div>
 
@@ -1254,7 +1270,7 @@ export class Inspector {
       <div class="inspector-section">
         <div class="section-label">REAL-TIME OSCILLOSCOPE (v_mem)</div>
         <div class="oscilloscope-wrapper">
-          <canvas id="osc-canvas" width="300" height="90"></canvas>
+          <canvas id="osc-canvas" width="300" height="90" role="img" aria-label="Membrane potential of the selected neuron over time"></canvas>
           <div class="osc-labels">
             <span class="osc-lbl-spike">+1024 mV (Threshold)</span>
             <span class="osc-lbl-rest">0 mV (Rest)</span>
@@ -1295,7 +1311,7 @@ export class Inspector {
         <div class="section-label">BIOPHYSICAL DYNAMICS</div>
         
         <div class="control-row">
-          <label>Firing Mode</label>
+          <label for="slider-mode">Firing Mode</label>
           <select id="slider-mode" class="select-styled">
             <option value="0" ${mode === NeuronMode.LIF ? 'selected' : ''}>Integrate-and-Fire (LIF)</option>
             <option value="1" ${mode === NeuronMode.POISSON ? 'selected' : ''}>Spontaneous Poisson</option>
@@ -1304,19 +1320,24 @@ export class Inspector {
         </div>
 
         <div class="control-row">
-          <label>Membrane Leak Exp (k_v): <strong id="val-shift-v">${shiftV}</strong></label>
-          <input type="range" id="slider-shift-v" min="1" max="10" value="${shiftV}" />
+          <label for="slider-shift-v">Membrane Leak Exp (k_v): <strong id="val-shift-v">${shown(this.hiddenParams, 'shift_v', shiftV)}</strong></label>
+          <input type="range" id="slider-shift-v" min="1" max="10" value="${shiftV}" aria-label="Membrane leak exponent" ${this.hiddenParams.has('shift_v') ? 'hidden disabled' : ''} />
         </div>
 
         <div class="control-row">
-          <label>Synaptic Decay Exp (k_s): <strong id="val-shift-s">${shiftS}</strong></label>
-          <input type="range" id="slider-shift-s" min="1" max="10" value="${shiftS}" />
+          <label for="slider-shift-s">Synaptic Decay Exp (k_s): <strong id="val-shift-s">${shown(this.hiddenParams, 'shift_s', shiftS)}</strong></label>
+          <input type="range" id="slider-shift-s" min="1" max="10" value="${shiftS}" aria-label="Synaptic decay exponent" ${this.hiddenParams.has('shift_s') ? 'hidden disabled' : ''} />
         </div>
 
         <div class="control-row">
-          <label>Refractory Period (ticks): <strong id="val-refractory">${refractory}</strong> · role: ${roleName}</label>
-          <input type="range" id="slider-refractory" min="0" max="20" value="${refractory}" />
+          <label for="slider-refractory">Refractory Period (ticks): <strong id="val-refractory">${shown(this.hiddenParams, 'refractory', refractory)}</strong> · role: ${roleName}</label>
+          <input type="range" id="slider-refractory" min="0" max="20" value="${refractory}" aria-label="Refractory period in ticks" ${this.hiddenParams.has('refractory') ? 'hidden disabled' : ''} />
         </div>
+
+        <div class="control-row">
+          <label>Firing Threshold: <strong id="val-threshold">${shown(this.hiddenParams, 'threshold', this.mem.threshold[id])}</strong></label>
+        </div>
+        ${this.puzzleHtml()}
 
         <div id="section-poisson-controls" style="${mode === NeuronMode.POISSON ? '' : 'display: none;'}">
           <div class="control-row">
@@ -1450,6 +1471,18 @@ export class Inspector {
       secPoisson.style.display = newMode === NeuronMode.POISSON ? '' : 'none';
       secBurst.style.display = newMode === NeuronMode.BURSTER ? '' : 'none';
       if (this.onNeuronParamsUpdated) this.onNeuronParamsUpdated();
+    });
+
+    // Puzzle mode: check guesses of hidden values
+    this.neuronPanelEl.querySelectorAll('.puzzle-check').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const name = (btn as HTMLElement).dataset.param as PuzzleParam;
+        const input = this.neuronPanelEl.querySelector(`#guess-${name}`) as HTMLInputElement | null;
+        const out = this.neuronPanelEl.querySelector(`#puzzle-result-${name}`);
+        const truth = { shift_v: this.mem.shiftV[id], shift_s: this.mem.shiftS[id], refractory: this.mem.refractory[id],
+                        threshold: this.mem.threshold[id] }[name];
+        if (out) out.textContent = checkGuess(parseFloat(input?.value ?? ''), truth);
+      });
     });
 
     // ShiftV & ShiftS
