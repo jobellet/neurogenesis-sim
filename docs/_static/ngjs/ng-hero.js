@@ -1252,7 +1252,7 @@
       '<span><i style="background:#94a3b8;height:1px"></i>founder</span>'));
     const opts = el("div", "ngx-row",
       '<label title="Offspring per generation">λ <input type="range" min="4" max="16" step="1" value="10"><output>10</output></label>' +
-      '<label title="Mutation size on the [0, 1] gene coding">σ <input type="range" min="0.02" max="0.25" step="0.01" value="0.1"><output>0.10</output></label>' +
+      '<label title="Mutation size on the [0, 1] gene coding">σ <input type="range" min="0.001" max="0.1" step="0.001" value="0.1"><output>0.100</output></label>' +
       '<label title="(1 + λ): the parent competes with its offspring"><input type="checkbox"> keep parent</label>' +
       '<label title="Wait 0.9 s after each generation, to follow the offspring"><input type="checkbox" checked> pause between generations</label>');
     boxChart.appendChild(opts);
@@ -1591,7 +1591,7 @@
       state.evo.opts.lambda = +lambdaIn.value;
     });
     sigmaIn.addEventListener("input", function () {
-      outs[1].textContent = Number(sigmaIn.value).toFixed(2);
+      outs[1].textContent = Number(sigmaIn.value).toFixed(3);
       state.evo.opts.sigma = +sigmaIn.value;
     });
     elitIn.addEventListener("change", function () {
